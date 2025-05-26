@@ -1,0 +1,60 @@
+name: Build and Run Tests
+
+on:
+  pull_request:
+    branches: [ "master" ]
+  push:
+    branches: [ "master" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # Build HiCR and run tests
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Updating Apt
+      run: sudo apt update
+    - name: Installing apt packages
+      run: |
+            sudo apt install -y build-essential
+            sudo apt install -y git
+            sudo apt install -y libgtest-dev
+            sudo apt install -y libhwloc-dev
+            sudo apt install -y libopenblas-dev
+            sudo apt install -y liblapack-dev
+            sudo apt install -y liblapacke-dev
+            sudo apt install -y libboost-context-dev
+            sudo apt install -y curl
+            sudo apt install -y jq
+            sudo apt install -y pkgconf
+            sudo apt install -y wget
+            sudo apt install -y sudo
+            sudo apt install -y libopenmpi-dev
+            sudo apt install -y cmake
+            sudo apt install -y libstb-dev
+            sudo apt install -y libsfml-dev
+            sudo apt install -y libtclap-dev
+    - name: Installing meson, ninja and gcovr
+      run: python3 -m pip install meson ninja gcovr
+    - name: Updating submodules 
+      run: git submodule update --init --recursive
+    - name: Building all modules
+      run:  |
+            echo "Building..."
+            mkdir build
+            meson setup build -Dengine=mpi -DbuildTests=true -DbuildExamples=true -DcompileWarningsAsErrors=true
+            meson compile -C build
+    - name: Running tests 
+      run:  |
+            echo "Running Tests..."
+            meson test -C build
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: meson-logs
+        path: build/meson-logs/

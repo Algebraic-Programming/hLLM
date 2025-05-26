@@ -1,0 +1,11 @@
+[submodule "extern/tracr"]
+	path = extern/tracr
+	url = https://github.com/Algebraic-Programming/TraCR.git
+	branch = main
+[submodule "extern/hicr"]
+	path = extern/hicr
+	url = https://github.com/Algebraic-Programming/HiCR.git
+	branch = master
+[submodule "extern/HiCR"]
+	path = extern/HiCR
+	url = https://github.com/Algebraic-Programming/HiCR.git
