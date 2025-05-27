@@ -6,50 +6,27 @@ project('LLM-Engine', [ 'cpp', 'c'],
   ]
 )
 
-####### Storage for DeployR dependencies
+####### Storage for LLM-Engine dependencies
 
-deployrDependencies = [ ]
-
-####### Getting HiCR dependency
-
-# Selecting default HiCR Backends
-HiCRBackends = [ 'hwloc', 'pthreads' ]
+LLMEngineDependencies = [ ]
 
 # Getting selected distributed engine
 
 engine = get_option('engine')
 
-# If, selected, adding the dependency for the distributed engine
-if engine != 'local'
-  HiCRBackends += engine
-endif
+####### Getting DeployR dependency
 
-HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=RPCEngine,channel' ])
-HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
-deployrDependencies += HiCRBuildDep
+DeployRProject = subproject('DeployR', required: true, default_options: [ 'engine=' + engine ])
+DeployRBuildDep = DeployRProject.get_variable('DeployRBuildDep')
+LLMEngineDependencies += DeployRBuildDep
 
-####### Getting Hopcroft Karp dependency
+####### Getting TaskR dependency
 
-HopcroftKarpProject = subproject('hopcroft_karp', required: true)
-HopcroftKarpBuildDep = HopcroftKarpProject.get_variable('HopcroftKarpBuildDep')
-deployrDependencies += HopcroftKarpBuildDep
+TaskRProject = subproject('TaskR', required: true, default_options: [  ])
+TaskRBuildDep = TaskRProject.get_variable('TaskRBuildDep')
+LLMEngineDependencies += TaskRBuildDep
 
-##### Handling distributed engine options
-
-if engine == 'mpi'
-DeployRDistributedCppFlag = '-D_DEPLOYR_DISTRIBUTED_ENGINE_MPI'
-mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
-endif
-
-if engine == 'lpf'
-DeployRDistributedCppFlag = '-D_DEPLOYR_DISTRIBUTED_ENGINE_LPF'
-endif
-
-if engine == 'local'
-DeployRDistributedCppFlag = '-D_DEPLOYR_DISTRIBUTED_ENGINE_LOCAL'
-endif
-
-####### Creating DeployR dependency
+####### Creating LLMEngine dependency
 
 # Warning handling option
 warningAsErrorFlags=[]
@@ -57,22 +34,21 @@ if get_option('compileWarningsAsErrors') == true
   warningAsErrorFlags=[ '-Werror' ]
 endif
 
-DeployRBuildCppArgs = [
-DeployRDistributedCppFlag,
+LLMEngineBuildCppArgs = [
  '-Wfatal-errors',
   warningAsErrorFlags
  ]
 
-DeployRBuildIncludes = include_directories([
+LLMEngineBuildIncludes = include_directories([
    'include'
   ])
 
 ####### Collect the dependencies
 
-DeployRBuildDep = declare_dependency(
-    compile_args: DeployRBuildCppArgs,
-    include_directories: DeployRBuildIncludes,
-    dependencies: deployrDependencies
+LLMEngineBuildDep = declare_dependency(
+    compile_args: LLMEngineBuildCppArgs,
+    include_directories: LLMEngineBuildIncludes,
+    dependencies: LLMEngineDependencies
     )
 
 ####### Build test / example targets only if HiCR is being loaded as a subproject

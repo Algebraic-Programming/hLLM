@@ -1,0 +1,69 @@
+{
+    "Name": "LLM Deployment",
+
+    "Host Types":
+    [
+        {
+            "Name": "Entry",
+            "Topology":
+            {
+                "Minimum Host Processing Units": 0,
+                "Minimum Host RAM (GB)": 0,
+                "Devices": [ ]
+            }
+        },
+
+        {
+            "Name": "Compute",
+            "Topology":
+            {
+                "Minimum Host Processing Units": 2,
+                "Minimum Host RAM (GB)": 4,
+                "Devices":
+                [
+                    {
+                        "Type": "NUMA Domain",
+                        "Count": 1
+                    }
+                ]
+            }
+        }
+    ],
+
+    "Instances":
+    [
+        {
+            "Name": "Coordinator",
+            "Host Type": "Entry",
+            "Function": "CoordinatorFc"
+        },
+        {
+            "Name": "Worker 1",
+            "Host Type": "Compute",
+            "Function": "WorkerFc"
+        },
+        {
+            "Name": "Worker 2",
+            "Host Type": "Compute",
+            "Function": "WorkerFc"
+        }
+    ],
+
+    "Channels":
+    [
+        {
+            "Name": "Coordinator -> Worker 1", 
+            "Producers": [ "Coordinator" ],
+            "Consumer": "Worker 1",
+            "Buffer Capacity (Tokens)": 8,
+            "Buffer Size (Bytes)": 1024 
+        },
+        {
+            "Name": "Coordinator -> Worker 2",
+            "Producers": [ "Coordinator" ],
+            "Consumer": "Worker 2",
+            "Buffer Capacity (Tokens)": 8,
+            "Buffer Size (Bytes)": 1024
+        }
+    ]
+}
