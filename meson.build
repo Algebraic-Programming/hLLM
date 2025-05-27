@@ -14,6 +14,14 @@ LLMEngineDependencies = [ ]
 
 engine = get_option('engine')
 
+####### Getting HiCR dependency
+
+# Selecting default HiCR Backends
+HiCRBackends = [ 'hwloc', 'pthreads', 'boost', engine ]
+HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=tasking' ])
+HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
+LLMEngineDependencies += HiCRBuildDep
+
 ####### Getting DeployR dependency
 
 DeployRProject = subproject('DeployR', required: true, default_options: [ 'engine=' + engine ])
