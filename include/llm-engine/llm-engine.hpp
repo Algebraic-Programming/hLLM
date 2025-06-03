@@ -219,6 +219,15 @@ class LLMEngine final
     // Getting relevant information 
     const auto& executionGraph = hicr::json::getArray<nlohmann::json>(myInstanceConfig, "Execution Graph");
 
+    // Getting execution graph functions into a set. This is necessary for dependency checking
+    std::set<std::string> executionGraphFunctions;
+    for (const auto& functionJs : executionGraph)
+    {
+      const auto& fcName = hicr::json::getString(functionJs, "Name");
+      executionGraphFunctions.insert(fcName);
+    }
+
+    // Checking the execution graph functions have been registered
     for (const auto& functionJs : executionGraph)
     {
       const auto& fcName = hicr::json::getString(functionJs, "Name");
@@ -230,6 +239,15 @@ class LLMEngine final
         abort();
       }
 
+      // Checking all dependencies have been declared
+      const auto& dependencies = hicr::json::getArray<std::string>(functionJs, "Dependencies");
+      for (const auto& dependency : dependencies)
+        if (executionGraphFunctions.contains(dependency) == false)
+        {
+          fprintf(stderr, "Function '%s' declared a dependency '%s' that is part of the execution graph\n", fcName.c_str(), dependency.c_str());
+          abort();
+        }
+      
       // Getting function pointer
       const auto &fc = _registeredFunctions[fcName];
 

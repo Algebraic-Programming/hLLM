@@ -85,7 +85,7 @@
             "Execution Graph":
             [
                 {
-                    "Name": "Transform Request 1 ",
+                    "Name": "Transform Request 1",
                     "Dependencies": [ ],
                     "Inputs": [
                        {
@@ -118,7 +118,7 @@
 
                 {
                     "Name": "Transform Request",
-                    "Dependencies": "Pre-Transform Request",
+                    "Dependencies": [ "Pre-Transform Request" ],
                     "Inputs": [ ],
                     "Outputs": [ "Transformed Request 2" ]
                 }
