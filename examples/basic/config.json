@@ -1,69 +1,152 @@
 {
-    "Name": "LLM Deployment",
+    "Name": "DeepSeek",
 
     "Host Types":
     [
         {
-            "Name": "Entry",
+            "Name": "CPU Frontend",
             "Topology":
-            {
-                "Minimum Host Processing Units": 0,
-                "Minimum Host RAM (GB)": 0,
-                "Devices": [ ]
-            }
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Minimum Memory (GB)": 16,
+                    "Minimum Compute Resources": 4
+                }
+            ]
         },
 
         {
-            "Name": "Compute",
+            "Name": "CPU Compute",
             "Topology":
-            {
-                "Minimum Host Processing Units": 2,
-                "Minimum Host RAM (GB)": 4,
-                "Devices":
-                [
-                    {
-                        "Type": "NUMA Domain",
-                        "Count": 1
-                    }
-                ]
-            }
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Minimum Memory (GB)": 64,
+                    "Minimum Compute Resources": 32
+                },
+                {
+                    "Type": "NUMA Domain",
+                    "Minimum Memory (GB)": 64,
+                    "Minimum Compute Resources": 32
+                }
+            ]
         }
     ],
 
     "Instances":
     [
         {
-            "Name": "Coordinator",
-            "Host Type": "Entry",
-            "Function": "CoordinatorFc"
+            "Name": "Entry Point",
+            "Host Type": "CPU Frontend",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Listen Request",
+                    "Dependencies": [ ],
+                    "Inputs": [ ],
+                    "Outputs": [ "Request" ]
+                },
+                {
+                    "Name": "Return Result",
+                    "Dependencies": [ ],
+                    "Inputs": [  
+                       {
+                        "Name": "Result",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [  ]
+                }
+            ]
         },
         {
-            "Name": "Worker 1",
-            "Host Type": "Compute",
-            "Function": "WorkerFc"
+            "Name": "Decoder",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Decode Request",
+                    "Dependencies": [ ],
+                    "Inputs": [
+                       {
+                        "Name": "Request",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 4096
+                       }
+                    ],
+                    "Outputs": [ "Decoded Request 1", "Decoded Request 2" ]
+                }
+            ]
         },
         {
-            "Name": "Worker 2",
-            "Host Type": "Compute",
-            "Function": "WorkerFc"
-        }
-    ],
+            "Name": "Transformer 1",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Transform Request 1 ",
+                    "Dependencies": [ ],
+                    "Inputs": [
+                       {
+                        "Name": "Decoded Request 1",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ "Transformed Request 1" ]
+                }
+            ]
+        },
+        {
+            "Name": "Transformer 2",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Pre-Transform Request",
+                    "Dependencies": [ ],
+                    "Inputs": [ 
+                       {
+                        "Name": "Decoded Request 2",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ ]
+                },
 
-    "Channels":
-    [
-        {
-            "Name": "Coordinator -> Worker 1", 
-            "Producers": [ "Coordinator" ],
-            "Consumer": "Worker 1",
-            "Buffer Capacity (Tokens)": 8,
-            "Buffer Size (Bytes)": 1024 
+                {
+                    "Name": "Transform Request",
+                    "Dependencies": "Pre-Transform Request",
+                    "Inputs": [ ],
+                    "Outputs": [ "Transformed Request 2" ]
+                }
+            ]
         },
         {
-            "Name": "Coordinator -> Worker 2",
-            "Producers": [ "Coordinator" ],
-            "Consumer": "Worker 2",
-            "Buffer Capacity (Tokens)": 8,
-            "Buffer Size (Bytes)": 1024
+            "Name": "Joiner",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Joiner",
+                    "Dependencies": [ ],
+                    "Inputs": [ 
+                       {
+                        "Name": "Transformed Request 1",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       },
+                       {
+                        "Name": "Transformed Request 2",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ "Result" ]
+                }
+            ]
         }
     ]
 }
