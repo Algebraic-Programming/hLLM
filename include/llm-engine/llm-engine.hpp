@@ -24,12 +24,18 @@ class LLMEngine final
 
   __INLINE__ void initialize(int *pargc, char ***pargv)
   {
+    // Registering entry point function
+    _deployr.registerFunction(_entryPointName, [this]() { entryPoint(); });
+
     // Initializing DeployR
     _deployr.initialize(pargc, pargv);
   }
 
   __INLINE__ void run(const nlohmann::json& config)
   {
+    // Storing configuration
+    _config = config;
+
     // Creating HWloc topology object
     hwloc_topology_t topology;
 
@@ -74,10 +80,32 @@ class LLMEngine final
     hwloc_topology_destroy(topology);
 
     // Deploying
-    deploy(config);
+    deploy(_config);
   }
 
   __INLINE__ void abort() { _deployr.abort(); }
+
+    /**
+   * Registers a function that can be a target as initial function for one or more requested instances.
+   * 
+   * If a requested initial function is not registered by this function, deployment will fail.
+   * 
+   * @param[in] functionName The name of the function to register. This value will be used to match against the requested instance functions
+   * @param[in] fc The actual function to register
+   * 
+   */
+  __INLINE__ void registerFunction(const std::string &functionName, std::function<void()> fc)
+  {
+    // Checking if the RPC name was already used
+    if (_registeredFunctions.contains(functionName) == true)
+    {
+      fprintf(stderr, "The function '%s' was already registered.\n", functionName.c_str());
+      abort();
+    }
+
+    // Adding new RPC to the set
+    _registeredFunctions.insert({functionName, fc});
+  }
 
   private:
 
@@ -97,7 +125,7 @@ class LLMEngine final
       nlohmann::json newInstance;
       newInstance["Name"] = instance["Name"];
       newInstance["Host Type"] = instance["Host Type"];     
-      newInstance["Function"] = "__LLM Engine Entry Point__";     
+      newInstance["Function"] = _entryPointName;     
       newInstances.push_back(newInstance);
      }
      requestJs["Instances"] = newInstances;
@@ -151,6 +179,9 @@ class LLMEngine final
      }
      requestJs["Channels"] = newChannels;
 
+     // Adding LLM Engine as metadata in the request object
+     requestJs["LLM Engine Configuration"] = _config;
+
      // Creating deployR request object
      deployr::Request request(requestJs);
 
@@ -158,6 +189,66 @@ class LLMEngine final
      _deployr.deploy(request);
   }
 
+  __INLINE__ void entryPoint()
+  {
+    // Getting my instance name after deployment
+    const auto& myInstance = _deployr.getLocalInstance();
+    const auto& myInstanceName = myInstance.getName();
+
+    // Getting deployment
+    const auto& deployment = _deployr.getDeployment();
+
+    // Getting request from deployment
+    const auto& request = deployment.getRequest();
+
+    // Getting request configuration from the request ibject
+    const auto& requestJs = request.serialize();
+
+    // Getting LLM engine configuration from request configuration
+    _config = hicr::json::getObject(requestJs, "LLM Engine Configuration");
+
+    // Finding instance information on the configuration
+    const auto& instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
+    nlohmann::json myInstanceConfig;
+    for (const auto& instance : instancesJs)
+    {
+      const auto& instanceName = hicr::json::getString(instance, "Name");
+      if (instanceName == myInstanceName) myInstanceConfig = instance;
+    }
+
+    // Getting relevant information 
+    const auto& executionGraph = hicr::json::getArray<nlohmann::json>(myInstanceConfig, "Execution Graph");
+
+    for (const auto& functionJs : executionGraph)
+    {
+      const auto& fcName = hicr::json::getString(functionJs, "Name");
+
+      // Checking the requested function was registered
+      if (_registeredFunctions.contains(fcName) == false)
+      {
+        fprintf(stderr, "The requested function name '%s' is not registered. Please register it before running the LLM Engine.\n", fcName.c_str());
+        abort();
+      }
+
+      // Getting function pointer
+      const auto &fc = _registeredFunctions[fcName];
+
+      // Running initial function
+      fc();
+    }
+
+    //printf("[Instance '%s'] Execution Graph %s\n", myInstanceName.c_str(), myInstanceConfig["Execution Graph"].dump(2).c_str());
+    while(true);
+  }
+
+  /// A map of registered functions, targets for an instance's initial function
+  std::map<std::string, std::function<void()>> _registeredFunctions;
+
+  // Copy of the initial configuration file
+  nlohmann::json _config;
+  
+  // Name of the LLM Engine entry point after deployment
+  const std::string _entryPointName = "__LLM Engine Entry Point__";
 
   // DeployR instance
   deployr::DeployR _deployr;
