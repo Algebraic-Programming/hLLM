@@ -120,7 +120,17 @@ class LLMEngine final
        {
           nlohmann::json newChannel;
           const auto& inputName = hicr::json::getString(input, "Name");
+
+          // Checking somebody produces this input
           if (producers.contains(inputName) == false)
+          {
+            fprintf(stderr, "Input '%s' defined for instance '%s', but no outputs for it have been defined.\n", inputName.c_str(), instanceName.c_str());
+            abort();
+          }
+
+          // Checking the consumer is not also a producer
+          const auto& producersList = producers.at(inputName);
+          if (std::find(producersList.begin(), producersList.end(), instanceName) != producersList.end()) 
           {
             fprintf(stderr, "Input '%s' defined for instance '%s', but no outputs for it have been defined.\n", inputName.c_str(), instanceName.c_str());
             abort();
@@ -156,6 +166,9 @@ class LLMEngine final
 
      // Deploying
      _deployr.deploy(request);
+
+     // Finished execution, then finish deployment
+     _deployr.finalize();
   }
 
   __INLINE__ void entryPoint()
@@ -257,6 +270,16 @@ class LLMEngine final
           abort();
         }
 
+      // Getting inputs and outputs
+      std::vector<std::string> inputs;
+      const auto& inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
+      for (const auto& inputJs : inputsJs)
+      {
+        const auto& inputName = hicr::json::getString(inputJs, "Name");
+        inputs.push_back(inputName);
+      } 
+      const auto& outputs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+
       // Getting label for taskr function
       const auto taskLabel = taskrLabelCounter++;
 
@@ -268,28 +291,78 @@ class LLMEngine final
       const auto &fc = _registeredFunctions[fcName];
 
       // Creating LLMEngine Task object
-      auto newTask = std::make_shared<llmEngine::Task>(fcName, fc, std::move(taskrTask));
+      auto newTask = std::make_shared<llmEngine::Task>(fcName, fc, inputs, outputs, dependencies, std::move(taskrTask));
 
-      // Adding task to map
-      _taskMap.insert({taskLabel, newTask});
+      // Adding task to the label->Task map
+      _taskLabelMap.insert({taskLabel, newTask});
+
+      // Adding task to the function name->Task map
+      _taskNameMap.insert({fcName, newTask});
 
       // Adding task to TaskR itself
       _taskr->addTask(newTask->getTaskRTask());
     }
 
+    // Instruct TaskR to re-add suspended tasks
+    _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
+
     // Running TaskR
     _taskr->run();
+    _taskr->await();
+    _taskr->finalize();
 
     //printf("[Instance '%s'] Execution Graph %s\n", myInstanceName.c_str(), myInstanceConfig["Execution Graph"].dump(2).c_str());
-    while(true);
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
   {
     const auto& taskLabel = task->getLabel();
-    const auto& taskObject = _taskMap.at(taskLabel);
+    const auto& taskObject = _taskLabelMap.at(taskLabel);
+    const auto& function = taskObject->getFunction();
     const auto& functionName = taskObject->getFunctionName();
-    printf("In TaskR Function: %lu (%s)\n", taskLabel, functionName.c_str());
+    const auto& inputs = taskObject->getInputs();
+    const auto& outputs = taskObject->getOutputs();
+    const auto& dependencies = taskObject->getDependencies();
+
+    // Resolving pointers to all the required input channels
+    std::vector<deployr::Channel*> inputChannels;
+    for (const auto& input : inputs) inputChannels.push_back(&_deployr.getChannel(input));
+
+    // Resolving pointers to all the required output channels
+    std::vector<deployr::Channel*> outputChannels;
+    for (const auto& output : outputs) outputChannels.push_back(&_deployr.getChannel(output));
+
+    // Resolving pointers to all the required LLM Task dependencies
+    std::vector<llmEngine::Task*> dependencyTasks;
+    for (const auto& dependency : dependencies) dependencyTasks.push_back(_taskNameMap.at(dependency).get());
+
+    // Initiate infinite loop
+    bool continueRunning = true;
+    while(continueRunning)
+    {
+      // Adding task dependencies
+      task->addPendingOperation([&](){
+          // The task is not ready if any of its dependencies haven't exceeded its execution counter (return false)
+          for (const auto& inputChannel : inputChannels) if (inputChannel->isEmpty()) return false;
+
+          // The task is not ready if any of its dependencies haven't exceeded its execution counter (return false)
+          for (const auto& dependencyTask : dependencyTasks) if (dependencyTask->getExecutionCounter() <= taskObject->getExecutionCounter()) return false;
+
+          // All dependencies are satisfied, enable this task for execution 
+          return true;
+      });
+
+      // Suspend execution until all dependencies are met
+      task->suspend();
+
+      // Actually run the function now
+      printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
+      function();
+
+      // Advance execution counter
+      taskObject->advanceExecutionCounter();
+      while(1);
+    }
   }
 
   std::unique_ptr<taskr::Function> _taskrFunction;
@@ -309,8 +382,11 @@ class LLMEngine final
   // TaskR instance
   std::unique_ptr<taskr::Runtime> _taskr;
 
-  // Map relating task labels to their LLM Engine function name
-  std::map<taskr::label_t, std::shared_ptr<llmEngine::Task>> _taskMap;
+  // Map relating task labels to their LLM Engine task
+  std::map<taskr::label_t, std::shared_ptr<llmEngine::Task>> _taskLabelMap;
+
+    // Map relating function name to their LLM Engine task
+  std::map<std::string, std::shared_ptr<llmEngine::Task>> _taskNameMap;
 
   ///// HiCR Objects for TaskR
 
