@@ -8,6 +8,7 @@
 #include <hicr/backends/hwloc/topologyManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
+#include "task.hpp"
 
 namespace llmEngine
 {
@@ -35,49 +36,6 @@ class LLMEngine final
   {
     // Storing configuration
     _config = config;
-
-    // Creating HWloc topology object
-    hwloc_topology_t topology;
-
-    // initializing hwloc topology object
-    hwloc_topology_init(&topology);
-
-    // Initializing HWLoc-based host (CPU) topology manager
-    HiCR::backend::hwloc::TopologyManager tm(&topology);
-
-    // Asking backend to check the available devices
-    const auto t = tm.queryTopology();
-
-    // Compute resources to use
-    HiCR::Device::computeResourceList_t computeResources;
-
-    // Considering all compute devices of NUMA Domain type
-    const auto& devices = t.getDevices();
-    for (const auto& device : devices) if (device->getType() == "NUMA Domain")
-    {
-      // Getting compute resources in this device
-      auto crs = device->getComputeResourceList();
-
-      // Adding it to the list
-      for (const auto& cr : crs) computeResources.push_back(cr);
-    }
-
-    // Creating configuration for TaskR
-    nlohmann::json taskrConfig;
-    taskrConfig["Task Worker Inactivity Time (Ms)"] = 10; // Suspend workers if a certain time of inactivity elapses
-    taskrConfig["Task Suspend Interval Time (Ms)"] = 10; // Workers suspend for this time before checking back
-    taskrConfig["Minimum Active Task Workers"] = 1; // Have at least one worker active at all times
-    taskrConfig["Service Worker Count"] = 1; // Have one dedicated service workers at all times to listen for incoming messages
-    taskrConfig["Make Task Workers Run Services"] = false; // No need to have workers check for services
-
-    // Creating taskr
-    _taskr = std::make_unique<taskr::Runtime>(&_boostComputeManager, &_pthreadsComputeManager, computeResources, taskrConfig);
-
-    // Initializing TaskR
-    _taskr->initialize();
-
-    // Freeing up memory
-    hwloc_topology_destroy(topology);
 
     // Deploying
     deploy(_config);
@@ -182,6 +140,17 @@ class LLMEngine final
      // Adding LLM Engine as metadata in the request object
      requestJs["LLM Engine Configuration"] = _config;
 
+     // Creating configuration for TaskR
+     nlohmann::json taskrConfig;
+     taskrConfig["Task Worker Inactivity Time (Ms)"] = 10; // Suspend workers if a certain time of inactivity elapses
+     taskrConfig["Task Suspend Interval Time (Ms)"] = 10; // Workers suspend for this time before checking back
+     taskrConfig["Minimum Active Task Workers"] = 1; // Have at least one worker active at all times
+     taskrConfig["Service Worker Count"] = 1; // Have one dedicated service workers at all times to listen for incoming messages
+     taskrConfig["Make Task Workers Run Services"] = false; // No need to have workers check for services
+
+     // Adding taskr configuration
+     requestJs["TaskR Configuration"] = taskrConfig;
+
      // Creating deployR request object
      deployr::Request request(requestJs);
 
@@ -207,6 +176,42 @@ class LLMEngine final
     // Getting LLM engine configuration from request configuration
     _config = hicr::json::getObject(requestJs, "LLM Engine Configuration");
 
+    // Creating HWloc topology object
+    hwloc_topology_t topology;
+
+    // initializing hwloc topology object
+    hwloc_topology_init(&topology);
+
+    // Initializing HWLoc-based host (CPU) topology manager
+    HiCR::backend::hwloc::TopologyManager tm(&topology);
+
+    // Asking backend to check the available devices
+    const auto t = tm.queryTopology();
+
+    // Compute resources to use
+    HiCR::Device::computeResourceList_t computeResources;
+
+    // Considering all compute devices of NUMA Domain type
+    const auto& devices = t.getDevices();
+    for (const auto& device : devices) if (device->getType() == "NUMA Domain")
+    {
+      // Getting compute resources in this device
+      auto crs = device->getComputeResourceList();
+
+      // Adding it to the list
+      for (const auto& cr : crs) computeResources.push_back(cr);
+    }
+
+    // Freeing up memory
+    hwloc_topology_destroy(topology);
+    
+    // Creating taskr object
+    const auto& taskRConfig = hicr::json::getObject(requestJs, "TaskR Configuration");
+    _taskr = std::make_unique<taskr::Runtime>(&_boostComputeManager, &_pthreadsComputeManager, computeResources, taskRConfig);
+
+    // Initializing TaskR
+    _taskr->initialize();
+
     // Finding instance information on the configuration
     const auto& instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
     nlohmann::json myInstanceConfig;
@@ -227,7 +232,11 @@ class LLMEngine final
       executionGraphFunctions.insert(fcName);
     }
 
+    // Creating general TaskR function for all execution graph functions
+    _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task* task) { runTaskRFunction(task); });
+
     // Checking the execution graph functions have been registered
+    taskr::label_t taskrLabelCounter = 0;
     for (const auto& functionJs : executionGraph)
     {
       const auto& fcName = hicr::json::getString(functionJs, "Name");
@@ -247,17 +256,43 @@ class LLMEngine final
           fprintf(stderr, "Function '%s' declared a dependency '%s' that is part of the execution graph\n", fcName.c_str(), dependency.c_str());
           abort();
         }
-      
+
+      // Getting label for taskr function
+      const auto taskLabel = taskrLabelCounter++;
+
+      // Creating taskr Task corresponding to the LLM engine task
+      auto taskrTask =  std::make_unique<taskr::Task>(_taskrFunction.get());
+      taskrTask->setLabel(taskLabel);
+
       // Getting function pointer
       const auto &fc = _registeredFunctions[fcName];
 
-      // Running initial function
-      fc();
+      // Creating LLMEngine Task object
+      auto newTask = std::make_shared<llmEngine::Task>(fcName, fc, std::move(taskrTask));
+
+      // Adding task to map
+      _taskMap.insert({taskLabel, newTask});
+
+      // Adding task to TaskR itself
+      _taskr->addTask(newTask->getTaskRTask());
     }
+
+    // Running TaskR
+    _taskr->run();
 
     //printf("[Instance '%s'] Execution Graph %s\n", myInstanceName.c_str(), myInstanceConfig["Execution Graph"].dump(2).c_str());
     while(true);
   }
+
+  __INLINE__ void runTaskRFunction(taskr::Task* task)
+  {
+    const auto& taskLabel = task->getLabel();
+    const auto& taskObject = _taskMap.at(taskLabel);
+    const auto& functionName = taskObject->getFunctionName();
+    printf("In TaskR Function: %lu (%s)\n", taskLabel, functionName.c_str());
+  }
+
+  std::unique_ptr<taskr::Function> _taskrFunction;
 
   /// A map of registered functions, targets for an instance's initial function
   std::map<std::string, std::function<void()>> _registeredFunctions;
@@ -273,6 +308,9 @@ class LLMEngine final
 
   // TaskR instance
   std::unique_ptr<taskr::Runtime> _taskr;
+
+  // Map relating task labels to their LLM Engine function name
+  std::map<taskr::label_t, std::shared_ptr<llmEngine::Task>> _taskMap;
 
   ///// HiCR Objects for TaskR
 
