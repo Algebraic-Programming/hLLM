@@ -10,6 +10,7 @@ int main(int argc, char *argv[])
   
   // Counter for incoming requests
   size_t requestCount = 0;
+  size_t totalRequests = 2;
 
   // Listen request function -- it expects an outside input and creates a request
   std::string requestOutput;
@@ -17,11 +18,18 @@ int main(int argc, char *argv[])
   { 
     printf("Executing Listen Request\n");
     
+    // Finish the LLM service if all requests have been processed
+    if (requestCount >= totalRequests)
+    {
+      llmEngine.finalize();
+      return;
+    }
+
     // Simulate a delay between requests
     if (requestCount > 0) sleep(1);
 
     // Create and register request as output
-    requestOutput = std::string("This is a request");
+    requestOutput = std::string("This is request ") + std::to_string(requestCount);
     task->setOutput("Request", requestOutput.data(), requestOutput.size() + 1);
 
     // Advance request counter
@@ -128,6 +136,4 @@ int main(int argc, char *argv[])
 
   // Running LLM Engine
   llmEngine.run(configJs);
-
-  printf("Finished Successfully\n");
 }

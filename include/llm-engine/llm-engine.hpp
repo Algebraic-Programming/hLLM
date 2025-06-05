@@ -68,6 +68,22 @@ class LLMEngine final
     _registeredFunctions.insert({functionName, fc});
   }
 
+  __INLINE__ void finalize()
+  {
+    printf("Finalizing");
+
+    // Send a finalization signal to all instances
+    auto& instances = _rpcEngine->getInstanceManager()->getInstances();
+    for (auto& instance : instances) if (instance->getId() != _rpcEngine->getInstanceManager()->getCurrentInstance()->getId())
+    {
+      printf("Sending RPC to instance %lu\n", instance->getId());
+      _rpcEngine->requestRPC(*instance, _finalizationRPCName);
+    } 
+
+    // Stop running ourselves.
+    _continueRunning = false;
+  }
+
   private:
 
   __INLINE__ void deploy(const nlohmann::json& config)
@@ -159,7 +175,7 @@ class LLMEngine final
      taskrConfig["Task Suspend Interval Time (Ms)"] = 10; // Workers suspend for this time before checking back
      taskrConfig["Minimum Active Task Workers"] = 1; // Have at least one worker active at all times
      taskrConfig["Service Worker Count"] = 1; // Have one dedicated service workers at all times to listen for incoming messages
-     taskrConfig["Make Task Workers Run Services"] = false; // No need to have workers check for services
+     taskrConfig["Make Task Workers Run Services"] = true; // Workers will check for meta messages in between executions
 
      // Adding taskr configuration
      requestJs["TaskR Configuration"] = taskrConfig;
@@ -176,6 +192,18 @@ class LLMEngine final
 
   __INLINE__ void entryPoint()
   {
+    // Starting a new deployment
+    _continueRunning = true;
+
+    // Getting pointer to RPC engine
+    _rpcEngine = _deployr.getRPCEngine();
+
+    // Registering finalization function
+    _rpcEngine->addRPCTarget(_finalizationRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
+    {
+       _continueRunning = false;
+    }));
+
     // Getting my instance name after deployment
     const auto& myInstance = _deployr.getLocalInstance();
     const auto& myInstanceName = myInstance.getName();
@@ -309,12 +337,20 @@ class LLMEngine final
     // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
+    // Setting service to listen for incoming administrative messages
+    std::function<void()> RPCListeningService = [this]()
+    {
+      if (_rpcEngine->hasPendingRPCs())
+        _rpcEngine->listen();
+    };
+    _taskr->addService(&RPCListeningService);
+
     // Running TaskR
     _taskr->run();
     _taskr->await();
     _taskr->finalize();
 
-    //printf("[Instance '%s'] Execution Graph %s\n", myInstanceName.c_str(), myInstanceConfig["Execution Graph"].dump(2).c_str());
+    printf("[Instance '%s'] Finalized\n", myInstanceName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
@@ -340,11 +376,13 @@ class LLMEngine final
     for (const auto& dependency : dependencies) dependencyTasks.push_back(_taskNameMap.at(dependency).get());
 
     // Initiate infinite loop
-    bool continueRunning = true;
-    while(continueRunning)
+    while(_continueRunning)
     {
       // Adding task dependencies
       task->addPendingOperation([&](){
+          // If execution must stop now, return true to go back to the task and finish it
+          if (_continueRunning == false) return true;
+
           // The task is not ready if any of its inputs are not yet available
           for (const auto& inputChannel : inputChannels) if (inputChannel->isEmpty()) return false;
 
@@ -360,6 +398,9 @@ class LLMEngine final
 
       // Suspend execution until all dependencies are met
       task->suspend();
+
+      // Another exit point (the more the better)
+      if (_continueRunning == false) break;
 
       // Inputs dependencies must be satisfied by now; getting them values
       for (size_t i = 0; i < inputs.size(); i++)
@@ -377,6 +418,9 @@ class LLMEngine final
       // Actually run the function now
       printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
       function(taskObject.get());
+
+      // Another exit point (the more the better)
+      if (_continueRunning == false) break;
 
       // Checking input messages were properly consumed and popping the used token
       for (size_t i = 0; i < inputs.size(); i++)
@@ -422,6 +466,9 @@ class LLMEngine final
     }
   }
 
+  // A system-wide flag indicating that we should continue executing
+  bool _continueRunning;
+
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   /// A map of registered functions, targets for an instance's initial function
@@ -432,6 +479,7 @@ class LLMEngine final
   
   // Name of the LLM Engine entry point after deployment
   const std::string _entryPointName = "__LLM Engine Entry Point__";
+  const std::string _finalizationRPCName = "__LLM Engine Finalize__";
 
   // DeployR instance
   deployr::DeployR _deployr;
@@ -444,6 +492,9 @@ class LLMEngine final
 
     // Map relating function name to their LLM Engine task
   std::map<std::string, std::shared_ptr<llmEngine::Task>> _taskNameMap;
+
+  // Pointer to the HiCR RPC Engine
+  HiCR::frontend::RPCEngine* _rpcEngine;
 
   ///// HiCR Objects for TaskR
 
