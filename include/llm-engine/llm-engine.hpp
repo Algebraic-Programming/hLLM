@@ -41,7 +41,10 @@ class LLMEngine final
     deploy(_config);
   }
 
-  __INLINE__ void abort() { _deployr.abort(); }
+  __INLINE__ void abort()
+   {
+    _deployr.abort();
+   }
 
     /**
    * Registers a function that can be a target as initial function for one or more requested instances.
@@ -52,7 +55,7 @@ class LLMEngine final
    * @param[in] fc The actual function to register
    * 
    */
-  __INLINE__ void registerFunction(const std::string &functionName, std::function<void()> fc)
+  __INLINE__ void registerFunction(const std::string &functionName, const function_t fc)
   {
     // Checking if the RPC name was already used
     if (_registeredFunctions.contains(functionName) == true)
@@ -319,7 +322,7 @@ class LLMEngine final
     const auto& taskLabel = task->getLabel();
     const auto& taskObject = _taskLabelMap.at(taskLabel);
     const auto& function = taskObject->getFunction();
-    const auto& functionName = taskObject->getFunctionName();
+    const auto& functionName = taskObject->getName();
     const auto& inputs = taskObject->getInputs();
     const auto& outputs = taskObject->getOutputs();
     const auto& dependencies = taskObject->getDependencies();
@@ -342,8 +345,11 @@ class LLMEngine final
     {
       // Adding task dependencies
       task->addPendingOperation([&](){
-          // The task is not ready if any of its dependencies haven't exceeded its execution counter (return false)
+          // The task is not ready if any of its inputs are not yet available
           for (const auto& inputChannel : inputChannels) if (inputChannel->isEmpty()) return false;
+
+          // The task is not ready if any of its output channels are still full
+          for (const auto& outputChannel : outputChannels) if (outputChannel->isFull()) return false;
 
           // The task is not ready if any of its dependencies haven't exceeded its execution counter (return false)
           for (const auto& dependencyTask : dependencyTasks) if (dependencyTask->getExecutionCounter() <= taskObject->getExecutionCounter()) return false;
@@ -355,20 +361,71 @@ class LLMEngine final
       // Suspend execution until all dependencies are met
       task->suspend();
 
+      // Inputs dependencies must be satisfied by now; getting them values
+      for (size_t i = 0; i < inputs.size(); i++)
+      {
+        // Getting input name
+        const auto& input = inputs[i];
+        
+        // Peeking token from input channel
+        const auto token = inputChannels[i]->peek();
+
+        // Pushing token onto the task
+        taskObject->setInput(input, token);
+      }
+
       // Actually run the function now
       printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
-      function();
+      function(taskObject.get());
 
-      // Advance execution counter
+      // Checking input messages were properly consumed and popping the used token
+      for (size_t i = 0; i < inputs.size(); i++)
+      {
+        // Getting output name
+        const auto& input = inputs[i];
+
+        if (taskObject->hasInput(input) == true) 
+        {
+          fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", functionName.c_str(), input.c_str());
+          abort();
+        }
+
+        // Popping consumed channel from channel
+        inputChannels[i]->pop();
+      }
+
+      // Validating and pushing output messages
+      for (size_t i = 0; i < outputs.size(); i++)
+      {
+        // Getting output name
+        const auto& output = outputs[i];
+
+        // Checking if output has been produced by the task
+        if (taskObject->hasOutput(output) == false) 
+        {
+          fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", functionName.c_str(), output.c_str());
+          abort();
+        }
+
+        // Now getting output token
+        const auto& outputToken = taskObject->getOutput(output);
+
+        // Pushing token onto channel
+        outputChannels[i]->push(outputToken.buffer, outputToken.size);
+      }
+
+      // Clearing output token maps
+      taskObject->clearOutputs();
+
+      // Advance execution counter (do last to avoid any concurrency issues)
       taskObject->advanceExecutionCounter();
-      while(1);
     }
   }
 
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   /// A map of registered functions, targets for an instance's initial function
-  std::map<std::string, std::function<void()>> _registeredFunctions;
+  std::map<std::string, function_t> _registeredFunctions;
 
   // Copy of the initial configuration file
   nlohmann::json _config;
