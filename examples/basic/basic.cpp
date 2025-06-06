@@ -4,13 +4,12 @@
 
 int main(int argc, char *argv[])
 {
-  printf("Starting\n");
-
+  // Creating LLM Engine object
   llmEngine::LLMEngine llmEngine;
   
   // Counter for incoming requests
   size_t requestCount = 0;
-  size_t totalRequests = 2;
+  size_t totalRequests = 32;
 
   // Listen request function -- it expects an outside input and creates a request
   std::string requestOutput;
@@ -26,7 +25,7 @@ int main(int argc, char *argv[])
     }
 
     // Simulate a delay between requests
-    if (requestCount > 0) sleep(1);
+    // if (requestCount > 0) sleep(1);
 
     // Create and register request as output
     requestOutput = std::string("This is request ") + std::to_string(requestCount);

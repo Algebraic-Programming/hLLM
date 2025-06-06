@@ -70,13 +70,11 @@ class LLMEngine final
 
   __INLINE__ void finalize()
   {
-    printf("Finalizing");
-
     // Send a finalization signal to all instances
     auto& instances = _rpcEngine->getInstanceManager()->getInstances();
     for (auto& instance : instances) if (instance->getId() != _rpcEngine->getInstanceManager()->getCurrentInstance()->getId())
     {
-      printf("Sending RPC to instance %lu\n", instance->getId());
+      // printf("Sending RPC to instance %lu\n", instance->getId());
       _rpcEngine->requestRPC(*instance, _finalizationRPCName);
     } 
 
@@ -350,7 +348,7 @@ class LLMEngine final
     _taskr->await();
     _taskr->finalize();
 
-    printf("[Instance '%s'] Finalized\n", myInstanceName.c_str());
+    //printf("[Instance '%s'] Finalized\n", myInstanceName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
@@ -375,11 +373,8 @@ class LLMEngine final
     std::vector<llmEngine::Task*> dependencyTasks;
     for (const auto& dependency : dependencies) dependencyTasks.push_back(_taskNameMap.at(dependency).get());
 
-    // Initiate infinite loop
-    while(_continueRunning)
-    {
-      // Adding task dependencies
-      task->addPendingOperation([&](){
+    // Function to check for pending operations
+    auto pendingOperationsCheck = [&](){
           // If execution must stop now, return true to go back to the task and finish it
           if (_continueRunning == false) return true;
 
@@ -394,7 +389,13 @@ class LLMEngine final
 
           // All dependencies are satisfied, enable this task for execution 
           return true;
-      });
+    };
+
+    // Initiate infinite loop
+    while(_continueRunning)
+    {
+      // Adding task dependencies
+      task->addPendingOperation(pendingOperationsCheck);
 
       // Suspend execution until all dependencies are met
       task->suspend();
@@ -416,7 +417,7 @@ class LLMEngine final
       }
 
       // Actually run the function now
-      printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
+      // printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
       function(taskObject.get());
 
       // Another exit point (the more the better)
