@@ -12,6 +12,10 @@ option('buildExamples', type : 'boolean', value : false,
        description: 'Indicates whether to build example apps'
 )
 
+option('buildPyLLM', type : 'boolean', value : false,
+       description: 'Indicates whether to build the LLM-engine Python API',
+)
+
 option('compileWarningsAsErrors', type : 'boolean', value : false,
        description: 'Indicates whether a compilation warning should result in a fatal error. This is useful for CI testing but may result in inconveniences for normal users, hence it should be false by default'
 ) 

@@ -7,3 +7,7 @@
 [submodule "extern/DeployR"]
 	path = extern/DeployR
 	url = https://github.com/Algebraic-Programming/DeployR.git
+[submodule "extern/pybind11"]
+	path = extern/pybind11
+	url = git@github.com:pybind/pybind11.git
+	branch = stable

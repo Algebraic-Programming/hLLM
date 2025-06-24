@@ -18,6 +18,7 @@ engine = get_option('engine')
 
 # Selecting default HiCR Backends
 HiCRBackends = [ 'hwloc', 'pthreads', 'boost', engine ]
+
 HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=tasking' ])
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
 LLMEngineDependencies += HiCRBuildDep
@@ -58,6 +59,11 @@ LLMEngineBuildDep = declare_dependency(
     include_directories: LLMEngineBuildIncludes,
     dependencies: LLMEngineDependencies
     )
+
+####### Build PyLMM
+if get_option('buildPyLMM')
+  subdir('include/pyLLM')
+endif
 
 ####### Build test / example targets only if HiCR is being loaded as a subproject
 
