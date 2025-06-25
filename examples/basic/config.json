@@ -21,13 +21,8 @@
             [
                 {
                     "Type": "NUMA Domain",
-                    "Minimum Memory (GB)": 64,
-                    "Minimum Compute Resources": 32
-                },
-                {
-                    "Type": "NUMA Domain",
-                    "Minimum Memory (GB)": 64,
-                    "Minimum Compute Resources": 32
+                    "Minimum Memory (GB)": 62,
+                    "Minimum Compute Resources": 10
                 }
             ]
         }

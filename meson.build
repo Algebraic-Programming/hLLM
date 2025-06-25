@@ -14,6 +14,10 @@ LLMEngineDependencies = [ ]
 
 engine = get_option('engine')
 
+if engine == 'mpi'
+  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
+endif
+
 ####### Getting HiCR dependency
 
 # Selecting default HiCR Backends
@@ -61,7 +65,7 @@ LLMEngineBuildDep = declare_dependency(
     )
 
 ####### Build PyLMM
-if get_option('buildPyLMM')
+if get_option('buildPyLLM')
   subdir('include/pyLLM')
 endif
 
