@@ -23,13 +23,13 @@ class LLMEngine final
 
   ~LLMEngine() {}
 
-  __INLINE__ void initialize(int *pargc, char ***pargv)
+  __INLINE__ bool initialize(int *pargc, char ***pargv)
   {
     // Registering entry point function
     _deployr.registerFunction(_entryPointName, [this]() { entryPoint(); });
 
     // Initializing DeployR
-    _deployr.initialize(pargc, pargv);
+    return _deployr.initialize(pargc, pargv);
   }
 
   __INLINE__ void run(const nlohmann::json& config)
@@ -68,18 +68,24 @@ class LLMEngine final
     _registeredFunctions.insert({functionName, fc});
   }
 
-  __INLINE__ void finalize()
+  __INLINE__ void terminate()
   {
     // Send a finalization signal to all instances
     auto& instances = _rpcEngine->getInstanceManager()->getInstances();
     for (auto& instance : instances) if (instance->getId() != _rpcEngine->getInstanceManager()->getCurrentInstance()->getId())
     {
-      // printf("Sending RPC to instance %lu\n", instance->getId());
-      _rpcEngine->requestRPC(*instance, _finalizationRPCName);
+      _rpcEngine->requestRPC(*instance, _stopRPCName);
     } 
 
     // Stop running ourselves.
     _continueRunning = false;
+  }
+
+
+  __INLINE__ void finalize()
+  {
+    // Finished execution, then finish deployment
+     _deployr.finalize();
   }
 
   private:
@@ -183,9 +189,6 @@ class LLMEngine final
 
      // Deploying
      _deployr.deploy(request);
-
-     // Finished execution, then finish deployment
-     _deployr.finalize();
   }
 
   __INLINE__ void entryPoint()
@@ -197,9 +200,9 @@ class LLMEngine final
     _rpcEngine = _deployr.getRPCEngine();
 
     // Registering finalization function
-    _rpcEngine->addRPCTarget(_finalizationRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
+    _rpcEngine->addRPCTarget(_stopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
     {
-       _continueRunning = false;
+      _continueRunning = false;
     }));
 
     // Getting my instance name after deployment
@@ -348,7 +351,7 @@ class LLMEngine final
     _taskr->await();
     _taskr->finalize();
 
-    //printf("[Instance '%s'] Finalized\n", myInstanceName.c_str());
+    // printf("[Instance '%s'] stopped\n", myInstanceName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
@@ -480,7 +483,7 @@ class LLMEngine final
   
   // Name of the LLM Engine entry point after deployment
   const std::string _entryPointName = "__LLM Engine Entry Point__";
-  const std::string _finalizationRPCName = "__LLM Engine Finalize__";
+  const std::string _stopRPCName = "__LLM Engine Stop__";
 
   // DeployR instance
   deployr::DeployR _deployr;
