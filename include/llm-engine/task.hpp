@@ -36,9 +36,9 @@ class Task final
   {
   }
 
-  __INLINE__ std::string getName() const { return _name; }
-
   ~Task() = default;
+  
+  __INLINE__ std::string getName() const { return _name; }
 
   __INLINE__ const deployr::Channel::token_t getInput(const std::string& inputName)
    {
