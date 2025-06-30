@@ -18,9 +18,10 @@ int main(int argc, char *argv[])
     printf("Executing Listen Request\n");
     
     // Finish the LLM service if all requests have been processed
+    // printf("Request Count: %lu / %lu\n", requestCount, totalRequests);
     if (requestCount >= totalRequests)
     {
-      llmEngine.finalize();
+      llmEngine.terminate();
       return;
     }
 
@@ -116,23 +117,30 @@ int main(int argc, char *argv[])
   });
 
   // Initializing LLM engine
-  llmEngine.initialize(&argc, &argv);
+  auto isRoot = llmEngine.initialize(&argc, &argv);
 
-  // Checking arguments
-  if (argc != 2)
+  // Let only the root instance deploy the LLM engine
+  if (isRoot)
   {
-    fprintf(stderr, "Error: Must provide the request file as argument.\n");
-    llmEngine.abort();
-    return -1;
+    // Checking arguments
+    if (argc != 2)
+    {
+      fprintf(stderr, "Error: Must provide the request file as argument.\n");
+      llmEngine.abort();
+      return -1;
+    }
+
+    // Getting config file name from arguments
+    std::string configFilePath = std::string(argv[1]);
+
+    // Parsing request file contents to a JSON object
+    std::ifstream ifs(configFilePath);
+    auto          configJs = nlohmann::json::parse(ifs);
+
+    // Running LLM Engine
+    llmEngine.run(configJs);
   }
 
-  // Getting config file name from arguments
-  std::string configFilePath = std::string(argv[1]);
-
-  // Parsing request file contents to a JSON object
-  std::ifstream ifs(configFilePath);
-  auto          configJs = nlohmann::json::parse(ifs);
-
-  // Running LLM Engine
-  llmEngine.run(configJs);
+  // Finalizing LLM engine
+  llmEngine.finalize();
 }
