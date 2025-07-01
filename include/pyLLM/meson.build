@@ -5,7 +5,7 @@
 py = import('python').find_installation(pure: false)
 pybind11_dep = dependency('pybind11', required: true)
 
-py.extension_module('pyLLM',
+py.extension_module('llmEngine',
     ['pyLLM.cpp'],
     install: true,
     dependencies : [LLMEngineBuildDep, pybind11_dep],

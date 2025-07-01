@@ -1,8 +1,9 @@
 import sys
-import json
 import time
+import json
+from mpi4py import MPI
 
-import LLMEngine
+import llmEngine
 
 def main():
   # Creating LLM Engine object
@@ -13,7 +14,7 @@ def main():
   totalRequests = 32
 
   # Listen request function -- it expects an outside input and creates a request
-  requestOutput = ""  # TODO: Why making this global?
+  requestOutput = ""  # TODO: Why making this nonlocal?
   def fc(task):
     nonlocal requestCount
     nonlocal totalRequests
@@ -130,7 +131,7 @@ def main():
   llmEngine_.registerFunction("Return Result", fc)
 
   # Initializing LLM engine
-  isRoot = LLMEngine.initialize_engine(llmEngine_, sys.argv)
+  isRoot = llmEngine.initialize_engine(llmEngine_, sys.argv)
 
   # Let only the root instance deploy the LLM engine
   if isRoot:

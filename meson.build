@@ -52,9 +52,13 @@ LLMEngineBuildCppArgs = [
   warningAsErrorFlags
  ]
 
-LLMEngineBuildIncludes = include_directories([
-   'include'
-  ])
+includes = ['include']
+
+if get_option('buildPyLLM')
+  includes += ['extern/pybind11_json/include', 'extern/nlohmann/include']
+endif
+
+LLMEngineBuildIncludes = include_directories(includes)
 
 ####### Collect the dependencies
 
