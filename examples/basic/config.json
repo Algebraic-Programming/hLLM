@@ -6,30 +6,53 @@
         {
             "Name": "CPU Frontend",
             "Topology":
-            [
-                {
-                    "Type": "NUMA Domain",
-                    "Minimum Memory (GB)": 16,
-                    "Minimum Compute Resources": 4
-                }
-            ]
+            {
+                "Devices":
+                [
+                    {
+                        "Type": "NUMA Domain",
+                        "Compute Resources":
+                        [
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" }
+                        ],
+                        "Memory Spaces":
+                        [
+                        ]
+                    }
+                ]
+            }
         },
-
         {
             "Name": "CPU Compute",
             "Topology":
-            [
-                {
-                    "Type": "NUMA Domain",
-                    "Minimum Memory (GB)": 64,
-                    "Minimum Compute Resources": 32
-                },
-                {
-                    "Type": "NUMA Domain",
-                    "Minimum Memory (GB)": 64,
-                    "Minimum Compute Resources": 32
-                }
-            ]
+            {
+                "Devices":
+                [
+                    {
+                        "Type": "NUMA Domain",
+                        "Compute Resources":
+                        [
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" }
+                        ],
+                        "Memory Spaces":
+                        [
+                            {
+                                "Type": "RAM",
+                                "Size": 274877906944,
+                                "Usage": 0
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ],
 

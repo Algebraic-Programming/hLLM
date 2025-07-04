@@ -232,6 +232,7 @@ class LLMEngine final
 
     // Asking backend to check the available devices
     const auto t = tm.queryTopology();
+    printf("Topology: %s\n", t.serialize().dump(2).c_str());
 
     // Compute resources to use
     HiCR::Device::computeResourceList_t computeResources;
