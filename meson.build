@@ -16,8 +16,13 @@ engine = get_option('engine')
 
 ####### Getting HiCR dependency
 
+HiCRDistributedBackend = []
+if engine == 'cloudr' or engine == 'mpi'
+ HiCRDistributedBackend = [ 'mpi' ]
+endif
+
 # Selecting default HiCR Backends
-HiCRBackends = [ 'hwloc', 'pthreads', 'boost', engine ]
+HiCRBackends = [ 'hwloc', 'pthreads', 'boost' ] + HiCRDistributedBackend
 HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=tasking' ])
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
 LLMEngineDependencies += HiCRBuildDep
