@@ -71,11 +71,9 @@ class LLMEngine final
   __INLINE__ void terminate()
   {
     // Send a finalization signal to all instances
-    auto& instances = _rpcEngine->getInstanceManager()->getInstances();
-    for (auto& instance : instances) if (instance->getId() != _rpcEngine->getInstanceManager()->getCurrentInstance()->getId())
-    {
+    auto instances = _deployr.getInstances();
+    for (auto& instance : instances) if (instance->getId() != _deployr.getCurrentInstance().getId())
       _rpcEngine->requestRPC(*instance, _stopRPCName);
-    } 
 
     // Stop running ourselves.
     _continueRunning = false;
@@ -175,11 +173,11 @@ class LLMEngine final
 
      // Creating configuration for TaskR
      nlohmann::json taskrConfig;
-     taskrConfig["Task Worker Inactivity Time (Ms)"] = 10; // Suspend workers if a certain time of inactivity elapses
-     taskrConfig["Task Suspend Interval Time (Ms)"] = 10; // Workers suspend for this time before checking back
+     taskrConfig["Task Worker Inactivity Time (Ms)"] = 100; // Suspend workers if a certain time of inactivity elapses
+     taskrConfig["Task Suspend Interval Time (Ms)"] = 100; // Workers suspend for this time before checking back
      taskrConfig["Minimum Active Task Workers"] = 1; // Have at least one worker active at all times
      taskrConfig["Service Worker Count"] = 1; // Have one dedicated service workers at all times to listen for incoming messages
-     taskrConfig["Make Task Workers Run Services"] = true; // Workers will check for meta messages in between executions
+     taskrConfig["Make Task Workers Run Services"] = false; // Workers will check for meta messages in between executions
 
      // Adding taskr configuration
      requestJs["TaskR Configuration"] = taskrConfig;
