@@ -14,15 +14,12 @@ LLMEngineDependencies = [ ]
 
 engine = get_option('engine')
 
-if engine == 'mpi'
-  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
-endif
-
 ####### Getting HiCR dependency
 
 HiCRDistributedBackend = []
 if engine == 'cloudr' or engine == 'mpi'
- HiCRDistributedBackend = [ 'mpi' ]
+  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
+  HiCRDistributedBackend = [ 'mpi' ]
 endif
 
 # Selecting default HiCR Backends
