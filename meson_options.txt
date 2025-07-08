@@ -1,7 +1,7 @@
 option('engine', type : 'combo',
-       choices : [ 'mpi' ], 
+       choices : [ 'local', 'mpi', 'cloudr' ], 
        description : 'Specifies which distributed execution engine to use',
-       value: 'mpi'
+       value: 'local'
        )
 
 option('buildTests', type : 'boolean', value : false,
