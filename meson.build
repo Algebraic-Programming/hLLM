@@ -56,7 +56,7 @@ LLMEngineBuildCppArgs = [
 includes = ['include']
 
 if get_option('buildPyLLM')
-  includes += ['extern/pybind11_json/include', 'extern/nlohmann/include']
+  includes += ['extern/pybind11_json/include', 'extern/nlohmann_json/include']
 endif
 
 LLMEngineBuildIncludes = include_directories(includes)
