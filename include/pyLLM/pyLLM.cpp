@@ -2,7 +2,8 @@
 #include <vector>
 #include <string>
 
-#include <pybind11_json/pybind11_json.hpp>
+#include <pybind11_json/pybind11_json.hpp> // For nlohmann json file-based parameters
+
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h> // std::function interpreter
 #include <pybind11/stl.h>        // std::set interpreter
@@ -18,6 +19,8 @@ namespace llmEngine
 // LLMEngine initialize wrapper for python
 bool initialize_engine_from_python(LLMEngine& llmengine, const std::vector<std::string>& args) 
 {
+  py::gil_scoped_release release; // Not sure if this is needed/helps
+
   int argc = static_cast<int>(args.size());
   std::vector<char*> argv_cstr;
 
