@@ -1,0 +1,149 @@
+{
+    "Name": "PyLLM",
+
+    "Host Types":
+    [
+        {
+            "Name": "CPU Compute",
+            "Topology":
+            {
+                "Devices":
+                [
+                    {
+                        "Type": "NUMA Domain",
+                        "Compute Resources":
+                        [
+                            { "Type": "Processing Unit" },
+                            { "Type": "Processing Unit" }
+                        ],
+                        "Memory Spaces":
+                        [
+                            {
+                                "Type": "RAM",
+                                "Size": 63,
+                                "Usage": 0
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+
+    "Instances":
+    [
+        {
+            "Name": "Make Ouput",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Listen Request",
+                    "Dependencies": [ ],
+                    "Inputs": [ ],
+                    "Outputs": [ "Request" ]
+                },
+                {
+                    "Name": "Return Result",
+                    "Dependencies": [ ],
+                    "Inputs": [  
+                       {
+                        "Name": "Result",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [  ]
+                }
+            ]
+        },
+        {
+            "Name": "Get Output as Input",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Decode Request",
+                    "Dependencies": [ ],
+                    "Inputs": [
+                       {
+                        "Name": "Request",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 4096
+                       }
+                    ],
+                    "Outputs": [ "Decoded Request 1", "Decoded Request 2" ]
+                }
+            ]
+        },
+        {
+            "Name": "Transformer 1",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Transform Request 1",
+                    "Dependencies": [ ],
+                    "Inputs": [
+                       {
+                        "Name": "Decoded Request 1",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ "Transformed Request 1" ]
+                }
+            ]
+        },
+        {
+            "Name": "Transformer 2",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Pre-Transform Request",
+                    "Dependencies": [ ],
+                    "Inputs": [ 
+                       {
+                        "Name": "Decoded Request 2",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ ]
+                },
+
+                {
+                    "Name": "Transform Request 2",
+                    "Dependencies": [ "Pre-Transform Request" ],
+                    "Inputs": [ ],
+                    "Outputs": [ "Transformed Request 2" ]
+                }
+            ]
+        },
+        {
+            "Name": "Joiner",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Joiner",
+                    "Dependencies": [ ],
+                    "Inputs": [ 
+                       {
+                        "Name": "Transformed Request 1",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       },
+                       {
+                        "Name": "Transformed Request 2",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ "Result" ]
+                }
+            ]
+        }
+    ]
+}

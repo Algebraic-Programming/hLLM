@@ -48,6 +48,8 @@ class Task final
      // Then, erasing it from the map to indicate it was consumed
      _inputTokens.erase(inputName);
 
+     printf("token buffer before token_py: %s and size: %ld\n", (char*)token.buffer, token.size); fflush(stdout);
+
      // Returning consumed token
      return token;
    }

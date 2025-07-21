@@ -3,11 +3,11 @@ import time
 import json
 from mpi4py import MPI
 
+import llmEngine
+
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
-
-import llmEngine
 
 def main():
   # Creating LLM Engine object
@@ -38,7 +38,8 @@ def main():
 
     # Create and register request as output
     requestOutput = f"This is request {requestCount}"
-    task.setOutput("Request", requestOutput, len(requestOutput) + 1)
+
+    task.setOutput("Request", requestOutput)
 
     # Advance request counter
     requestCount += 1
@@ -58,15 +59,15 @@ def main():
     requestMsg = task.getInput("Request")
 
     # Getting request
-    request = requestMsg.buffer   # TODO: deployr buffer const char* as a python string?
+    request = requestMsg.buffer
     print(f"Decoding request: '{request}'")
 
     # Create and register decoded requests
     decodedRequest1Output = request + " [Decoded 1]"
-    task.setOutput("Decoded Request 1", decodedRequest1Output, len(decodedRequest1Output) + 1)
+    task.setOutput("Decoded Request 1", decodedRequest1Output)
 
     decodedRequest2Output = request + " [Decoded 2]"
-    task.setOutput("Decoded Request 2", decodedRequest2Output, len(decodedRequest2Output) + 1)
+    task.setOutput("Decoded Request 2", decodedRequest2Output)
 
   llmEngine_.registerFunction("Decode Request", fc)
 
@@ -77,12 +78,13 @@ def main():
 
     # Getting incoming decoded request 1
     decodedRequest1Msg = task.getInput("Decoded Request 1")
-    decodedRequest1 = decodedRequest1Msg.buffer # TODO: deployr buffer const char* as a python string?
+    decodedRequest1 = decodedRequest1Msg.buffer
     print(f"Transforming decoded request 1: '{decodedRequest1}'")
 
     # Create and register decoded requests
     transformedRequest1Output = decodedRequest1 + " [Transformed]"
-    task.setOutput("Transformed Request 1", transformedRequest1Output, len(transformedRequest1Output) + 1)
+
+    task.setOutput("Transformed Request 1", transformedRequest1Output)
 
   llmEngine_.registerFunction("Transform Request 1", fc)
 
@@ -92,7 +94,7 @@ def main():
 
     # Getting incoming decoded request 1
     decodedRequest2Msg = task.getInput("Decoded Request 2")
-    decodedRequest2 = decodedRequest2Msg.buffer # TODO: deployr buffer const char* as a python string?
+    decodedRequest2 = decodedRequest2Msg.buffer
     print(f"Pre-Transforming decoded request 2: '{decodedRequest2}'")
 
     # Create and register decoded requests
@@ -105,8 +107,9 @@ def main():
     # Create and register decoded requests
     print(f"Transforming pre-transformed request 2: '{preTransformedRequest}'")
     transformedRequest2Output = preTransformedRequest + " [Transformed]"
-    task.setOutput("Transformed Request 2", transformedRequest2Output, len(transformedRequest2Output) + 1)
-  
+
+    task.setOutput("Transformed Request 2", transformedRequest2Output)
+
   llmEngine_.registerFunction("Transform Request 2", fc)
 
   resultOutput = ""
@@ -115,14 +118,15 @@ def main():
 
     # Getting incoming decoded request 1
     transformedRequest1Msg = task.getInput("Transformed Request 1")
-    transformedRequest1 = transformedRequest1Msg.buffer # TODO: deployr buffer const char* as a python string?
+    transformedRequest1 = transformedRequest1Msg.buffer
 
     transformedRequest2Msg = task.getInput("Transformed Request 2")
     transformedRequest2 = transformedRequest2Msg.buffer
 
     resultOutput = transformedRequest1 + " + " + transformedRequest2
     print(f"Joining '{transformedRequest1}' + '{transformedRequest2}' = '{resultOutput}'")
-    task.setOutput("Result", resultOutput, len(resultOutput) + 1)
+
+    task.setOutput("Result", resultOutput)
   
   llmEngine_.registerFunction("Joiner", fc)
 
@@ -151,9 +155,6 @@ def main():
     # Parsing request file contents to a JSON object
     with open(configFilePath, 'r') as file:
       configJs = json.load(file)
-
-    # Now `configJs` is a Python dictionary (or list, depending on the file content)
-    print(configJs)
 
     # Running LLM Engine
     llmEngine_.run(configJs)
