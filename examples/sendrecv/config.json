@@ -1,0 +1,67 @@
+{
+    "Name": "PyLLM",
+
+    "Host Types":
+    [
+        {
+            "Name": "CPU Compute",
+            "Topology":
+            {
+                "Devices":
+                [
+                    {
+                        "Type": "NUMA Domain",
+                        "Compute Resources":
+                        [
+                            { "Type": "Processing Unit" }
+                        ],
+                        "Memory Spaces":
+                        [
+                            {
+                                "Type": "RAM",
+                                "Size": 63,
+                                "Usage": 0
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+
+    "Instances":
+    [
+        {
+            "Name": "Entry Point",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Listen Request",
+                    "Dependencies": [ ],
+                    "Inputs": [ ],
+                    "Outputs": [ "Result" ]
+                }
+            ]
+        },
+        {
+            "Name": "Exit Point",
+            "Host Type": "CPU Compute",
+            "Execution Graph":
+            [
+                {
+                    "Name": "Return Result",
+                    "Dependencies": [ ],
+                    "Inputs": [  
+                       {
+                        "Name": "Result",
+                        "Buffer Capacity (Tokens)": 2,
+                        "Buffer Size (Bytes)": 16777216
+                       }
+                    ],
+                    "Outputs": [ ]
+                }
+            ]
+        }
+    ]
+}

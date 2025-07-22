@@ -127,6 +127,7 @@ PYBIND11_MODULE(llmEngine, m)
 
   py::class_<LLMEngine>(m, "LLMEngine")
     .def(py::init<>())
+    .def("initialize", &initialize_engine_from_python)
     .def("run", &convert_run)
     .def("abort", &LLMEngine::abort)
     .def("registerFunction", &LLMEngine::registerFunction)

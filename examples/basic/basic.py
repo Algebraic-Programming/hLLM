@@ -139,7 +139,7 @@ def main():
   llmEngine_.registerFunction("Return Result", fc)
 
   # Initializing LLM engine
-  isRoot = llmEngine.initialize_engine(llmEngine_, sys.argv)
+  isRoot = llmEngine_.initialize(sys.argv)
 
   # Let only the root instance deploy the LLM engine
   if isRoot:
