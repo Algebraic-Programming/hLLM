@@ -73,14 +73,6 @@ void convert_run(LLMEngine& llmEngine_, nlohmann::json& configJs)
 }
 
 /**
- * the LLMEngine::Task setOutput method python compatible 
- * as pybind11 doesn't know how to handle void* properly
- */
-void setOutputWrapper(llmEngine::Task& task, const std::string& name, const std::string& data) {
-  task.setOutput(name, static_cast<const void*>(data.data()), data.size()+1);
-}
-
-/**
  * Represents a message exchanged between two instances through a channel 
  * but for python based token as pybind11 doesn't know how to handle void*
  */
@@ -95,6 +87,19 @@ struct token_py
   /// Size of the token received
   size_t size;
 };
+
+// Global task token storage as python can't handle void*
+// TODO: maybe finding another approach as this is kinda hacky
+std::vector<std::string> task_tokens;
+
+/**
+ * the LLMEngine::Task setOutput method python compatible 
+ * as pybind11 doesn't know how to handle void* properly
+ */
+void setOutputWrapper(llmEngine::Task& task, const std::string& name, const std::string& data) {
+  task_tokens.push_back(data);
+  task.setOutput(name, static_cast<const void*>(task_tokens.back().data()), data.size()+1);
+}
 
 /**
  * the LLMEngine::Task getInput method python compatible 

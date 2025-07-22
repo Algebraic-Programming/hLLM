@@ -6,18 +6,13 @@ from mpi4py import MPI
 import llmEngine
 
 def main():
-  comm = MPI.COMM_WORLD
-  rank = comm.Get_rank()
-  size = comm.Get_size()
-
   # Creating LLM Engine object
   llmEngine_ = llmEngine.LLMEngine()
 
   def fc(task):
     # Getting incoming decoded requested result
-    print("Before getInput", flush=True)
     resultMsg = task.getInput("Result")
-    print("After getInput", flush=True)
+
     result = resultMsg.buffer
     print(f"Final Result: '{result}'")
 
@@ -25,7 +20,7 @@ def main():
   
   # Counter for incoming requests
   requestCount = 0
-  totalRequests = 2
+  totalRequests = 1
 
   # Listen request function -- it expects an outside input and creates a request
   global requestOutput
@@ -36,7 +31,7 @@ def main():
     print("Executing Listen Request")
     
     # Finish the LLM service if all requests have been processed
-    print(f"Request Count: {requestCount} / {totalRequests}")
+    # print(f"Request Count: {requestCount} / {totalRequests}")
     if requestCount >= totalRequests:
       llmEngine_.terminate()
       return
@@ -46,9 +41,8 @@ def main():
 
     # Create and register request as output
     requestOutput = f"This is request {requestCount}"
-    print("Before setOutput", flush=True)
+
     task.setOutput("Result", requestOutput)
-    print("After setOutput", flush=True)
 
     # Advance request counter
     requestCount += 1

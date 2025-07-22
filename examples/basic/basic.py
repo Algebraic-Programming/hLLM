@@ -5,10 +5,6 @@ from mpi4py import MPI
 
 import llmEngine
 
-comm = MPI.COMM_WORLD
-size = comm.Get_size()
-rank = comm.Get_rank()
-
 def main():
   # Creating LLM Engine object
   llmEngine_ = llmEngine.LLMEngine()
@@ -18,27 +14,23 @@ def main():
   totalRequests = 32
 
   # Listen request function -- it expects an outside input and creates a request
-  requestOutput = ""  # TODO: Why making this nonlocal?
   def fc(task):
     nonlocal requestCount
     nonlocal totalRequests
 
-    nonlocal requestOutput
-
     print("Executing Listen Request")
 
     # Finish the LLM service if all requests have been processed
-    print(f"Request Count: {requestCount} / {totalRequests}")
+    # print(f"Request Count: {requestCount} / {totalRequests}")
     if requestCount >= totalRequests:
       llmEngine_.terminate()
       return
 
     # Simulate a delay between requests
-    if requestCount > 0: time.sleep(1)
+    # if requestCount > 0: time.sleep(1)
 
     # Create and register request as output
     requestOutput = f"This is request {requestCount}"
-
     task.setOutput("Request", requestOutput)
 
     # Advance request counter
@@ -47,12 +39,7 @@ def main():
   llmEngine_.registerFunction("Listen Request", fc)
 
   # Listen request function -- it expects an outside input and creates a request
-  decodedRequest1Output = ""
-  decodedRequest2Output = ""
   def fc(task):
-    nonlocal decodedRequest1Output
-    nonlocal decodedRequest2Output
-
     print("Executing Decode Request") 
     
     # Getting incoming request
@@ -72,10 +59,7 @@ def main():
   llmEngine_.registerFunction("Decode Request", fc)
 
   # Request transformation functions
-  transformedRequest1Output = ""
   def fc(task):
-    nonlocal transformedRequest1Output
-
     # Getting incoming decoded request 1
     decodedRequest1Msg = task.getInput("Decoded Request 1")
     decodedRequest1 = decodedRequest1Msg.buffer
@@ -102,8 +86,9 @@ def main():
   
   llmEngine_.registerFunction("Pre-Transform Request", fc)
 
-  transformedRequest2Output = ""
   def fc(task):
+    nonlocal preTransformedRequest
+
     # Create and register decoded requests
     print(f"Transforming pre-transformed request 2: '{preTransformedRequest}'")
     transformedRequest2Output = preTransformedRequest + " [Transformed]"
@@ -112,10 +97,7 @@ def main():
 
   llmEngine_.registerFunction("Transform Request 2", fc)
 
-  resultOutput = ""
   def fc(task):
-    nonlocal resultOutput
-
     # Getting incoming decoded request 1
     transformedRequest1Msg = task.getInput("Transformed Request 1")
     transformedRequest1 = transformedRequest1Msg.buffer
