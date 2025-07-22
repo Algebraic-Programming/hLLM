@@ -13,19 +13,30 @@ def main():
   # Creating LLM Engine object
   llmEngine_ = llmEngine.LLMEngine()
 
+  def fc(task):
+    # Getting incoming decoded requested result
+    print("Before getInput", flush=True)
+    resultMsg = task.getInput("Result")
+    print("After getInput", flush=True)
+    result = resultMsg.buffer
+    print(f"Final Result: '{result}'")
+
+  llmEngine_.registerFunction("Return Result", fc)
+  
   # Counter for incoming requests
   requestCount = 0
-  totalRequests = 1
+  totalRequests = 2
 
   # Listen request function -- it expects an outside input and creates a request
-  requestOutput = ""
+  global requestOutput
   def fc(task):
     nonlocal requestCount
     nonlocal totalRequests
+
     print("Executing Listen Request")
     
     # Finish the LLM service if all requests have been processed
-    # print(f"Request Count: {requestCount} / {totalRequests}")
+    print(f"Request Count: {requestCount} / {totalRequests}")
     if requestCount >= totalRequests:
       llmEngine_.terminate()
       return
@@ -35,25 +46,18 @@ def main():
 
     # Create and register request as output
     requestOutput = f"This is request {requestCount}"
+    print("Before setOutput", flush=True)
     task.setOutput("Result", requestOutput)
+    print("After setOutput", flush=True)
 
     # Advance request counter
     requestCount += 1
 
   llmEngine_.registerFunction("Listen Request", fc)
 
-  def fc(task):
-    # Getting incoming decoded requested result
-    resultMsg = task.getInput("Result")
-    result = resultMsg.buffer
-    print(f"Final Result: '{result}'")
-
-  llmEngine_.registerFunction("Return Result", fc)
 
   # Initializing LLM engine
   isRoot = llmEngine_.initialize(sys.argv)
-
-  print(f"[Rank {rank}/{size}] Hello from MPI process and is Root: {isRoot}.")
   
   # Let only the root instance deploy the LLM engine
   if isRoot:
@@ -69,9 +73,6 @@ def main():
     # Parsing request file contents to a JSON object
     with open(configFilePath, 'r') as file:
       configJs = json.load(file)
-
-    # Now `configJs` is a Python dictionary (or list, depending on the file content)
-    print(configJs)
 
     # Running LLM Engine
     llmEngine_.run(configJs)

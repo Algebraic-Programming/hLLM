@@ -13,14 +13,13 @@
                         "Type": "NUMA Domain",
                         "Compute Resources":
                         [
-                            { "Type": "Processing Unit" },
                             { "Type": "Processing Unit" }
                         ],
                         "Memory Spaces":
                         [
                             {
                                 "Type": "RAM",
-                                "Size": 424242,
+                                "Size": 0,
                                 "Usage": 0
                             }
                         ]
@@ -33,33 +32,14 @@
     "Instances":
     [
         {
-            "Name": "Entry Point",
+            "Name": "Instance",
             "Host Type": "CPU Compute",
             "Execution Graph":
             [
                 {
-                    "Name": "Listen Request",
+                    "Name": "Hello World",
                     "Dependencies": [ ],
                     "Inputs": [ ],
-                    "Outputs": [ "Result" ]
-                }
-            ]
-        },
-        {
-            "Name": "Exit Point",
-            "Host Type": "CPU Compute",
-            "Execution Graph":
-            [
-                {
-                    "Name": "Return Result",
-                    "Dependencies": [ ],
-                    "Inputs": [  
-                       {
-                        "Name": "Result",
-                        "Buffer Capacity (Tokens)": 1,
-                        "Buffer Size (Bytes)": 18
-                       }
-                    ],
                     "Outputs": [ ]
                 }
             ]

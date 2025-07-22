@@ -77,7 +77,7 @@ void convert_run(LLMEngine& llmEngine_, nlohmann::json& configJs)
  * as pybind11 doesn't know how to handle void* properly
  */
 void setOutputWrapper(llmEngine::Task& task, const std::string& name, const std::string& data) {
-    task.setOutput(name, static_cast<const void*>(data.data()), data.size()+1);
+  task.setOutput(name, static_cast<const void*>(data.data()), data.size()+1);
 }
 
 /**
@@ -119,16 +119,10 @@ PYBIND11_MODULE(llmEngine, m)
 {
   m.doc() = "pybind11 plugin for LMM-Engine";
 
-  m.def(
-    "initialize_engine",
-    &initialize_engine_from_python,
-    "Initialize Engine with sys.argv"
-  );
-
   py::class_<LLMEngine>(m, "LLMEngine")
     .def(py::init<>())
     .def("initialize", &initialize_engine_from_python)
-    .def("run", &convert_run)
+    .def("run", &convert_run, py::call_guard<py::gil_scoped_release>())
     .def("abort", &LLMEngine::abort)
     .def("registerFunction", &LLMEngine::registerFunction)
     .def("terminate", &LLMEngine::terminate)
