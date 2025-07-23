@@ -23,7 +23,19 @@ class Task final
 
   public:
 
-  Task() = delete;
+  Task()  = delete;
+  ~Task() = default;
+
+  /**
+   * The Task constructor
+   * 
+   * @param[in] name Unique name of the task
+   * @param[in] function The function which has to be executed
+   * @param[in] inputs The input tokens to read from another instance
+   * @param[in] outputs The tokens to pass for another instance
+   * @param[in] dependencies A list of which instances it is related
+   * @param[in] taskrTask The taskR Task this task has to relate
+   */
   Task(const std::string             &name,
        const function_t              &function,
        const std::vector<std::string> inputs,
@@ -37,8 +49,6 @@ class Task final
       _dependencies(dependencies),
       _taskrTask(std::move(taskrTask))
   {}
-
-  ~Task() = default;
 
   /**
    * Returns the set name of this task
