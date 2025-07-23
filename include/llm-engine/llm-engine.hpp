@@ -13,6 +13,9 @@
 namespace llmEngine
 {
 
+/**
+ * The LLMEngine class, it is a HiCR-based LLM deployment and execution engine.
+ */
 class LLMEngine final
 {
   public:
