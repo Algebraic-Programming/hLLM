@@ -22,7 +22,7 @@ namespace llmEngine
  */
 bool initialize_engine_from_python(LLMEngine &llmengine, const std::vector<std::string> &args)
 {
-  py::gil_scoped_release release; // Not sure if this is needed/helps
+  py::gil_scoped_release release;
 
   int                 argc = static_cast<int>(args.size());
   std::vector<char *> argv_cstr;

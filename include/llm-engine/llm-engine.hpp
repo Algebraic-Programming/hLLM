@@ -27,6 +27,8 @@ class LLMEngine final
   /**
    * Initialize the LLMEngine
    * 
+   * @param[in] pargc The pointer to the argc
+   * @param[in] pargv The list of strings
    * \return True if it is the root (i.e. main) MPI rank
    */
   __INLINE__ bool initialize(int *pargc, char ***pargv)
