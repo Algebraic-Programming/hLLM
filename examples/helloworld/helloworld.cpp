@@ -9,8 +9,7 @@ int main(int argc, char *argv[])
 
   // Listen request function -- it expects an outside input and creates a request
   std::string requestOutput;
-  llmEngine.registerFunction("Hello World", [&](llmEngine::Task* task)
-  { 
+  llmEngine.registerFunction("Hello World", [&](llmEngine::Task *task) {
     printf("Hello World\n");
 
     // This instance can terminate the llmEngine

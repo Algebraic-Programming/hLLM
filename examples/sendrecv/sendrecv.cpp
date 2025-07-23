@@ -6,17 +6,16 @@ int main(int argc, char *argv[])
 {
   // Creating LLM Engine object
   llmEngine::LLMEngine llmEngine;
-  
+
   // Counter for incoming requests
-  size_t requestCount = 0;
+  size_t requestCount  = 0;
   size_t totalRequests = 1;
 
   // Listen request function -- it expects an outside input and creates a request
   std::string requestOutput;
-  llmEngine.registerFunction("Listen Request", [&](llmEngine::Task* task)
-  { 
+  llmEngine.registerFunction("Listen Request", [&](llmEngine::Task *task) {
     printf("Executing Listen Request\n");
-    
+
     // Finish the LLM service if all requests have been processed
     // printf("Request Count: %lu / %lu\n", requestCount, totalRequests);
     if (requestCount >= totalRequests)
@@ -36,11 +35,10 @@ int main(int argc, char *argv[])
     requestCount++;
   });
 
-  llmEngine.registerFunction("Return Result", [&](llmEngine::Task* task) 
-  {
+  llmEngine.registerFunction("Return Result", [&](llmEngine::Task *task) {
     // Getting incoming decoded request 1
-    const auto& resultMsg = task->getInput("Result");
-    const auto result = std::string((const char*)resultMsg.buffer);
+    const auto &resultMsg = task->getInput("Result");
+    const auto  result    = std::string((const char *)resultMsg.buffer);
     printf("Final Result: '%s'\n", result.c_str());
   });
 
