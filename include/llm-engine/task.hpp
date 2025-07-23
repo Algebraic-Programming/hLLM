@@ -40,8 +40,19 @@ class Task final
 
   ~Task() = default;
 
+  /**
+   * Returns the set name of this task
+   * 
+   * \return The string
+   */
   __INLINE__ std::string getName() const { return _name; }
 
+  /**
+   * Returns the stored token by name
+   * 
+   * @param[in] inputName The returnable token of type inputName
+   * \return The desired token if the inputName 
+   */
   __INLINE__ const deployr::Channel::token_t getInput(const std::string &inputName)
   {
     // First, get the token
@@ -50,13 +61,17 @@ class Task final
     // Then, erasing it from the map to indicate it was consumed
     _inputTokens.erase(inputName);
 
-    printf("token buffer before token_py: %s and size: %ld\n", (char *)token.buffer, token.size);
-    fflush(stdout);
-
     // Returning consumed token
     return token;
   }
 
+  /**
+   * Specify an output token to be passabled to other Instances
+   * 
+   * @param[in] outputName The desired token (if it exists abort, no duplicates allowed)
+   * @param[in] bufferData The pointer to the buffer, make sure that the lifetime of the buffer is not changing
+   * @param[in] bufferSize The size of this buffer
+   */
   __INLINE__ void setOutput(const std::string &outputName, const void *bufferData, const size_t bufferSize)
   {
     if (_outputTokens.contains(outputName))

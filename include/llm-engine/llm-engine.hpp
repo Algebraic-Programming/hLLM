@@ -24,6 +24,11 @@ class LLMEngine final
 
   ~LLMEngine() {}
 
+  /**
+   * Initialize the LLMEngine
+   * 
+   * \return True if it is the root (i.e. main) MPI rank
+   */
   __INLINE__ bool initialize(int *pargc, char ***pargv)
   {
     // Registering entry point function
@@ -33,6 +38,11 @@ class LLMEngine final
     return _deployr.initialize(pargc, pargv);
   }
 
+  /**
+   * Running the LLMEngine
+   * 
+   * @param[in] config The json config for all the LLM instances to deploy
+   */
   __INLINE__ void run(const nlohmann::json &config)
   {
     // Storing configuration
@@ -42,6 +52,9 @@ class LLMEngine final
     deploy(_config);
   }
 
+  /**
+   * Abort (if needed)
+   */
   __INLINE__ void abort() { _deployr.abort(); }
 
   /**
@@ -66,6 +79,9 @@ class LLMEngine final
     _registeredFunctions.insert({functionName, fc});
   }
 
+  /**
+   * Terminate the LLMEngine, has to be done by any active registered function
+   */
   __INLINE__ void terminate()
   {
     // Send a finalization signal to all instances
@@ -77,6 +93,9 @@ class LLMEngine final
     _continueRunning = false;
   }
 
+  /**
+   * Finalization of the LLM Engine, has to be called at the ending of the code
+   */
   __INLINE__ void finalize()
   {
     // Finished execution, then finish deployment
