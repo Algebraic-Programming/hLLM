@@ -14,6 +14,9 @@ class Task;
 
 typedef std::function<void(llmEngine::Task *task)> function_t;
 
+/**
+ * LLMEngine Task type, similar to a TaskR task but has the ability to set outputs and get inputs
+ */
 class Task final
 {
   friend class LLMEngine;
