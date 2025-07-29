@@ -1,6 +1,6 @@
 testSuite = [ 'examples', 'basic' ]
 
-basic = executable('basic', [ 'basic.cpp'], dependencies: LLMEngineBuildDep)
+basic = executable('basic', [ 'basic.cpp'], dependencies: hLLMBuildDep)
 
 if engine == 'mpi'
 	if get_option('buildTests')

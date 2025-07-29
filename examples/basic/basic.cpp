@@ -2,22 +2,22 @@
 #include <thread>
 #include <fstream>
 #include <requester.hpp>
-#include "llm-engine/llm-engine.hpp"
+#include "hllm/engine.hpp"
 
 int main(int argc, char *argv[])
 {
-  // Creating LLM Engine object
-  llmEngine::LLMEngine llmEngine;
+  // Creating hLLM Engine object
+  hLLM::Engine engine;
 
   // Instantiating request server (emulates live users)
   size_t requestCount = 32;
   size_t requestDelayMs = 100;
-  initializeRequestServer(&llmEngine, requestCount);
+  initializeRequestServer(&engine, requestCount);
   auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
 
   // Listen request function -- it expects an outside input and creates a request
   std::string requestOutput;
-  llmEngine.registerFunction("Listen Request", [&](llmEngine::Task* task)
+  engine.registerFunction("Listen Request", [&](hLLM::Task* task)
   { 
     // Listening to incoming requests (emulates an http service)
     printf("Listening to incoming requests...\n");
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
   // Listen request function -- it expects an outside input and creates a request
   std::string decodedRequest1Output;
   std::string decodedRequest2Output;
-  llmEngine.registerFunction("Decode Request", [&](llmEngine::Task* task)
+  engine.registerFunction("Decode Request", [&](hLLM::Task* task)
   { 
     // Getting incoming request
     const auto& requestMsg = task->getInput("Request");
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
 
   // Request transformation functions
   std::string transformedRequest1Output;
-  llmEngine.registerFunction("Transform Request 1", [&](llmEngine::Task* task)
+  engine.registerFunction("Transform Request 1", [&](hLLM::Task* task)
   { 
     // Getting incoming decoded request 1
     const auto& decodedRequest1Msg = task->getInput("Decoded Request 1");
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
   });
 
   std::string preTransformedRequest;
-  llmEngine.registerFunction("Pre-Transform Request", [&](llmEngine::Task* task)
+  engine.registerFunction("Pre-Transform Request", [&](hLLM::Task* task)
   { 
     // Getting incoming decoded request 1
     const auto& decodedRequest2Msg = task->getInput("Decoded Request 2");
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
   });
 
   std::string transformedRequest2Output;
-  llmEngine.registerFunction("Transform Request 2", [&](llmEngine::Task* task)
+  engine.registerFunction("Transform Request 2", [&](hLLM::Task* task)
   { 
     // Create and register decoded requests
     printf("Transforming pre-transformed request 2: '%s'\n", preTransformedRequest.c_str());
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
   });
 
   std::string resultOutput;
-  llmEngine.registerFunction("Respond Request", [&](llmEngine::Task* task) 
+  engine.registerFunction("Respond Request", [&](hLLM::Task* task) 
   {
     // Getting incoming decoded request 1
     const auto& transformedRequest1Msg = task->getInput("Transformed Request 1");
@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
   });
 
   // Initializing LLM engine
-  auto isRoot = llmEngine.initialize(&argc, &argv);
+  auto isRoot = engine.initialize(&argc, &argv);
 
   // Let only the root instance deploy the LLM engine
   if (isRoot)
@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
     if (argc != 2)
     {
       fprintf(stderr, "Error: Must provide the request file as argument.\n");
-      llmEngine.abort();
+      engine.abort();
       return -1;
     }
 
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
     auto          configJs = nlohmann::json::parse(ifs);
 
     // Running LLM Engine
-    llmEngine.run(configJs);
+    engine.run(configJs);
   }
   
   // Waiting for request server to finish producing requests
@@ -132,5 +132,5 @@ int main(int argc, char *argv[])
 
   // Finalizing LLM engine
   printf("[basic.cpp] Finalizing...\n");
-  llmEngine.finalize();
+  engine.finalize();
 }

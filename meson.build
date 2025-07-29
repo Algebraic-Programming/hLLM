@@ -1,4 +1,4 @@
-project('LLM-Engine', [ 'cpp', 'c'],
+project('hLLM', [ 'cpp', 'c'],
   subproject_dir : 'extern',
   default_options : [
   'cpp_std=c++20',
@@ -6,9 +6,9 @@ project('LLM-Engine', [ 'cpp', 'c'],
   ]
 )
 
-####### Storage for LLM-Engine dependencies
+####### Storage for hLLM dependencies
 
-LLMEngineDependencies = [ ]
+hLLMDependencies = [ ]
 
 # Getting selected distributed engine
 
@@ -25,21 +25,21 @@ endif
 HiCRBackends = [ 'hwloc', 'pthreads', 'boost' ] + HiCRDistributedBackend
 HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=tasking' ])
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
-LLMEngineDependencies += HiCRBuildDep
+hLLMDependencies += HiCRBuildDep
 
 ####### Getting DeployR dependency
 
 DeployRProject = subproject('DeployR', required: true, default_options: [ 'engine=' + engine ])
 DeployRBuildDep = DeployRProject.get_variable('DeployRBuildDep')
-LLMEngineDependencies += DeployRBuildDep
+hLLMDependencies += DeployRBuildDep
 
 ####### Getting TaskR dependency
 
 TaskRProject = subproject('TaskR', required: true, default_options: [  ])
 TaskRBuildDep = TaskRProject.get_variable('TaskRBuildDep')
-LLMEngineDependencies += TaskRBuildDep
+hLLMDependencies += TaskRBuildDep
 
-####### Creating LLMEngine dependency
+####### Creating hLLM dependency
 
 # Warning handling option
 warningAsErrorFlags=[]
@@ -47,21 +47,21 @@ if get_option('compileWarningsAsErrors') == true
   warningAsErrorFlags=[ '-Werror' ]
 endif
 
-LLMEngineBuildCppArgs = [
+hLLMBuildCppArgs = [
  '-Wfatal-errors',
   warningAsErrorFlags
  ]
 
-LLMEngineBuildIncludes = include_directories([
+hLLMBuildIncludes = include_directories([
    'include'
   ])
 
 ####### Collect the dependencies
 
-LLMEngineBuildDep = declare_dependency(
-    compile_args: LLMEngineBuildCppArgs,
-    include_directories: LLMEngineBuildIncludes,
-    dependencies: LLMEngineDependencies
+hLLMBuildDep = declare_dependency(
+    compile_args: hLLMBuildCppArgs,
+    include_directories: hLLMBuildIncludes,
+    dependencies: hLLMDependencies
     )
 
 ####### Build test / example targets only if HiCR is being loaded as a subproject

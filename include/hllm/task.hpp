@@ -6,17 +6,17 @@
 #include <taskr/taskr.hpp>
 #include <deployr/deployr.hpp>
 
-namespace llmEngine
+namespace hLLM
 {
 
-class LLMEngine;
+class Engine;
 class Task;
 
-typedef std::function<void(llmEngine::Task* task)> function_t;
+typedef std::function<void(hLLM::Task* task)> function_t;
 
 class Task final
 {
-  friend class LLMEngine;
+  friend class Engine;
 
   public:
 
@@ -99,4 +99,4 @@ class Task final
 
 }; // class Task
 
-} // namespace llmEngine
+} // namespace hLLM

@@ -1,9 +1,9 @@
 #include <queue>
 #include <mutex>
-#include "llm-engine/llm-engine.hpp"
+#include "hllm/engine.hpp"
 
-// LLM Engine object
-llmEngine::LLMEngine* _llmEngine;
+// hLLM Engine object
+hLLM::Engine* _engine;
 
 // Request count to produce
 size_t _requestCount; 
@@ -34,9 +34,9 @@ inline bool listenRequest(requestId_t& requestId)
     return receivedRequest;
 }
 
-inline void initializeRequestServer(llmEngine::LLMEngine* llmEngine, const size_t requestCount)
+inline void initializeRequestServer(hLLM::Engine* engine, const size_t requestCount)
 {
-    _llmEngine = llmEngine;
+    _engine = engine;
     _requestCount = requestCount;
     _requestsFinished = 0;
 }
@@ -62,6 +62,6 @@ inline void respondRequest(const std::string& response)
     if (_requestsFinished == _requestCount) 
     {
         printf("Finished processing all requests.\n");
-        _llmEngine->terminate();
+        _engine->terminate();
     }
 }

@@ -10,18 +10,18 @@
 #include <hicr/backends/pthreads/computeManager.hpp>
 #include "task.hpp"
 
-namespace llmEngine
+namespace hLLM
 {
 
-class LLMEngine final
+class Engine final
 {
   public:
 
-  LLMEngine()
+  Engine()
   {
   }
 
-  ~LLMEngine() {}
+  ~Engine() {}
 
   __INLINE__ bool initialize(int *pargc, char ***pargv)
   {
@@ -79,7 +79,7 @@ class LLMEngine final
     // If I am not the root instance, request the root to please broadcast termination
     if (currentInstance.isRootInstance() == false)
     {
-      printf("[LLM-Engine] Instance %lu requesting root instance %lu to finish execution.\n", currentInstance.getId(), rootInstance.getId());
+      printf("[hLLM] Instance %lu requesting root instance %lu to finish execution.\n", currentInstance.getId(), rootInstance.getId());
       _rpcEngine->requestRPC(rootInstance, _requestStopRPCName);
     }
   }
@@ -88,7 +88,7 @@ class LLMEngine final
   {
     // Finished execution, then finish deployment
     const auto& currentInstance = _deployr.getCurrentInstance();
-     printf("[LLM-Engine] Instance %lu finalizing deployr.\n", currentInstance.getId());
+     printf("[hLLM] Instance %lu finalizing deployr.\n", currentInstance.getId());
      _deployr.finalize();
   }
 
@@ -110,7 +110,7 @@ class LLMEngine final
     auto instances = _deployr.getInstances();
     for (auto& instance : instances) if (instance->getId() != currentInstance.getId())
     {
-      printf("[LLM-Engine] Instance %lu sending stop RPC to instance %lu.\n", instance->getId(), currentInstance.getId());
+      printf("[hLLM] Instance %lu sending stop RPC to instance %lu.\n", instance->getId(), currentInstance.getId());
       _rpcEngine->requestRPC(*instance, _stopRPCName);
     }
 
@@ -230,7 +230,7 @@ class LLMEngine final
     // Registering finalization function (for root to execute)
     _rpcEngine->addRPCTarget(_stopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
     {
-      printf("[LLM-Engine] Received finalization RPC\n");
+      printf("[hLLM] Received finalization RPC\n");
       doLocalTermination();
     }));
 
@@ -238,7 +238,7 @@ class LLMEngine final
     _rpcEngine->addRPCTarget(_requestStopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
     {
       const auto& currentInstance = _deployr.getCurrentInstance();
-      printf("[LLM-Engine] Instance (%lu) - received RPC request to finalize\n", currentInstance.getId());
+      printf("[hLLM] Instance (%lu) - received RPC request to finalize\n", currentInstance.getId());
       broadcastTermination();
     }));
 
@@ -359,8 +359,8 @@ class LLMEngine final
       // Getting function pointer
       const auto &fc = _registeredFunctions[fcName];
 
-      // Creating LLMEngine Task object
-      auto newTask = std::make_shared<llmEngine::Task>(fcName, fc, inputs, outputs, dependencies, std::move(taskrTask));
+      // Creating Engine Task object
+      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, inputs, outputs, dependencies, std::move(taskrTask));
 
       // Adding task to the label->Task map
       _taskLabelMap.insert({taskLabel, newTask});
@@ -388,7 +388,7 @@ class LLMEngine final
     _taskr->await();
     _taskr->finalize();
 
-    printf("[LLM-Engine] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
+    printf("[hLLM] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
@@ -410,7 +410,7 @@ class LLMEngine final
     for (const auto& output : outputs) outputChannels.push_back(&_deployr.getChannel(output));
 
     // Resolving pointers to all the required LLM Task dependencies
-    std::vector<llmEngine::Task*> dependencyTasks;
+    std::vector<hLLM::Task*> dependencyTasks;
     for (const auto& dependency : dependencies) dependencyTasks.push_back(_taskNameMap.at(dependency).get());
 
     // Function to check for pending operations
@@ -530,10 +530,10 @@ class LLMEngine final
   std::unique_ptr<taskr::Runtime> _taskr;
 
   // Map relating task labels to their LLM Engine task
-  std::map<taskr::label_t, std::shared_ptr<llmEngine::Task>> _taskLabelMap;
+  std::map<taskr::label_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
 
     // Map relating function name to their LLM Engine task
-  std::map<std::string, std::shared_ptr<llmEngine::Task>> _taskNameMap;
+  std::map<std::string, std::shared_ptr<hLLM::Task>> _taskNameMap;
 
   // Pointer to the HiCR RPC Engine
   HiCR::frontend::RPCEngine* _rpcEngine;
@@ -546,6 +546,6 @@ class LLMEngine final
   // Initializing Pthreads-based compute manager to instantiate processing units
   HiCR::backend::pthreads::ComputeManager _pthreadsComputeManager;
 
-}; // class LLMEngine
+}; // class Engine
 
-} // namespace llmEngine
+} // namespace hLLM
