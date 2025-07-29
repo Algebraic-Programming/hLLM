@@ -70,23 +70,53 @@ class LLMEngine final
 
   __INLINE__ void terminate()
   {
-    // Send a finalization signal to all instances
-    auto instances = _deployr.getInstances();
-    for (auto& instance : instances) if (instance->getId() != _deployr.getCurrentInstance().getId())
-      _rpcEngine->requestRPC(*instance, _stopRPCName);
+    const auto& currentInstance = _deployr.getCurrentInstance();
+    auto& rootInstance = _deployr.getRootInstance();
 
-    // Stop running ourselves.
-    _continueRunning = false;
+    // If I am the root instance, broadcast termination directly
+    if (currentInstance.isRootInstance() == true) broadcastTermination();
+    
+    // If I am not the root instance, request the root to please broadcast termination
+    if (currentInstance.isRootInstance() == false)
+    {
+      printf("[LLM-Engine] Instance %lu requesting root instance %lu to finish execution.\n", currentInstance.getId(), rootInstance.getId());
+      _rpcEngine->requestRPC(rootInstance, _requestStopRPCName);
+    }
   }
-
 
   __INLINE__ void finalize()
   {
     // Finished execution, then finish deployment
+    const auto& currentInstance = _deployr.getCurrentInstance();
+     printf("[LLM-Engine] Instance %lu finalizing deployr.\n", currentInstance.getId());
      _deployr.finalize();
   }
 
   private:
+
+  __INLINE__ void doLocalTermination()
+  {
+    // Stopping the execution of the current and new tasks
+    _continueRunning = false;
+    _taskr->forceTermination();
+  }
+
+  __INLINE__ void broadcastTermination()
+  {
+    if (_deployr.getCurrentInstance().isRootInstance() == false) HICR_THROW_RUNTIME("Only the root instance can broadcast termination");
+
+    // Send a finalization signal to all other non-root instances
+    const auto& currentInstance = _deployr.getCurrentInstance();
+    auto instances = _deployr.getInstances();
+    for (auto& instance : instances) if (instance->getId() != currentInstance.getId())
+    {
+      printf("[LLM-Engine] Instance %lu sending stop RPC to instance %lu.\n", instance->getId(), currentInstance.getId());
+      _rpcEngine->requestRPC(*instance, _stopRPCName);
+    }
+
+    // (Root) Executing local termination myself now
+    doLocalTermination();
+  }
 
   __INLINE__ void deploy(const nlohmann::json& config)
   {
@@ -197,10 +227,19 @@ class LLMEngine final
     // Getting pointer to RPC engine
     _rpcEngine = _deployr.getRPCEngine();
 
-    // Registering finalization function
+    // Registering finalization function (for root to execute)
     _rpcEngine->addRPCTarget(_stopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
     {
-      _continueRunning = false;
+      printf("[LLM-Engine] Received finalization RPC\n");
+      doLocalTermination();
+    }));
+
+    // Registering finalization request function (for non-root to request roots to end the entire execution)
+    _rpcEngine->addRPCTarget(_requestStopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) 
+    {
+      const auto& currentInstance = _deployr.getCurrentInstance();
+      printf("[LLM-Engine] Instance (%lu) - received RPC request to finalize\n", currentInstance.getId());
+      broadcastTermination();
     }));
 
     // Getting my instance name after deployment
@@ -349,7 +388,7 @@ class LLMEngine final
     _taskr->await();
     _taskr->finalize();
 
-    // printf("[Instance '%s'] stopped\n", myInstanceName.c_str());
+    printf("[LLM-Engine] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task* task)
@@ -482,6 +521,7 @@ class LLMEngine final
   // Name of the LLM Engine entry point after deployment
   const std::string _entryPointName = "__LLM Engine Entry Point__";
   const std::string _stopRPCName = "__LLM Engine Stop__";
+  const std::string _requestStopRPCName = "__LLM Request Engine Stop__";
 
   // DeployR instance
   deployr::DeployR _deployr;

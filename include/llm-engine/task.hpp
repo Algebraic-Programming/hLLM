@@ -62,6 +62,12 @@ class Task final
     _outputTokens[outputName] = deployr::Channel::token_t { .success = true, .buffer = (void*)bufferData, .size = bufferSize};
    }
 
+  __INLINE__ void waitFor(taskr::Task::pendingOperation_t operation)
+  {
+    _taskrTask->addPendingOperation(operation);
+    _taskrTask->suspend();
+  }
+
   private: 
 
   __INLINE__ function_t getFunction() const { return _function; }

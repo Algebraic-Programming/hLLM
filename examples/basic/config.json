@@ -68,18 +68,6 @@
                     "Dependencies": [ ],
                     "Inputs": [ ],
                     "Outputs": [ "Request" ]
-                },
-                {
-                    "Name": "Return Result",
-                    "Dependencies": [ ],
-                    "Inputs": [  
-                       {
-                        "Name": "Result",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       }
-                    ],
-                    "Outputs": [  ]
                 }
             ]
         },
@@ -148,12 +136,12 @@
             ]
         },
         {
-            "Name": "Joiner",
+            "Name": "Exit Point",
             "Host Type": "CPU Compute",
             "Execution Graph":
             [
                 {
-                    "Name": "Joiner",
+                    "Name": "Respond Request",
                     "Dependencies": [ ],
                     "Inputs": [ 
                        {
@@ -167,7 +155,7 @@
                         "Buffer Size (Bytes)": 16777216
                        }
                     ],
-                    "Outputs": [ "Result" ]
+                    "Outputs": [ ]
                 }
             ]
         }
