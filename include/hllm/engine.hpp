@@ -94,6 +94,43 @@ class Engine final
 
   private:
 
+  __INLINE__ nlohmann::json createDeployrRequest(const nlohmann::json& requestJs)
+  {
+    // Getting the instance vector
+    const auto& instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
+
+    // Creating deployR initial request
+    nlohmann::json deployrRequestJs;
+    deployrRequestJs["Name"] = requestJs["Name"];
+
+    // Adding a different host type and instance entries per instance requested
+    auto hostTypeArray = nlohmann::json::array();
+    auto instanceArray = nlohmann::json::array();
+    for (const auto& instance : instancesJs)
+    {
+      const auto& instanceName = hicr::json::getString(instance, "Name");
+      const auto& hostTypeName = instanceName + std::string(" Host Type");
+
+      // Creating host type entry
+      nlohmann::json hostType;
+      hostType["Name"] = instanceName + std::string(" Host Type");
+      hostType["Topology"]["Devices"] = instance["Host Topology"];
+      hostTypeArray.push_back(hostType);
+
+      // Creating instance entry
+      nlohmann::json newInstance;
+      newInstance["Name"] = instanceName;
+      newInstance["Host Type"] = hostTypeName;
+      newInstance["Function"] = _entryPointName;
+      instanceArray.push_back(newInstance);
+    }
+    deployrRequestJs["Host Types"] = hostTypeArray;
+    deployrRequestJs["Instances"] = instanceArray;
+    deployrRequestJs["Channels"] = requestJs["Channels"];
+
+    return deployrRequestJs;
+  }
+
   __INLINE__ void doLocalTermination()
   {
     // Stopping the execution of the current and new tasks
@@ -125,7 +162,6 @@ class Engine final
 
      // Some information can be passed directly
      requestJs["Name"] = config["Name"];
-     requestJs["Host Types"] = config["Host Types"];
 
      ////// Instances information
      std::vector<nlohmann::json> newInstances;
@@ -133,7 +169,7 @@ class Engine final
      {
       nlohmann::json newInstance;
       newInstance["Name"] = instance["Name"];
-      newInstance["Host Type"] = instance["Host Type"];     
+      newInstance["Host Topology"] = instance["Host Topology"];     
       newInstance["Function"] = _entryPointName;     
       newInstances.push_back(newInstance);
      }
@@ -198,9 +234,6 @@ class Engine final
      }
      requestJs["Channels"] = newChannels;
 
-     // Adding LLM Engine as metadata in the request object
-     requestJs["LLM Engine Configuration"] = _config;
-
      // Creating configuration for TaskR
      nlohmann::json taskrConfig;
      taskrConfig["Task Worker Inactivity Time (Ms)"] = 100; // Suspend workers if a certain time of inactivity elapses
@@ -209,14 +242,28 @@ class Engine final
      taskrConfig["Service Worker Count"] = 1; // Have one dedicated service workers at all times to listen for incoming messages
      taskrConfig["Make Task Workers Run Services"] = false; // Workers will check for meta messages in between executions
 
-     // Adding taskr configuration
-     requestJs["TaskR Configuration"] = taskrConfig;
-
      // Creating deployR request object
-     deployr::Request request(requestJs);
+     auto deployrRequest = createDeployrRequest(requestJs);
 
-     // Deploying
-     _deployr.deploy(request);
+     // Adding hLLM as metadata in the request object
+     deployrRequest["hLLM Configuration"] = _config;
+     
+     // Adding taskr configuration
+     deployrRequest["TaskR Configuration"] = taskrConfig;
+
+     // Creating request object
+     deployr::Request request(deployrRequest);
+
+     // Deploying request
+     try
+     {
+         _deployr.deploy(request);
+     }
+     catch(const std::exception& e)
+     {
+       fprintf(stderr,"[hLLM] Error: Failed to deploy. Reason:\n + '%s'", e.what());
+       _deployr.abort();
+     }
   }
 
   __INLINE__ void entryPoint()
@@ -256,7 +303,7 @@ class Engine final
     const auto& requestJs = request.serialize();
 
     // Getting LLM engine configuration from request configuration
-    _config = hicr::json::getObject(requestJs, "LLM Engine Configuration");
+    _config = hicr::json::getObject(requestJs, "hLLM Configuration");
 
     // Creating HWloc topology object
     hwloc_topology_t topology;
@@ -326,7 +373,7 @@ class Engine final
       // Checking the requested function was registered
       if (_registeredFunctions.contains(fcName) == false)
       {
-        fprintf(stderr, "The requested function name '%s' is not registered. Please register it before running the LLM Engine.\n", fcName.c_str());
+        fprintf(stderr, "The requested function name '%s' is not registered. Please register it before running the hLLM.\n", fcName.c_str());
         abort();
       }
 
@@ -518,9 +565,9 @@ class Engine final
   // Copy of the initial configuration file
   nlohmann::json _config;
   
-  // Name of the LLM Engine entry point after deployment
-  const std::string _entryPointName = "__LLM Engine Entry Point__";
-  const std::string _stopRPCName = "__LLM Engine Stop__";
+  // Name of the hLLM entry point after deployment
+  const std::string _entryPointName = "__hLLM Entry Point__";
+  const std::string _stopRPCName = "__hLLM Stop__";
   const std::string _requestStopRPCName = "__LLM Request Engine Stop__";
 
   // DeployR instance
@@ -529,10 +576,10 @@ class Engine final
   // TaskR instance
   std::unique_ptr<taskr::Runtime> _taskr;
 
-  // Map relating task labels to their LLM Engine task
+  // Map relating task labels to their hLLM task
   std::map<taskr::label_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
 
-    // Map relating function name to their LLM Engine task
+    // Map relating function name to their hLLM task
   std::map<std::string, std::shared_ptr<hLLM::Task>> _taskNameMap;
 
   // Pointer to the HiCR RPC Engine

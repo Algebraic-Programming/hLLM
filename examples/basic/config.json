@@ -1,66 +1,24 @@
 {
     "Name": "DeepSeek",
 
-    "Host Types":
-    [
-        {
-            "Name": "CPU Frontend",
-            "Topology":
-            {
-                "Devices":
-                [
-                    {
-                        "Type": "NUMA Domain",
-                        "Compute Resources":
-                        [
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" }
-                        ],
-                        "Memory Spaces":
-                        [
-                        ]
-                    }
-                ]
-            }
-        },
-        {
-            "Name": "CPU Compute",
-            "Topology":
-            {
-                "Devices":
-                [
-                    {
-                        "Type": "NUMA Domain",
-                        "Compute Resources":
-                        [
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" }
-                        ],
-                        "Memory Spaces":
-                        [
-                            {
-                                "Type": "RAM",
-                                "Size": 274877906944,
-                                "Usage": 0
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-    ],
-
     "Instances":
     [
         {
             "Name": "Entry Point",
-            "Host Type": "CPU Frontend",
+            "Host Topology":
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources":
+                    [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces":
+                    [
+                    ]
+                }
+            ],
             "Execution Graph":
             [
                 {
@@ -73,7 +31,31 @@
         },
         {
             "Name": "Decoder",
-            "Host Type": "CPU Compute",
+            "Host Topology": 
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources":
+                    [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces":
+                    [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
             "Execution Graph":
             [
                 {
@@ -92,7 +74,31 @@
         },
         {
             "Name": "Transformer 1",
-            "Host Type": "CPU Compute",
+            "Host Topology": 
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources":
+                    [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces":
+                    [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
             "Execution Graph":
             [
                 {
@@ -111,7 +117,31 @@
         },
         {
             "Name": "Transformer 2",
-            "Host Type": "CPU Compute",
+            "Host Topology": 
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources":
+                    [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces":
+                    [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
             "Execution Graph":
             [
                 {
@@ -137,7 +167,31 @@
         },
         {
             "Name": "Exit Point",
-            "Host Type": "CPU Compute",
+            "Host Topology": 
+            [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources":
+                    [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces":
+                    [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
             "Execution Graph":
             [
                 {
