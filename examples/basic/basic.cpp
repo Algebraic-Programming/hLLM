@@ -70,13 +70,16 @@ int main(int argc, char *argv[])
 
     // Create and register decoded requests
     preTransformedRequest = decodedRequest2 + std::string(" [Pre-Transformed]");
+    task->setOutput("Pre-Transform Request Output", preTransformedRequest.data(), preTransformedRequest.size() + 1);
   });
 
   std::string transformedRequest2Output;
   engine.registerFunction("Transform Request 2", [&](hLLM::Task *task) {
     // Create and register decoded requests
-    printf("Transforming pre-transformed request 2: '%s'\n", preTransformedRequest.c_str());
-    transformedRequest2Output = preTransformedRequest + std::string(" [Transformed]");
+    const auto &preTransformedRequestOutputMsg = task->getInput("Pre-Transform Request Output");
+    const auto  preTransformedRequestOutput    = std::string((const char *)preTransformedRequestOutputMsg.buffer);
+    printf("Transforming pre-transformed request 2: '%s'\n", preTransformedRequestOutput.c_str());
+    transformedRequest2Output = preTransformedRequestOutput + std::string(" [Transformed]");
     task->setOutput("Transformed Request 2", transformedRequest2Output.data(), transformedRequest2Output.size() + 1);
   });
 

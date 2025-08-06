@@ -1,5 +1,7 @@
-
 #pragma once
+
+#include <ranges>
+#include <unordered_map>
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
@@ -119,9 +121,10 @@ class Engine final
       newInstance["Function"]  = _entryPointName;
       instanceArray.push_back(newInstance);
     }
-    deployrRequestJs["Host Types"] = hostTypeArray;
-    deployrRequestJs["Instances"]  = instanceArray;
-    deployrRequestJs["Channels"]   = requestJs["Channels"];
+    deployrRequestJs["Host Types"]              = hostTypeArray;
+    deployrRequestJs["Instances"]               = instanceArray;
+    deployrRequestJs["Channels"]                = requestJs["Channels"];
+    deployrRequestJs["Unbuffered Dependencies"] = requestJs["Unbuffered Dependencies"];
 
     return deployrRequestJs;
   }
@@ -159,76 +162,18 @@ class Engine final
     // Some information can be passed directly
     requestJs["Name"] = config["Name"];
 
-    ////// Instances information
-    std::vector<nlohmann::json> newInstances;
-    for (const auto &instance : config["Instances"])
-    {
-      nlohmann::json newInstance;
-      newInstance["Name"]          = instance["Name"];
-      newInstance["Host Topology"] = instance["Host Topology"];
-      newInstance["Function"]      = _entryPointName;
-      newInstances.push_back(newInstance);
-    }
-    requestJs["Instances"] = newInstances;
-
-    // Channel information
-    std::vector<nlohmann::json> channels;
+    parseInstances(config, requestJs);
 
     // Getting the instance vector
     const auto &instancesJs = hicr::json::getArray<nlohmann::json>(config, "Instances");
 
-    // Going through instances and checking producer instances
-    std::map<std::string, std::vector<std::string>> producers;
-    for (const auto &instance : instancesJs)
-    {
-      const auto &instanceName   = hicr::json::getString(instance, "Name");
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
-      {
-        const auto &outputNames = hicr::json::getArray<std::string>(function, "Outputs");
-        for (const auto &outputName : outputNames) producers[outputName].push_back(instanceName);
-      }
-    }
+    // Extract buffered and unbuffered dependencies
+    const auto &[bufferedDependencies, unbufferedDependencies] = splitDependencies(instancesJs);
 
-    // Going through instances and checking inputs buffers
-    std::vector<nlohmann::json> newChannels;
-    for (const auto &instance : instancesJs)
-    {
-      const auto &instanceName   = hicr::json::getString(instance, "Name");
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
-      {
-        const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
-        for (const auto &input : inputs)
-        {
-          nlohmann::json newChannel;
-          const auto    &inputName = hicr::json::getString(input, "Name");
-
-          // Checking somebody produces this input
-          if (producers.contains(inputName) == false)
-          {
-            fprintf(stderr, "Input '%s' defined for instance '%s', but no outputs for it have been defined.\n", inputName.c_str(), instanceName.c_str());
-            abort();
-          }
-
-          // Checking the consumer is not also a producer
-          const auto &producersList = producers.at(inputName);
-          if (std::find(producersList.begin(), producersList.end(), instanceName) != producersList.end())
-          {
-            fprintf(stderr, "Input '%s' defined for instance '%s', but no outputs for it have been defined.\n", inputName.c_str(), instanceName.c_str());
-            abort();
-          }
-
-          newChannel["Name"]                     = inputName;
-          newChannel["Producers"]                = producers.at(inputName);
-          newChannel["Consumer"]                 = instanceName;
-          newChannel["Buffer Capacity (Tokens)"] = hicr::json::getNumber<size_t>(input, "Buffer Capacity (Tokens)");
-          newChannel["Buffer Size (Bytes)"]      = hicr::json::getNumber<size_t>(input, "Buffer Size (Bytes)");
-          newChannels.push_back(newChannel);
-        }
-      }
-    }
-    requestJs["Channels"] = newChannels;
+    // Add buffered and unbuffered dependencies
+    auto bufferedDependenciesValues      = bufferedDependencies | std::views::values;
+    requestJs["Channels"]                = std::vector<nlohmann::json>(bufferedDependenciesValues.begin(), bufferedDependenciesValues.end());
+    requestJs["Unbuffered Dependencies"] = unbufferedDependencies;
 
     // Creating configuration for TaskR
     nlohmann::json taskrConfig;
@@ -243,6 +188,9 @@ class Engine final
 
     // Adding hLLM as metadata in the request object
     deployrRequest["hLLM Configuration"] = _config;
+
+    // Adding Deployr configuration
+    // deployrRequest["DeployR Configuration"] = deployrConfig;
 
     // Adding taskr configuration
     deployrRequest["TaskR Configuration"] = taskrConfig;
@@ -260,6 +208,95 @@ class Engine final
       fprintf(stderr, "[hLLM] Error: Failed to deploy. Reason:\n + '%s'", e.what());
       _deployr.abort();
     }
+  }
+
+  void parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs)
+  {
+    ////// Instances information
+    std::vector<nlohmann::json> newInstances;
+    for (const auto &instance : config["Instances"])
+    {
+      nlohmann::json newInstance;
+      newInstance["Name"]          = instance["Name"];
+      newInstance["Host Topology"] = instance["Host Topology"];
+      newInstance["Function"]      = _entryPointName;
+      newInstances.push_back(newInstance);
+    }
+    requestJs["Instances"] = newInstances;
+  }
+
+  __INLINE__ std::pair<std::map<std::string, nlohmann::json>, std::map<std::string, nlohmann::json>> splitDependencies(const std::vector<nlohmann::json> &instancesJS)
+  {
+    std::map<std::string, nlohmann::json> bufferedConsumers;
+    std::map<std::string, nlohmann::json> unbufferedConsumers;
+
+    // Get all the consumers first since they hold information on the dependency type
+    for (const auto &instance : instancesJS)
+    {
+      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
+      for (const auto &function : executionGraph)
+      {
+        const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
+        for (const auto &input : inputs)
+        {
+          const auto &inputName = hicr::json::getString(input, "Name");
+          if (input["Type"] == "Buffered")
+          {
+            bufferedConsumers[inputName]             = input;
+            bufferedConsumers[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
+          }
+          else if (input["Type"] == "Unbuffered")
+          {
+            unbufferedConsumers[inputName]             = input;
+            unbufferedConsumers[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
+          }
+          else
+          {
+            HICR_THROW_RUNTIME("Input %s defined in instance %s type not supported: %s",
+                               hicr::json::getString(input, "Name").c_str(),
+                               hicr::json::getString(instance, "Name").c_str(),
+                               hicr::json::getString(input, "Type").c_str());
+          }
+        }
+      }
+    }
+
+    size_t bufferedProducersCount   = 0;
+    size_t unbufferedProducersCount = 0;
+    for (const auto &instance : instancesJS)
+    {
+      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
+      for (const auto &function : executionGraph)
+      {
+        const auto &outputs = hicr::json::getArray<nlohmann::json>(function, "Outputs");
+        for (const auto &output : outputs)
+        {
+          if (bufferedConsumers.contains(output))
+          {
+            bufferedProducersCount++;
+            bufferedConsumers[output]["Producers"] = nlohmann::json::array({hicr::json::getString(instance, "Name")});
+          }
+          else if (unbufferedConsumers.contains(output))
+          {
+            unbufferedProducersCount++;
+            unbufferedConsumers[output]["Producers"] = nlohmann::json::array({hicr::json::getString(instance, "Name")});
+          }
+          else { HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]); }
+        }
+      }
+    }
+
+    // Check set equality
+    if (bufferedProducersCount != bufferedConsumers.size())
+    {
+      HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", bufferedProducersCount, bufferedConsumers.size());
+    }
+    if (unbufferedProducersCount != unbufferedConsumers.size())
+    {
+      HICR_THROW_RUNTIME("Inconsistent unbuffered connections #producers: %zu #consumers: %zu", unbufferedProducersCount, unbufferedConsumers.size());
+    }
+
+    return {bufferedConsumers, unbufferedConsumers};
   }
 
   __INLINE__ void entryPoint()
@@ -298,6 +335,9 @@ class Engine final
 
     // Getting LLM engine configuration from request configuration
     _config = hicr::json::getObject(requestJs, "hLLM Configuration");
+
+    // Getting unbuffered dependencies
+    const auto &unbufferedDependencies = hicr::json::getObject(requestJs, "Unbuffered Dependencies");
 
     // Creating HWloc topology object
     hwloc_topology_t topology;
@@ -345,16 +385,19 @@ class Engine final
       if (instanceName == myInstanceName) myInstanceConfig = instance;
     }
 
+    // Initialize unbuffered dependencies access map
+    for (const auto &dependency : unbufferedDependencies)
+    {
+      const auto &dependencyName = hicr::json::getString(dependency, "Name");
+      const auto &producers      = hicr::json::getArray<std::string>(dependency, "Producers");
+      const auto &consumer       = hicr::json::getString(dependency, "Consumer");
+
+      // TODO: adjust when producer will not be an array anymore
+      if (consumer == myInstanceName || producers[0] == myInstanceName) { _unbufferedMemorySlotsAccessMap[dependencyName] = nullptr; }
+    }
+
     // Getting relevant information
     const auto &executionGraph = hicr::json::getArray<nlohmann::json>(myInstanceConfig, "Execution Graph");
-
-    // Getting execution graph functions into a set. This is necessary for dependency checking
-    std::set<std::string> executionGraphFunctions;
-    for (const auto &functionJs : executionGraph)
-    {
-      const auto &fcName = hicr::json::getString(functionJs, "Name");
-      executionGraphFunctions.insert(fcName);
-    }
 
     // Creating general TaskR function for all execution graph functions
     _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
@@ -372,24 +415,23 @@ class Engine final
         abort();
       }
 
-      // Checking all dependencies have been declared
-      const auto &dependencies = hicr::json::getArray<std::string>(functionJs, "Dependencies");
-      for (const auto &dependency : dependencies)
-        if (executionGraphFunctions.contains(dependency) == false)
-        {
-          fprintf(stderr, "Function '%s' declared a dependency '%s' that is part of the execution graph\n", fcName.c_str(), dependency.c_str());
-          abort();
-        }
-
       // Getting inputs and outputs
-      std::vector<std::string> inputs;
-      const auto              &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
+      std::vector<std::pair<std::string, std::string>> inputs;
+      const auto                                      &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
       for (const auto &inputJs : inputsJs)
       {
         const auto &inputName = hicr::json::getString(inputJs, "Name");
-        inputs.push_back(inputName);
+        if (unbufferedDependencies.contains(inputName)) { inputs.push_back({inputName, "Unbuffered"}); }
+        else { inputs.push_back({inputName, "Buffered"}); }
       }
-      const auto &outputs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+
+      std::vector<std::pair<std::string, std::string>> outputs;
+      const auto                                      &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+      for (const auto &outputName : outputsJs)
+      {
+        if (unbufferedDependencies.contains(outputName)) { outputs.push_back({outputName, "Unbuffered"}); }
+        else { outputs.push_back({outputName, "Buffered"}); }
+      }
 
       // Getting label for taskr function
       const auto taskLabel = taskrLabelCounter++;
@@ -402,7 +444,7 @@ class Engine final
       const auto &fc = _registeredFunctions[fcName];
 
       // Creating Engine Task object
-      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, inputs, outputs, dependencies, std::move(taskrTask));
+      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, inputs, outputs, std::move(taskrTask));
 
       // Adding task to the label->Task map
       _taskLabelMap.insert({taskLabel, newTask});
@@ -431,6 +473,11 @@ class Engine final
     printf("[hLLM] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
   }
 
+  __INLINE__ static bool isValueNull(const std::unordered_map<std::string, deployr::Channel::token_t *> &collection, const std::string &key)
+  {
+    return collection.at(key) == nullptr;
+  }
+
   __INLINE__ void runTaskRFunction(taskr::Task *task)
   {
     const auto &taskLabel    = task->getLabel();
@@ -439,19 +486,26 @@ class Engine final
     const auto &functionName = taskObject->getName();
     const auto &inputs       = taskObject->getInputs();
     const auto &outputs      = taskObject->getOutputs();
-    const auto &dependencies = taskObject->getDependencies();
 
     // Resolving pointers to all the required input channels
-    std::vector<deployr::Channel *> inputChannels;
-    for (const auto &input : inputs) inputChannels.push_back(&_deployr.getChannel(input));
+    // and gather unbuffered inputs
+    std::map<std::string, deployr::Channel *> inputChannels;
+    std::vector<std::string>                  unbufferedInputs;
+    for (const auto &[input, type] : inputs)
+    {
+      if (type == "Buffered") { inputChannels[input] = &_deployr.getChannel(input); }
+      else { unbufferedInputs.push_back(input); }
+    }
 
     // Resolving pointers to all the required output channels
-    std::vector<deployr::Channel *> outputChannels;
-    for (const auto &output : outputs) outputChannels.push_back(&_deployr.getChannel(output));
-
-    // Resolving pointers to all the required LLM Task dependencies
-    std::vector<hLLM::Task *> dependencyTasks;
-    for (const auto &dependency : dependencies) dependencyTasks.push_back(_taskNameMap.at(dependency).get());
+    // and gather unbuffered outputs
+    std::map<std::string, deployr::Channel *> outputChannels;
+    std::vector<std::string>                  unbufferedOutputs;
+    for (const auto &[output, type] : outputs)
+    {
+      if (type == "Buffered") { outputChannels[output] = &_deployr.getChannel(output); }
+      else { unbufferedOutputs.push_back(output); }
+    }
 
     // Function to check for pending operations
     auto pendingOperationsCheck = [&]() {
@@ -459,16 +513,22 @@ class Engine final
       if (_continueRunning == false) return true;
 
       // The task is not ready if any of its inputs are not yet available
-      for (const auto &inputChannel : inputChannels)
+      for (const auto &[_, inputChannel] : inputChannels)
         if (inputChannel->isEmpty()) return false;
 
       // The task is not ready if any of its output channels are still full
-      for (const auto &outputChannel : outputChannels)
+      for (const auto &[_, outputChannel] : outputChannels)
         if (outputChannel->isFull()) return false;
 
-      // The task is not ready if any of its dependencies haven't exceeded its execution counter (return false)
-      for (const auto &dependencyTask : dependencyTasks)
-        if (dependencyTask->getExecutionCounter() <= taskObject->getExecutionCounter()) return false;
+      // The task is not ready if any of the unbuffered inputs are not available
+      for (const auto &input : unbufferedInputs)
+      {
+        if (isValueNull(_unbufferedMemorySlotsAccessMap, input) == true) return false;
+      }
+
+      // The task is not ready if any of the unbuffered outputs are available to be consumed
+      for (const auto &output : unbufferedOutputs)
+        if (isValueNull(_unbufferedMemorySlotsAccessMap, output) == false) return false;
 
       // All dependencies are satisfied, enable this task for execution
       return true;
@@ -487,14 +547,23 @@ class Engine final
       if (_continueRunning == false) break;
 
       // Inputs dependencies must be satisfied by now; getting them values
-      for (size_t i = 0; i < inputs.size(); i++)
+      for (const auto &[input, type] : inputs)
       {
-        // Getting input name
-        const auto &input = inputs[i];
+        deployr::Channel::token_t token;
 
-        // Peeking token from input channel
-        const auto token = inputChannels[i]->peek();
+        if (type == "Buffered")
+        {
+          // Peeking token from input channel
+          token = inputChannels[input]->peek();
+        }
+        else
+        {
+          // Get from unbuffered memory
+          token = *_unbufferedMemorySlotsAccessMap[input];
 
+          // Set to null the entry in the unbuffered map so new task will wait for the input to become available
+          _unbufferedMemorySlotsAccessMap[input] = nullptr;
+        }
         // Pushing token onto the task
         taskObject->setInput(input, token);
       }
@@ -507,11 +576,8 @@ class Engine final
       if (_continueRunning == false) break;
 
       // Checking input messages were properly consumed and popping the used token
-      for (size_t i = 0; i < inputs.size(); i++)
+      for (const auto &[input, type] : inputs)
       {
-        // Getting output name
-        const auto &input = inputs[i];
-
         if (taskObject->hasInput(input) == true)
         {
           fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", functionName.c_str(), input.c_str());
@@ -519,15 +585,12 @@ class Engine final
         }
 
         // Popping consumed channel from channel
-        inputChannels[i]->pop();
+        if (type == "Buffered") { inputChannels[input]->pop(); }
       }
 
       // Validating and pushing output messages
-      for (size_t i = 0; i < outputs.size(); i++)
+      for (const auto &[output, type] : outputs)
       {
-        // Getting output name
-        const auto &output = outputs[i];
-
         // Checking if output has been produced by the task
         if (taskObject->hasOutput(output) == false)
         {
@@ -536,17 +599,27 @@ class Engine final
         }
 
         // Now getting output token
-        const auto &outputToken = taskObject->getOutput(output);
+        const auto outputToken = taskObject->getOutput(output);
 
-        // Pushing token onto channel
-        outputChannels[i]->push(outputToken.buffer, outputToken.size);
+        if (type == "Buffered")
+        {
+          // Pushing token onto channel
+          outputChannels[output]->push(outputToken.buffer, outputToken.size);
+        }
+        else
+        {
+          // Set token in unbuffered memory slots
+          if (_unbufferedMemorySlotsAccessMap.at(output) != nullptr)
+          {
+            HICR_THROW_RUNTIME("Output %s not null %s", output, (char *)_unbufferedMemorySlotsAccessMap[output]->buffer);
+          }
+          _unbufferedMemorySlotsPool[output]      = outputToken;
+          _unbufferedMemorySlotsAccessMap[output] = &_unbufferedMemorySlotsPool.at(output);
+        }
       }
 
       // Clearing output token maps
       taskObject->clearOutputs();
-
-      // Advance execution counter (do last to avoid any concurrency issues)
-      taskObject->advanceExecutionCounter();
     }
   }
 
@@ -588,6 +661,12 @@ class Engine final
 
   // Initializing Pthreads-based compute manager to instantiate processing units
   HiCR::backend::pthreads::ComputeManager _pthreadsComputeManager;
+
+  // Map storing pointers to access unbuffered memory slots
+  std::unordered_map<std::string, deployr::Channel::token_t *> _unbufferedMemorySlotsAccessMap;
+
+  // Map storing pointers to access unbuffered memory slots
+  std::unordered_map<std::string, deployr::Channel::token_t> _unbufferedMemorySlotsPool;
 
 }; // class Engine
 
