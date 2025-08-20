@@ -202,7 +202,9 @@
                     "Inputs": [
                         {
                             "Name": "Pre-Transform Request Output",
-                            "Type": "Unbuffered"
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 1,
+                            "Buffer Size (Bytes)": 167772160
                         }
                     ],
                     "Outputs": [

@@ -1,13 +1,60 @@
 #include <stdio.h>
 #include <thread>
 #include <fstream>
-#include <requester.hpp>
-#include "hllm/engine.hpp"
+
+#include <hicr/backends/mpi/instanceManager.hpp>
+#include <hicr/backends/mpi/communicationManager.hpp>
+#include <hicr/backends/mpi/memoryManager.hpp>
+#include <hicr/backends/pthreads/computeManager.hpp>
+#include <hicr/frontends/RPCEngine/RPCEngine.hpp>
+#include <hicr/backends/hwloc/topologyManager.hpp>
+
+#include <hllm/engine.hpp>
+
+#include "requester.hpp"
 
 int main(int argc, char *argv[])
 {
+  // Creating HWloc topology object
+  hwloc_topology_t topology;
+
+  // Reserving memory for hwloc
+  hwloc_topology_init(&topology);
+
+  // Initializing host (CPU) topology manager
+  HiCR::backend::hwloc::TopologyManager tm(&topology);
+
+  // Gathering topology from the topology manager
+  const auto t = tm.queryTopology();
+
+  // Selecting first device
+  auto d = *t.getDevices().begin();
+
+  // Getting memory space list from device
+  auto memSpaces = d->getMemorySpaceList();
+
+  // Grabbing first memory space for buffering
+  auto bufferMemorySpace = *memSpaces.begin();
+
+  // Now getting compute resource list from device
+  auto computeResources = d->getComputeResourceList();
+
+  // Grabbing first compute resource for computing incoming RPCs
+  auto computeResource = *computeResources.begin();
+
+  // Getting MPI managers
+  auto instanceManager      = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
+  auto communicationManager = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
+  auto memoryManager        = std::make_shared<HiCR::backend::mpi::MemoryManager>();
+  auto computeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+
+  auto rpcEngine =
+    std::make_shared<HiCR::frontend::RPCEngine>(*communicationManager, *instanceManager, *memoryManager, *computeManager, bufferMemorySpace, computeResource);
+
+  rpcEngine->initialize();
+
   // Creating hLLM Engine object
-  hLLM::Engine engine;
+  hLLM::Engine engine(instanceManager.get(), communicationManager.get(), memoryManager.get(), rpcEngine.get(), bufferMemorySpace);
 
   // Instantiating request server (emulates live users)
   size_t requestCount   = 32;
@@ -99,7 +146,9 @@ int main(int argc, char *argv[])
   });
 
   // Initializing LLM engine
-  auto isRoot = engine.initialize(&argc, &argv);
+  auto isRoot = engine.initialize();
+
+  std::cout << "THI" << std::endl;
 
   // Let only the root instance deploy the LLM engine
   if (isRoot)
@@ -119,9 +168,12 @@ int main(int argc, char *argv[])
     std::ifstream ifs(configFilePath);
     auto          configJs = nlohmann::json::parse(ifs);
 
-    // Running LLM Engine
-    engine.run(configJs);
+    // Deploy all LLM Engine instances
+    engine.deploy(configJs);
   }
+
+  // Run the engine
+  engine.run();
 
   // Waiting for request server to finish producing requests
   printf("[basic.cpp] Waiting for request engine thread to come back...\n");

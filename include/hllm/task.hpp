@@ -6,6 +6,8 @@
 #include <taskr/taskr.hpp>
 #include <deployr/deployr.hpp>
 
+#include "channel.hpp"
+
 namespace hLLM
 {
 
@@ -38,7 +40,7 @@ class Task final
 
   ~Task() = default;
 
-  __INLINE__ const deployr::Channel::token_t getInput(const std::string &inputName)
+  __INLINE__ const Channel::token_t getInput(const std::string &inputName)
   {
     // First, get the token
     const auto &token = _inputTokens.at(inputName);
@@ -57,7 +59,7 @@ class Task final
       fprintf(stderr, "Function '%s' is setting output '%s' twice.\n", _name.c_str(), outputName.c_str());
       abort();
     }
-    _outputTokens[outputName] = deployr::Channel::token_t{.success = true, .buffer = (void *)bufferData, .size = bufferSize};
+    _outputTokens[outputName] = Channel::token_t{.success = true, .buffer = (void *)bufferData, .size = bufferSize};
   }
 
   __INLINE__ void waitFor(taskr::Task::pendingOperation_t operation)
@@ -73,7 +75,7 @@ class Task final
   __INLINE__ const std::vector<std::pair<std::string, std::string>> &getInputs() const { return _inputs; }
   __INLINE__ const std::vector<std::pair<std::string, std::string>> &getOutputs() const { return _outputs; }
 
-  __INLINE__ const deployr::Channel::token_t getOutput(const std::string &outputName)
+  __INLINE__ const Channel::token_t getOutput(const std::string &outputName)
   { // First, get the token
     const auto &token = _outputTokens.at(outputName);
 
@@ -83,7 +85,7 @@ class Task final
     // Returning consumed token
     return token;
   }
-  __INLINE__ void setInput(const std::string &inputName, const deployr::Channel::token_t token) { _inputTokens[inputName] = token; }
+  __INLINE__ void setInput(const std::string &inputName, const Channel::token_t token) { _inputTokens[inputName] = token; }
   __INLINE__ bool hasOutput(const std::string &outputName) { return _outputTokens.contains(outputName); }
   __INLINE__ bool hasInput(const std::string &inputName) { return _inputTokens.contains(inputName); }
   __INLINE__ void clearOutputs() { _outputTokens.clear(); }
@@ -94,8 +96,8 @@ class Task final
   const std::vector<std::pair<std::string, std::string>> _outputs;
   const std::unique_ptr<taskr::Task>                     _taskrTask;
 
-  std::map<std::string, deployr::Channel::token_t> _inputTokens;
-  std::map<std::string, deployr::Channel::token_t> _outputTokens;
+  std::map<std::string, Channel::token_t> _inputTokens;
+  std::map<std::string, Channel::token_t> _outputTokens;
 
 }; // class Task
 
