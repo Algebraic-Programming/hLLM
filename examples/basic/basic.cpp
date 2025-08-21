@@ -48,8 +48,7 @@ int main(int argc, char *argv[])
   auto memoryManager        = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto computeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
 
-  auto rpcEngine =
-    std::make_shared<HiCR::frontend::RPCEngine>(*communicationManager, *instanceManager, *memoryManager, *computeManager, bufferMemorySpace, computeResource);
+  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*communicationManager, *instanceManager, *memoryManager, *computeManager, bufferMemorySpace, computeResource);
 
   rpcEngine->initialize();
 
@@ -72,8 +71,9 @@ int main(int argc, char *argv[])
     printf("Request %lu received.\n", requestId);
 
     // Create and register request as output
-    requestOutput = std::string("This is request ") + std::to_string(requestId);
-    task->setOutput("Request", requestOutput.data(), requestOutput.size() + 1);
+    requestOutput             = std::string("This is request ") + std::to_string(requestId);
+    const auto requestMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, requestOutput.data(), requestOutput.size() + 1);
+    task->setOutput("Request", requestMemSlot);
   });
 
   // Listen request function -- it expects an outside input and creates a request
@@ -81,63 +81,69 @@ int main(int argc, char *argv[])
   std::string decodedRequest2Output;
   engine.registerFunction("Decode Request", [&](hLLM::Task *task) {
     // Getting incoming request
-    const auto &requestMsg = task->getInput("Request");
+    const auto &requestMemSlot = task->getInput("Request");
 
     // Getting request
-    const auto request = std::string((const char *)requestMsg.buffer);
+    const auto request = std::string((const char *)requestMemSlot->getPointer());
     printf("Decoding request: '%s'\n", request.c_str());
 
     // Create and register decoded requests
-    decodedRequest1Output = request + std::string(" [Decoded 1]");
-    task->setOutput("Decoded Request 1", decodedRequest1Output.data(), decodedRequest1Output.size() + 1);
+    decodedRequest1Output             = request + std::string(" [Decoded 1]");
+    const auto decodedRequest1MemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, decodedRequest1Output.data(), decodedRequest1Output.size() + 1);
+    task->setOutput("Decoded Request 1", decodedRequest1MemSlot);
 
-    decodedRequest2Output = request + std::string(" [Decoded 2]");
-    task->setOutput("Decoded Request 2", decodedRequest2Output.data(), decodedRequest2Output.size() + 1);
+    decodedRequest2Output             = request + std::string(" [Decoded 2]");
+    const auto decodedRequest2MemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, decodedRequest2Output.data(), decodedRequest2Output.size() + 1);
+    task->setOutput("Decoded Request 2", decodedRequest2MemSlot);
   });
 
   // Request transformation functions
   std::string transformedRequest1Output;
   engine.registerFunction("Transform Request 1", [&](hLLM::Task *task) {
     // Getting incoming decoded request 1
-    const auto &decodedRequest1Msg = task->getInput("Decoded Request 1");
-    const auto  decodedRequest1    = std::string((const char *)decodedRequest1Msg.buffer);
+    const auto &decodedRequest1MemSlot = task->getInput("Decoded Request 1");
+    const auto  decodedRequest1        = std::string((const char *)decodedRequest1MemSlot->getPointer());
     printf("Transforming decoded request 1: '%s'\n", decodedRequest1.c_str());
 
     // Create and register decoded requests
-    transformedRequest1Output = decodedRequest1 + std::string(" [Transformed]");
-    task->setOutput("Transformed Request 1", transformedRequest1Output.data(), transformedRequest1Output.size() + 1);
+    transformedRequest1Output                   = decodedRequest1 + std::string(" [Transformed]");
+    const auto transformedRequest1OutputMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, transformedRequest1Output.data(), transformedRequest1Output.size() + 1);
+    task->setOutput("Transformed Request 1", transformedRequest1OutputMemSlot);
   });
 
   std::string preTransformedRequest;
   engine.registerFunction("Pre-Transform Request", [&](hLLM::Task *task) {
     // Getting incoming decoded request 1
-    const auto &decodedRequest2Msg = task->getInput("Decoded Request 2");
-    const auto  decodedRequest2    = std::string((const char *)decodedRequest2Msg.buffer);
+    const auto &decodedRequest2MemSlot = task->getInput("Decoded Request 2");
+    const auto  decodedRequest2        = std::string((const char *)decodedRequest2MemSlot->getPointer());
     printf("Pre-Transforming decoded request 2: '%s'\n", decodedRequest2.c_str());
 
     // Create and register decoded requests
-    preTransformedRequest = decodedRequest2 + std::string(" [Pre-Transformed]");
-    task->setOutput("Pre-Transform Request Output", preTransformedRequest.data(), preTransformedRequest.size() + 1);
+    preTransformedRequest                   = decodedRequest2 + std::string(" [Pre-Transformed]");
+    const auto preTransformedRequestMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, preTransformedRequest.data(), preTransformedRequest.size() + 1);
+    task->setOutput("Pre-Transform Request Output", preTransformedRequestMemSlot);
   });
 
   std::string transformedRequest2Output;
   engine.registerFunction("Transform Request 2", [&](hLLM::Task *task) {
     // Create and register decoded requests
-    const auto &preTransformedRequestOutputMsg = task->getInput("Pre-Transform Request Output");
-    const auto  preTransformedRequestOutput    = std::string((const char *)preTransformedRequestOutputMsg.buffer);
+    const auto &preTransformedRequestOutputMemSlot = task->getInput("Pre-Transform Request Output");
+    const auto  preTransformedRequestOutput        = std::string((const char *)preTransformedRequestOutputMemSlot->getPointer());
     printf("Transforming pre-transformed request 2: '%s'\n", preTransformedRequestOutput.c_str());
-    transformedRequest2Output = preTransformedRequestOutput + std::string(" [Transformed]");
-    task->setOutput("Transformed Request 2", transformedRequest2Output.data(), transformedRequest2Output.size() + 1);
+
+    transformedRequest2Output                   = preTransformedRequestOutput + std::string(" [Transformed]");
+    const auto transformedRequest2OutputMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, transformedRequest2Output.data(), transformedRequest2Output.size() + 1);
+    task->setOutput("Transformed Request 2", transformedRequest2OutputMemSlot);
   });
 
   std::string resultOutput;
   engine.registerFunction("Respond Request", [&](hLLM::Task *task) {
     // Getting incoming decoded request 1
-    const auto &transformedRequest1Msg = task->getInput("Transformed Request 1");
-    const auto  transformedRequest1    = std::string((const char *)transformedRequest1Msg.buffer);
+    const auto &transformedRequest1MemSlot = task->getInput("Transformed Request 1");
+    const auto  transformedRequest1        = std::string((const char *)transformedRequest1MemSlot->getPointer());
 
-    const auto &transformedRequest2Msg = task->getInput("Transformed Request 2");
-    const auto  transformedRequest2    = std::string((const char *)transformedRequest2Msg.buffer);
+    const auto &transformedRequest2MemSlot = task->getInput("Transformed Request 2");
+    const auto  transformedRequest2        = std::string((const char *)transformedRequest2MemSlot->getPointer());
 
     // Producing response and sending it
     resultOutput = transformedRequest1 + std::string(" + ") + transformedRequest2;

@@ -11,7 +11,6 @@
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
 
-#include "channel.hpp"
 #include "task.hpp"
 
 #define __HLLM_BROADCAST_CONFIGURATION "[hLLM] Broadcast Configuration"
@@ -160,22 +159,6 @@ class Engine final
     }
   }
 
-  /**
-   * Retrieves one of the channels creates during deployment.
-   * 
-   * If the provided name is not registered for this instance, the function will produce an exception.
-   * 
-   * @param[in] name The name of the channel to retrieve
-   * @return The requested channel
-   */
-  __INLINE__ Channel &getChannel(const std::string &name)
-  {
-    if (_channels.contains(name) == false)
-      HICR_THROW_LOGIC("Requested channel ('%s') is not defined for this instance ('%s')\n", name.c_str(), _deployr.getLocalInstance().getName().c_str());
-
-    return _channels.at(name).operator*();
-  }
-
   __INLINE__ nlohmann::json createDeployrRequest(const nlohmann::json &requestJs)
   {
     // Getting the instance vector
@@ -206,10 +189,9 @@ class Engine final
       newInstance["Function"]  = _entryPointName;
       instanceArray.push_back(newInstance);
     }
-    deployrRequestJs["Host Types"]              = hostTypeArray;
-    deployrRequestJs["Instances"]               = instanceArray;
-    deployrRequestJs["Channels"]                = requestJs["Channels"];
-    deployrRequestJs["Unbuffered Dependencies"] = requestJs["Unbuffered Dependencies"];
+    deployrRequestJs["Host Types"] = hostTypeArray;
+    deployrRequestJs["Instances"]  = instanceArray;
+    deployrRequestJs["Channels"]   = requestJs["Channels"];
 
     return deployrRequestJs;
   }
@@ -252,13 +234,12 @@ class Engine final
     // Getting the instance vector
     const auto &instancesJs = hicr::json::getArray<nlohmann::json>(config, "Instances");
 
-    // Extract buffered and unbuffered dependencies
-    const auto &[bufferedDependencies, unbufferedDependencies] = splitDependencies(instancesJs);
+    // Extract dependencies
+    const auto &dependencies = parseDependencies(instancesJs);
 
-    // Add buffered and unbuffered dependencies
-    auto bufferedDependenciesValues      = bufferedDependencies | std::views::values;
-    requestJs["Channels"]                = std::vector<nlohmann::json>(bufferedDependenciesValues.begin(), bufferedDependenciesValues.end());
-    requestJs["Unbuffered Dependencies"] = unbufferedDependencies;
+    // Add dependencies to request
+    auto dependenciesValues = dependencies | std::views::values;
+    requestJs["Channels"]   = std::vector<nlohmann::json>(dependenciesValues.begin(), dependenciesValues.end());
 
     // Creating configuration for TaskR
     nlohmann::json taskrConfig;
@@ -309,10 +290,10 @@ class Engine final
       const auto &name = hicr::json::getString(channelInfo, "Name");
 
       // Getting channel's producer
-      const auto &producer = hicr::json::getString(channelInfo, "Producer");
+      const auto &producerName = hicr::json::getString(channelInfo, "Producer");
 
       // Getting channel's consumer
-      const auto &consumer = hicr::json::getString(channelInfo, "Consumer");
+      const auto &consumerName = hicr::json::getString(channelInfo, "Consumer");
 
       // Getting buffer capacity (max token count)
       const auto &bufferCapacity = hicr::json::getNumber<uint64_t>(channelInfo, "Buffer Capacity (Tokens)");
@@ -321,23 +302,21 @@ class Engine final
       const auto &bufferSize = hicr::json::getNumber<uint64_t>(channelInfo, "Buffer Size (Bytes)");
 
       // Get producer HiCR instance id
-      const auto producerId         = _deployr.getDeployment().getPairings().at(producer);
+      const auto producerId         = _deployr.getDeployment().getPairings().at(producerName);
       const auto producerInstanceId = _deployr.getDeployment().getHosts()[producerId].getInstanceId();
 
       // Getting consumer instance id
-      const auto consumerId         = _deployr.getDeployment().getPairings().at(consumer);
+      const auto consumerId         = _deployr.getDeployment().getPairings().at(consumerName);
       const auto consumerInstanceId = _deployr.getDeployment().getHosts()[consumerId].getInstanceId();
 
       // Creating channel object and increase channelId
       //TODO: for malleability check the channel type to be used
-      const auto channelObject = createChannel(channelId++, name, producerInstanceId, consumerInstanceId, bufferCapacity, bufferSize);
+      auto [producer, consumer] = createChannel(channelId++, name, producerInstanceId, consumerInstanceId, bufferCapacity, bufferSize);
 
       // Adding channel to map, only if defined
-      if (channelObject != nullptr) _channels[name] = channelObject;
+      if (producer != nullptr) _producers.emplace(name, std::move(producer));
+      if (consumer != nullptr) _consumers.emplace(name, std::move(consumer));
     }
-
-    // _deployr.runInitialFunction();
-    std::cout << "created channels" << std::endl;
   }
 
   void parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs)
@@ -355,12 +334,11 @@ class Engine final
     requestJs["Instances"] = newInstances;
   }
 
-  __INLINE__ std::pair<std::map<std::string, nlohmann::json>, std::map<std::string, nlohmann::json>> splitDependencies(const std::vector<nlohmann::json> &instancesJS)
+  __INLINE__ std::unordered_map<std::string, nlohmann::json> parseDependencies(const std::vector<nlohmann::json> &instancesJS)
   {
-    std::map<std::string, nlohmann::json> bufferedDependencies;
-    std::map<std::string, nlohmann::json> unbufferedDependencies;
+    std::unordered_map<std::string, nlohmann::json> dependencies;
 
-    // Get all the consumers first since they hold information on the dependency type
+    // Get the consumers
     for (const auto &instance : instancesJS)
     {
       const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
@@ -369,30 +347,14 @@ class Engine final
         const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
         for (const auto &input : inputs)
         {
-          const auto &inputName = hicr::json::getString(input, "Name");
-          if (input["Type"] == "Buffered")
-          {
-            bufferedDependencies[inputName]             = input;
-            bufferedDependencies[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-          }
-          else if (input["Type"] == "Unbuffered")
-          {
-            unbufferedDependencies[inputName]             = input;
-            unbufferedDependencies[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-          }
-          else
-          {
-            HICR_THROW_RUNTIME("Input %s defined in instance %s type not supported: %s",
-                               hicr::json::getString(input, "Name").c_str(),
-                               hicr::json::getString(instance, "Name").c_str(),
-                               hicr::json::getString(input, "Type").c_str());
-          }
+          const auto &inputName               = hicr::json::getString(input, "Name");
+          dependencies[inputName]             = input;
+          dependencies[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
         }
       }
     }
 
-    size_t bufferedProducersCount   = 0;
-    size_t unbufferedProducersCount = 0;
+    size_t producersCount = 0;
     for (const auto &instance : instancesJS)
     {
       const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
@@ -401,46 +363,28 @@ class Engine final
         const auto &outputs = hicr::json::getArray<nlohmann::json>(function, "Outputs");
         for (const auto &output : outputs)
         {
-          if (bufferedDependencies.contains(output))
+          if (dependencies.contains(output) == false)
           {
-            bufferedProducersCount++;
-            if (bufferedDependencies[output].contains("Producer"))
-            {
-              HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
-                                 output,
-                                 hicr::json::getString(bufferedDependencies[output], "Producer"),
-                                 hicr::json::getString(instance, "Name").c_str());
-            }
-            bufferedDependencies[output]["Producer"] = hicr::json::getString(instance, "Name");
+            HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]);
           }
-          else if (unbufferedDependencies.contains(output))
+
+          if (dependencies[output].contains("Producer"))
           {
-            unbufferedProducersCount++;
-            if (unbufferedDependencies[output].contains("Producer"))
-            {
-              HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
-                                 output,
-                                 hicr::json::getString(unbufferedDependencies[output], "Producer"),
-                                 hicr::json::getString(instance, "Name").c_str());
-            }
-            unbufferedDependencies[output]["Producer"] = hicr::json::getString(instance, "Name");
+            HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
+                               output,
+                               hicr::json::getString(dependencies[output], "Producer"),
+                               hicr::json::getString(instance, "Name").c_str());
           }
-          else { HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]); }
+
+          producersCount++;
+          dependencies[output]["Producer"] = hicr::json::getString(instance, "Name");
         }
       }
     }
 
     // Check set equality
-    if (bufferedProducersCount != bufferedDependencies.size())
-    {
-      HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", bufferedProducersCount, bufferedDependencies.size());
-    }
-    if (unbufferedProducersCount != unbufferedDependencies.size())
-    {
-      HICR_THROW_RUNTIME("Inconsistent unbuffered connections #producers: %zu #consumers: %zu", unbufferedProducersCount, unbufferedDependencies.size());
-    }
-
-    return {bufferedDependencies, unbufferedDependencies};
+    if (producersCount != dependencies.size()) { HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", producersCount, dependencies.size()); }
+    return dependencies;
   }
 
 #define SIZES_BUFFER_KEY 0
@@ -459,21 +403,19 @@ class Engine final
       * @param[in] producerIds Ids of the instances within the HiCR instance list to serve as producers
       * @param[in] consumerId Ids of the instance within the HiCR instance list to serve as consumer
       * @param[in] bufferCapacity The number of tokens that can be simultaneously held in the channel's buffer
-      * @param[in] bufferSize The size (bytes) of the buffer.abort
+      * @param[in] bufferSize The size (bytes) of the buffer.
       * @return A shared pointer of the newly created channel
       */
-  __INLINE__ std::shared_ptr<Channel> createChannel(const size_t      channelTag,
-                                                    const std::string channelName,
-                                                    const size_t      producerId,
-                                                    const size_t      consumerId,
-                                                    const size_t      bufferCapacity,
-                                                    const size_t      bufferSize)
+  __INLINE__ std::pair<std::unique_ptr<channel::channelProducerInterface_t>, std::unique_ptr<channel::channelConsumerInterface_t>> createChannel(const size_t      channelTag,
+                                                                                                                                                 const std::string channelName,
+                                                                                                                                                 const size_t      producerId,
+                                                                                                                                                 const size_t      consumerId,
+                                                                                                                                                 const size_t      bufferCapacity,
+                                                                                                                                                 const size_t      bufferSize)
   {
-    // printf("Creating channel %lu '%s', producer count: %lu (first: %lu), consumer %lu, bufferCapacity: %lu, bufferSize: %lu\n", channelTag, name.c_str(), producerIds.size(), producerIds.size() > 0 ? producerIds[0] : 0, consumerId, bufferCapacity, bufferSize);
-
     // Interfaces for the channel
-    std::shared_ptr<HiCR::channel::variableSize::MPSC::locking::Consumer> consumerInterface = nullptr;
-    std::shared_ptr<HiCR::channel::variableSize::MPSC::locking::Producer> producerInterface = nullptr;
+    std::unique_ptr<channel::channelConsumerInterface_t> consumerInterface = nullptr;
+    std::unique_ptr<channel::channelProducerInterface_t> producerInterface = nullptr;
 
     // Getting my local instance index
     auto localInstanceId = _instanceManager->getCurrentInstance()->getId();
@@ -552,15 +494,15 @@ class Engine final
       auto globalPayloadBuffer                   = _rpcEngine->getCommunicationManager()->getGlobalMemorySlot(channelTag, CONSUMER_PAYLOAD_KEY);
 
       // Creating producer and consumer channels
-      consumerInterface = std::make_shared<HiCR::channel::variableSize::MPSC::locking::Consumer>(*_rpcEngine->getCommunicationManager(),
-                                                                                                 globalPayloadBuffer,   /* payloadBuffer */
-                                                                                                 globalSizesBufferSlot, /* tokenSizeBuffer */
-                                                                                                 localCoordinationBufferForSizes,
-                                                                                                 localCoordinationBufferForPayloads,
-                                                                                                 consumerCoordinationBufferForSizes,
-                                                                                                 consumerCoordinationBufferForPayloads,
-                                                                                                 bufferSize,
-                                                                                                 bufferCapacity);
+      consumerInterface = std::make_unique<channel::channelConsumerInterface_t>(*_rpcEngine->getCommunicationManager(),
+                                                                                globalPayloadBuffer,   /* payloadBuffer */
+                                                                                globalSizesBufferSlot, /* tokenSizeBuffer */
+                                                                                localCoordinationBufferForSizes,
+                                                                                localCoordinationBufferForPayloads,
+                                                                                consumerCoordinationBufferForSizes,
+                                                                                consumerCoordinationBufferForPayloads,
+                                                                                bufferSize,
+                                                                                bufferCapacity);
     }
 
     // If I am producer, create the producer interface for the channel
@@ -587,133 +529,58 @@ class Engine final
       auto payloadBuffer                         = _rpcEngine->getCommunicationManager()->getGlobalMemorySlot(channelTag, CONSUMER_PAYLOAD_KEY);
 
       // Creating producer and consumer channels
-      producerInterface = std::make_shared<HiCR::channel::variableSize::MPSC::locking::Producer>(*_rpcEngine->getCommunicationManager(),
-                                                                                                 sizeInfoBuffer,
-                                                                                                 payloadBuffer,
-                                                                                                 sizesBuffer,
-                                                                                                 coordinationBufferForSizes,
-                                                                                                 coordinationBufferForPayloads,
-                                                                                                 consumerCoordinationBufferForSizes,
-                                                                                                 consumerCoordinationBufferForPayloads,
-                                                                                                 bufferSize,
-                                                                                                 sizeof(char),
-                                                                                                 bufferCapacity);
+      producerInterface = std::make_unique<channel::channelProducerInterface_t>(*_rpcEngine->getCommunicationManager(),
+                                                                                sizeInfoBuffer,
+                                                                                payloadBuffer,
+                                                                                sizesBuffer,
+                                                                                coordinationBufferForSizes,
+                                                                                coordinationBufferForPayloads,
+                                                                                consumerCoordinationBufferForSizes,
+                                                                                consumerCoordinationBufferForPayloads,
+                                                                                bufferSize,
+                                                                                sizeof(char),
+                                                                                bufferCapacity);
     }
 
-    return std::make_shared<Channel>(channelName, _rpcEngine->getMemoryManager(), bufferMemorySpace, consumerInterface, producerInterface);
+    return {std::move(producerInterface), std::move(consumerInterface)};
   }
 
-  //   // If I am consumer, create the consumer interface for the channel
-  //   if (isConsumer == true && isProducer == false)
-  //   {
-  //     // Getting required buffer sizes
-  //     auto sizesBufferSize = HiCR::channel::variableSize::Base::getTokenBufferSize(sizeof(size_t), bufferCapacity);
+  /**
+   * Retrieves one of the producer channels creates during deployment.
+   * 
+   * If the provided name is not registered for this instance, the function will produce an exception.
+   * 
+   * @param[in] name The channel name
+   * @return The requested producer
+   */
+  __INLINE__ std::unique_ptr<channel::channelProducerInterface_t> moveProducer(const std::string &name)
+  {
+    if (_producers.contains(name) == false)
+      HICR_THROW_LOGIC("Requested producer ('%s') is not defined for this instance ('%s')\n", name.c_str(), _deployr.getLocalInstance().getName().c_str());
 
-  //     // Allocating sizes buffer as a local memory slot
-  //     auto sizesBufferSlot = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, sizesBufferSize);
+    auto producer = std::move(_producers[name]);
+    _producers.erase(name);
 
-  //     // Allocating payload buffer as a local memory slot
-  //     auto payloadBufferSlot = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, bufferSize);
+    return producer;
+  }
 
-  //     // Getting required buffer size
-  //     auto coordinationBufferSize = HiCR::channel::variableSize::Base::getCoordinationBufferSize();
+  /**
+   * Retrieves one of the consumer channels creates during deployment.
+   * 
+   * If the provided name is not registered for this instance, the function will produce an exception.
+   * 
+   * @param[in] name The channel name
+   * @return The requested consumer
+   */
+  __INLINE__ std::unique_ptr<channel::channelConsumerInterface_t> moveConsumer(const std::string &name)
+  {
+    if (_consumers.contains(name) == false)
+      HICR_THROW_LOGIC("Requested consumer ('%s') is not defined for this instance ('%s')\n", name.c_str(), _deployr.getLocalInstance().getName().c_str());
 
-  //     // Allocating coordination buffer for internal message size metadata
-  //     auto coordinationBufferForSizes = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, coordinationBufferSize);
-
-  //     // Allocating coordination buffer for internal payload metadata
-  //     auto coordinationBufferForPayloads = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, coordinationBufferSize);
-
-  //     // Initializing coordination buffer (sets to zero the counters)
-  //     HiCR::channel::variableSize::Base::initializeCoordinationBuffer(coordinationBufferForSizes);
-
-  //     HiCR::channel::variableSize::Base::initializeCoordinationBuffer(coordinationBufferForPayloads);
-
-  //     // Exchanging local memory slots to become global for them to be used by the remote end
-  //     _communicationManager->exchangeGlobalMemorySlots(channelTag,
-  //                                                      {{SIZES_BUFFER_KEY, sizesBufferSlot},
-  //                                                       {CONSUMER_COORDINATION_BUFFER_FOR_SIZES_KEY, coordinationBufferForSizes},
-  //                                                       {CONSUMER_COORDINATION_BUFFER_FOR_PAYLOADS_KEY, coordinationBufferForPayloads},
-  //                                                       {CONSUMER_PAYLOAD_KEY, payloadBufferSlot}});
-
-  //     // Synchronizing so that all actors have finished registering their global memory slots
-  //     _communicationManager->fence(channelTag);
-
-  //     // Obtaining the globally exchanged memory slots
-  //     auto globalSizesBufferSlot                 = _communicationManager->getGlobalMemorySlot(channelTag, SIZES_BUFFER_KEY);
-  //     auto consumerCoordinationBufferForSizes    = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_COORDINATION_BUFFER_FOR_SIZES_KEY);
-  //     auto consumerCoordinationBufferForPayloads = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_COORDINATION_BUFFER_FOR_PAYLOADS_KEY);
-  //     auto globalPayloadBuffer                   = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_PAYLOAD_KEY);
-
-  //     // Creating producer and consumer channels
-  //     consumerInterface = std::make_shared<HiCR::channel::variableSize::MPSC::locking::Consumer>(*_communicationManager,
-  //                                                                                                globalPayloadBuffer,   /* payloadBuffer */
-  //                                                                                                globalSizesBufferSlot, /* tokenSizeBuffer */
-  //                                                                                                coordinationBufferForSizes,
-  //                                                                                                coordinationBufferForPayloads,
-  //                                                                                                consumerCoordinationBufferForSizes,
-  //                                                                                                consumerCoordinationBufferForPayloads,
-  //                                                                                                bufferSize,
-  //                                                                                                bufferCapacity);
-  //   }
-
-  //   // If I am producer, create the producer interface for the channel
-  //   if (isProducer == true && isConsumer == false)
-  //   {
-  //     // Getting required buffer size
-  //     auto coordinationBufferSize = HiCR::channel::variableSize::Base::getCoordinationBufferSize();
-
-  //     // Allocating sizes buffer as a local memory slot
-  //     auto coordinationBufferForSizes = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, coordinationBufferSize);
-
-  //     auto coordinationBufferForPayloads = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, coordinationBufferSize);
-
-  //     auto sizeInfoBuffer = _memoryManager->allocateLocalMemorySlot(_channelMemSpace, sizeof(size_t));
-
-  //     // Initializing coordination buffers for message sizes and payloads (sets to zero the counters)
-  //     HiCR::channel::variableSize::Base::initializeCoordinationBuffer(coordinationBufferForSizes);
-  //     HiCR::channel::variableSize::Base::initializeCoordinationBuffer(coordinationBufferForPayloads);
-
-  //     // Exchanging local memory slots to become global for them to be used by the remote end
-  //     _communicationManager->exchangeGlobalMemorySlots(channelTag, {});
-
-  //     // Synchronizing so that all actors have finished registering their global memory slots
-  //     _communicationManager->fence(channelTag);
-
-  //     // Obtaining the globally exchanged memory slots
-  //     auto sizesBuffer                           = _communicationManager->getGlobalMemorySlot(channelTag, SIZES_BUFFER_KEY);
-  //     auto consumerCoordinationBufferForSizes    = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_COORDINATION_BUFFER_FOR_SIZES_KEY);
-  //     auto consumerCoordinationBufferForPayloads = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_COORDINATION_BUFFER_FOR_PAYLOADS_KEY);
-  //     auto payloadBuffer                         = _communicationManager->getGlobalMemorySlot(channelTag, CONSUMER_PAYLOAD_KEY);
-
-  //     // Creating producer and consumer channels
-  //     producerInterface = std::make_shared<HiCR::channel::variableSize::MPSC::locking::Producer>(*_communicationManager,
-  //                                                                                                sizeInfoBuffer,
-  //                                                                                                payloadBuffer,
-  //                                                                                                sizesBuffer,
-  //                                                                                                coordinationBufferForSizes,
-  //                                                                                                coordinationBufferForPayloads,
-  //                                                                                                consumerCoordinationBufferForSizes,
-  //                                                                                                consumerCoordinationBufferForPayloads,
-  //                                                                                                bufferSize,
-  //                                                                                                sizeof(char),
-  //                                                                                                bufferCapacity);
-  //   }
-
-  //   if (isConsumer == true && isProducer == true) {}
-
-  //   // If I am not involved in this channel (neither consumer or producer, simply participate in the exchange)
-  //   if (isConsumer == false && isProducer == false)
-  //   {
-  //     // Exchanging local memory slots to become global for them to be used by the remote end
-  //     _communicationManager->exchangeGlobalMemorySlots(channelTag, {});
-
-  //     // Synchronizing so that all actors have finished registering their global memory slots
-  //     _communicationManager->fence(channelTag);
-  //   }
-
-  //   return std::make_shared<Channel>(channelName, _memoryManager, _channelMemSpace, consumerInterface, producerInterface);
-  // }
+    auto consumer = std::move(_consumers[name]);
+    _consumers.erase(name);
+    return consumer;
+  }
 
   __INLINE__ void entryPoint()
   {
@@ -748,9 +615,6 @@ class Engine final
 
     // Getting LLM engine configuration from request configuration
     _config = hicr::json::getObject(requestJs, "hLLM Configuration");
-
-    // Getting unbuffered dependencies
-    const auto &unbufferedDependencies = hicr::json::getObject(requestJs, "Unbuffered Dependencies");
 
     // Creating HWloc topology object
     hwloc_topology_t topology;
@@ -798,16 +662,6 @@ class Engine final
       if (instanceName == myInstanceName) myInstanceConfig = instance;
     }
 
-    // // Initialize unbuffered dependencies access map
-    // for (const auto &dependency : unbufferedDependencies)
-    // {
-    //   const auto &dependencyName = hicr::json::getString(dependency, "Name");
-    //   const auto &producer       = hicr::json::getString(dependency, "Producer");
-    //   const auto &consumer       = hicr::json::getString(dependency, "Consumer");
-
-    //   if (consumer == myInstanceName || producer == myInstanceName) { _unbufferedMemorySlotsAccessMap[dependencyName] = nullptr; }
-    // }
-
     // Getting relevant information
     const auto &executionGraph = hicr::json::getArray<nlohmann::json>(myInstanceConfig, "Execution Graph");
 
@@ -828,22 +682,18 @@ class Engine final
       }
 
       // Getting inputs and outputs
-      std::vector<std::pair<std::string, std::string>> inputs;
-      const auto                                      &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
+      std::unordered_map<std::string, channel::Producer> producers;
+      std::unordered_map<std::string, channel::Consumer> consumers;
+
+      const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
       for (const auto &inputJs : inputsJs)
       {
         const auto &inputName = hicr::json::getString(inputJs, "Name");
-        if (unbufferedDependencies.contains(inputName)) { inputs.push_back({inputName, "Unbuffered"}); }
-        else { inputs.push_back({inputName, "Buffered"}); }
+        consumers.try_emplace(inputName, inputName, _memoryManager, _channelMemSpace, moveConsumer(inputName));
       }
 
-      std::vector<std::pair<std::string, std::string>> outputs;
-      const auto                                      &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
-      for (const auto &outputName : outputsJs)
-      {
-        if (unbufferedDependencies.contains(outputName)) { outputs.push_back({outputName, "Unbuffered"}); }
-        else { outputs.push_back({outputName, "Buffered"}); }
-      }
+      const auto &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+      for (const auto &outputName : outputsJs) { producers.try_emplace(outputName, outputName, moveProducer(outputName)); }
 
       // Getting label for taskr function
       const auto taskLabel = taskrLabelCounter++;
@@ -856,7 +706,7 @@ class Engine final
       const auto &fc = _registeredFunctions[fcName];
 
       // Creating Engine Task object
-      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, inputs, outputs, std::move(taskrTask));
+      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, std::move(consumers), std::move(producers), std::move(taskrTask));
 
       // Adding task to the label->Task map
       _taskLabelMap.insert({taskLabel, newTask});
@@ -885,36 +735,12 @@ class Engine final
     printf("[hLLM] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
   }
 
-  __INLINE__ static bool isValueNull(const std::unordered_map<std::string, Channel::token_t *> &collection, const std::string &key) { return collection.at(key) == nullptr; }
-
   __INLINE__ void runTaskRFunction(taskr::Task *task)
   {
     const auto &taskLabel    = task->getLabel();
     const auto &taskObject   = _taskLabelMap.at(taskLabel);
     const auto &function     = taskObject->getFunction();
     const auto &functionName = taskObject->getName();
-    const auto &inputs       = taskObject->getInputs();
-    const auto &outputs      = taskObject->getOutputs();
-
-    // Resolving pointers to all the required input channels
-    // and gather unbuffered inputs
-    std::map<std::string, Channel *> inputChannels;
-    std::vector<std::string>         unbufferedInputs;
-    for (const auto &[input, type] : inputs)
-    {
-      if (type == "Buffered") { inputChannels[input] = &getChannel(input); }
-      else { unbufferedInputs.push_back(input); }
-    }
-
-    // Resolving pointers to all the required output channels
-    // and gather unbuffered outputs
-    std::map<std::string, Channel *> outputChannels;
-    std::vector<std::string>         unbufferedOutputs;
-    for (const auto &[output, type] : outputs)
-    {
-      if (type == "Buffered") { outputChannels[output] = &getChannel(output); }
-      else { unbufferedOutputs.push_back(output); }
-    }
 
     // Function to check for pending operations
     auto pendingOperationsCheck = [&]() {
@@ -922,22 +748,10 @@ class Engine final
       if (_continueRunning == false) return true;
 
       // The task is not ready if any of its inputs are not yet available
-      for (const auto &[_, inputChannel] : inputChannels)
-        if (inputChannel->isEmpty()) return false;
+      if (taskObject->checkInputsReadiness() == false) return false;
 
       // The task is not ready if any of its output channels are still full
-      for (const auto &[_, outputChannel] : outputChannels)
-        if (outputChannel->isFull()) return false;
-
-      // // The task is not ready if any of the unbuffered inputs are not available
-      // for (const auto &input : unbufferedInputs)
-      // {
-      //   if (isValueNull(_unbufferedMemorySlotsAccessMap, input) == true) return false;
-      // }
-
-      // // The task is not ready if any of the unbuffered outputs are available to be consumed
-      // for (const auto &output : unbufferedOutputs)
-      //   if (isValueNull(_unbufferedMemorySlotsAccessMap, output) == false) return false;
+      if (taskObject->checkOutputsReadiness() == false) return false;
 
       // All dependencies are satisfied, enable this task for execution
       return true;
@@ -956,80 +770,19 @@ class Engine final
       if (_continueRunning == false) break;
 
       // Inputs dependencies must be satisfied by now; getting them values
-      for (const auto &[input, type] : inputs)
-      {
-        Channel::token_t token;
-
-        // if (type == "Buffered")
-        // {
-        // Peeking token from input channel
-        token = inputChannels[input]->peek();
-        // }
-        // else
-        // {
-        //   // Get from unbuffered memory
-        //   token = *_unbufferedMemorySlotsAccessMap[input];
-
-        //   // Set to null the entry in the unbuffered map so new task will wait for the input to become available
-        //   _unbufferedMemorySlotsAccessMap[input] = nullptr;
-        // }
-        // Pushing token onto the task
-        taskObject->setInput(input, token);
-      }
+      taskObject->setInputs();
 
       // Actually run the function now
-      // printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
       function(taskObject.get());
 
       // Another exit point (the more the better)
       if (_continueRunning == false) break;
 
       // Checking input messages were properly consumed and popping the used token
-      for (const auto &[input, type] : inputs)
-      {
-        if (taskObject->hasInput(input) == true)
-        {
-          fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", functionName.c_str(), input.c_str());
-          abort();
-        }
-
-        // Popping consumed channel from channel
-        // if (type == "Buffered") {
-        // }
-        inputChannels[input]->pop();
-        //  }
-      }
+      taskObject->popInputs();
 
       // Validating and pushing output messages
-      for (const auto &[output, type] : outputs)
-      {
-        // Checking if output has been produced by the task
-        if (taskObject->hasOutput(output) == false)
-        {
-          fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", functionName.c_str(), output.c_str());
-          abort();
-        }
-
-        // Now getting output token
-        const auto outputToken = taskObject->getOutput(output);
-
-        // if (type == "Buffered")
-        // {
-        // Pushing token onto channel
-        if (outputChannels[output]->push(outputToken.buffer, outputToken.size) == false) { HICR_THROW_RUNTIME("Channel full"); }
-
-        // }
-        // else
-        // {
-        //   // Set token in unbuffered memory slots
-        //   if (_unbufferedMemorySlotsAccessMap.at(output) != nullptr)
-        //   {
-        //     HICR_THROW_RUNTIME("Output %s not null %s", output, (char *)_unbufferedMemorySlotsAccessMap[output]->buffer);
-        //   }
-        //   _unbufferedMemorySlotsPool[output]      = outputToken;
-        //   _unbufferedMemorySlotsAccessMap[output] = &_unbufferedMemorySlotsPool.at(output);
-        // }
-      }
+      taskObject->pushOutputs();
 
       // Clearing output token maps
       taskObject->clearOutputs();
@@ -1080,14 +833,9 @@ class Engine final
   // Initializing Pthreads-based compute manager to instantiate processing units
   HiCR::backend::pthreads::ComputeManager _pthreadsComputeManager;
 
-  /// Map of created channels
-  std::map<std::string, std::shared_ptr<Channel>> _channels;
-
-  // // Map storing pointers to access unbuffered memory slots
-  // std::unordered_map<std::string, Channel::token_t *> _unbufferedMemorySlotsAccessMap;
-
-  // // Map storing pointers to access unbuffered memory slots
-  // std::unordered_map<std::string, Channel::token_t> _unbufferedMemorySlotsPool;
+  /// Map of created producers and consumers
+  std::unordered_map<std::string, std::unique_ptr<channel::channelConsumerInterface_t>> _consumers;
+  std::unordered_map<std::string, std::unique_ptr<channel::channelProducerInterface_t>> _producers;
 }; // class Engine
 
 } // namespace hLLM
