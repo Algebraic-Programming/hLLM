@@ -130,6 +130,26 @@ class Engine final
 
   private:
 
+  //////////////////////////////// Configuration parsing
+
+  /**
+   * Parse instance information
+   * 
+   * @param[in] config hLLM configuration
+   * @param[out] requestJs The outoput configuration populated with instance information
+  */
+  void parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs);
+
+  /**
+   * Parse dependencies. Contains information on the channels to be created
+   * 
+   * @param instanceJs Instance information in JSON format
+   * 
+   * @return a map with the dependencies information in JSON format 
+  */
+  __INLINE__ std::unordered_map<std::string, nlohmann::json> parseDependencies(const std::vector<nlohmann::json> &instancesJS);
+
+  //////////////////////////////// Channels management
 
   /**
    * Retrieves one of the producer channels creates during deployment.
@@ -150,7 +170,6 @@ class Engine final
    * @return The requested consumer
    */
   __INLINE__ std::unique_ptr<channel::channelConsumerInterface_t> moveConsumer(const std::string &name);
-
 
   /**
   * Function to create all the channels based on the previously passed configuration
@@ -177,7 +196,8 @@ class Engine final
                                                                                                                                                  const size_t      bufferCapacity,
                                                                                                                                                  const size_t      bufferSize);
 
-  //TODO: not all the instances need the configuration. Find a way to pass channel data to all the other instances
+  // TODO: not all the instances need the configuration. Find a way to pass channel data to all the other instances
+  // TODO: move to main
   __INLINE__ void broadcastConfiguration()
   {
     if (_deployr.getCurrentInstance().isRootInstance() == true)
@@ -285,8 +305,7 @@ class Engine final
     const auto &dependencies = parseDependencies(instancesJs);
 
     // Add dependencies to request
-    auto dependenciesValues = dependencies | std::views::values;
-    requestJs["Channels"]   = std::vector<nlohmann::json>(dependenciesValues.begin(), dependenciesValues.end());
+    requestJs["Channels"] = dependencies;
 
     // Creating configuration for TaskR
     nlohmann::json taskrConfig;
@@ -299,7 +318,6 @@ class Engine final
     // Creating deployR request object
     auto deployrRequest = createDeployrRequest(requestJs);
 
-    std::cout << deployrRequest << std::endl;
     // Adding hLLM as metadata in the request object
     deployrRequest["hLLM Configuration"] = _config;
 
@@ -326,74 +344,6 @@ class Engine final
     }
   }
 
-  void parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs)
-  {
-    ////// Instances information
-    std::vector<nlohmann::json> newInstances;
-    for (const auto &instance : config["Instances"])
-    {
-      nlohmann::json newInstance;
-      newInstance["Name"]          = instance["Name"];
-      newInstance["Host Topology"] = instance["Host Topology"];
-      newInstance["Function"]      = _entryPointName;
-      newInstances.push_back(newInstance);
-    }
-    requestJs["Instances"] = newInstances;
-  }
-
-  __INLINE__ std::unordered_map<std::string, nlohmann::json> parseDependencies(const std::vector<nlohmann::json> &instancesJS)
-  {
-    std::unordered_map<std::string, nlohmann::json> dependencies;
-
-    // Get the consumers
-    for (const auto &instance : instancesJS)
-    {
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
-      {
-        const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
-        for (const auto &input : inputs)
-        {
-          const auto &inputName               = hicr::json::getString(input, "Name");
-          dependencies[inputName]             = input;
-          dependencies[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-        }
-      }
-    }
-
-    size_t producersCount = 0;
-    for (const auto &instance : instancesJS)
-    {
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
-      {
-        const auto &outputs = hicr::json::getArray<nlohmann::json>(function, "Outputs");
-        for (const auto &output : outputs)
-        {
-          if (dependencies.contains(output) == false)
-          {
-            HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]);
-          }
-
-          if (dependencies[output].contains("Producer"))
-          {
-            HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
-                               output,
-                               hicr::json::getString(dependencies[output], "Producer"),
-                               hicr::json::getString(instance, "Name").c_str());
-          }
-
-          producersCount++;
-          dependencies[output]["Producer"] = hicr::json::getString(instance, "Name");
-        }
-      }
-    }
-
-    // Check set equality
-    if (producersCount != dependencies.size()) { HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", producersCount, dependencies.size()); }
-    return dependencies;
-  }
-  
   __INLINE__ void entryPoint()
   {
     // Starting a new deployment
@@ -426,6 +376,7 @@ class Engine final
     const auto &requestJs = request.serialize();
 
     // Getting LLM engine configuration from request configuration
+    // TODO: maybe it is better to save the whole request, which holds also the channel informations
     _config = hicr::json::getObject(requestJs, "hLLM Configuration");
 
     // Creating HWloc topology object
@@ -468,9 +419,10 @@ class Engine final
     // Finding instance information on the configuration
     const auto    &instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
     nlohmann::json myInstanceConfig;
+    std::string    instanceName;
     for (const auto &instance : instancesJs)
     {
-      const auto &instanceName = hicr::json::getString(instance, "Name");
+      instanceName = hicr::json::getString(instance, "Name");
       if (instanceName == myInstanceName) myInstanceConfig = instance;
     }
 
@@ -497,15 +449,34 @@ class Engine final
       std::unordered_map<std::string, channel::Producer> producers;
       std::unordered_map<std::string, channel::Consumer> consumers;
 
+      const auto &channels = hicr::json::getObject(requestJs, "Channels");
+
       const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
       for (const auto &inputJs : inputsJs)
       {
-        const auto &inputName = hicr::json::getString(inputJs, "Name");
-        consumers.try_emplace(inputName, inputName, _memoryManager, _channelMemSpace, moveConsumer(inputName));
+        const auto &inputName            = hicr::json::getString(inputJs, "Name");
+        const auto &channel              = hicr::json::getObject(channels, inputName);
+        const auto &dependencyTypeString = hicr::json::getString(channel, "Type");
+
+        // Determine the dependency type
+        auto dependencyType = channel::buffered;
+        if (dependencyTypeString == "Unbuffered") { dependencyType = channel::unbuffered; }
+
+        consumers.try_emplace(inputName, inputName, _memoryManager, _channelMemSpace, dependencyType, moveConsumer(inputName));
       }
 
       const auto &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
-      for (const auto &outputName : outputsJs) { producers.try_emplace(outputName, outputName, moveProducer(outputName)); }
+      for (const auto &outputName : outputsJs)
+      {
+        const auto &channel              = hicr::json::getObject(channels, outputName);
+        const auto &dependencyTypeString = hicr::json::getString(channel, "Type");
+
+        // Determine the dependency type
+        auto dependencyType = channel::buffered;
+        if (dependencyTypeString == "Unbuffered") { dependencyType = channel::unbuffered; }
+
+        producers.try_emplace(outputName, outputName, _memoryManager, _channelMemSpace, dependencyType, moveProducer(outputName));
+      }
 
       // Getting label for taskr function
       const auto taskLabel = taskrLabelCounter++;
@@ -653,3 +624,4 @@ class Engine final
 } // namespace hLLM
 
 #include "channelCreationImpl.hpp"
+#include "parseConfigImpl.hpp"

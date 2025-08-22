@@ -47,11 +47,8 @@ void Engine::createChannels()
   // Create the channels
   auto channelId = 0;
 
-  for (const auto &channelInfo : hicr::json::getArray<nlohmann::json>(_config, "Channels"))
+  for (const auto &[name, channelInfo] : hicr::json::getObject(_config, "Channels").items())
   {
-    // Getting channel's name
-    const auto &name = hicr::json::getString(channelInfo, "Name");
-
     // Getting channel's producer
     const auto &producerName = hicr::json::getString(channelInfo, "Producer");
 

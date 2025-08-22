@@ -73,6 +73,7 @@
                     "Inputs": [
                         {
                             "Name": "Request",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 4096
                         }
@@ -130,6 +131,7 @@
                     "Inputs": [
                         {
                             "Name": "Decoded Request 1",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         }
@@ -186,6 +188,7 @@
                     "Inputs": [
                         {
                             "Name": "Decoded Request 2",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         }
@@ -199,6 +202,7 @@
                     "Inputs": [
                         {
                             "Name": "Pre-Transform Request Output",
+                            "Type": "Unbuffered",
                             "Buffer Capacity (Tokens)": 1,
                             "Buffer Size (Bytes)": 167772160
                         }
@@ -255,11 +259,13 @@
                     "Inputs": [
                         {
                             "Name": "Transformed Request 1",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         },
                         {
                             "Name": "Transformed Request 2",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         }
