@@ -4,6 +4,8 @@
 #include <hicr/core/memoryManager.hpp>
 #include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
 
+#include "definitions.hpp"
+
 namespace hLLM::channel
 {
 
@@ -23,16 +25,19 @@ class Consumer final
    * 
    * @param[in] channelName The name of the channel
    * @param[in] memoryManager The memory manager to use to reserve buffer memory
-   * @param[in] memorySpace The memory space to use to reserve buffer memory
+   * @param[in] memorySpace The memory space for registering received token
+   * @param[in] dependencyType The type of dependency the channel serves (i.e., buffered or unbuffered) 
    * @param[in] consumerInterface The interface for the consumer side of the channel
    */
   Consumer(const std::string                           channelName,
            HiCR::MemoryManager *const                  memoryManager,
            const std::shared_ptr<HiCR::MemorySpace>    memorySpace,
+           const dependencyType                        dependencyType,
            std::unique_ptr<channelConsumerInterface_t> consumerInterface)
     : _channelName(channelName),
       _memoryManager(memoryManager),
       _memorySpace(memorySpace),
+      _dependencyType(dependencyType),
       _consumerInterface(std::move(consumerInterface))
   {
     if (_consumerInterface == nullptr) { HICR_THROW_RUNTIME("Invalid consumer interface: nullptr"); }
@@ -61,8 +66,16 @@ class Consumer final
     auto   tokenBuffer = (uint8_t *)_consumerInterface->getPayloadBufferMemorySlot()->getSourceLocalMemorySlot()->getPointer();
     void  *tokenPtr    = &tokenBuffer[tokenPos];
 
-    // Returning a full message, as we succeeded
-    return _memoryManager->registerLocalMemorySlot(_memorySpace, tokenPtr, tokenSize);
+    auto tokenMemorySlot = _memoryManager->registerLocalMemorySlot(_memorySpace, tokenPtr, tokenSize);
+
+    // Returning a full message if dependency type is buffered, as we succeeded
+    if (_dependencyType == dependencyType::buffered) { return tokenMemorySlot; }
+
+    // If unbuffered, read the pointer, the size
+    unbufferedData_t *unbufferedData = static_cast<unbufferedData_t *>(tokenMemorySlot->getPointer());
+
+    // Register and return the memory slot
+    return _memoryManager->registerLocalMemorySlot(_memorySpace, unbufferedData->ptr, unbufferedData->size);
   }
 
   /**
@@ -113,6 +126,9 @@ class Consumer final
 
   /// Memory space to use for memory slot registration
   const std::shared_ptr<HiCR::MemorySpace> _memorySpace;
+
+  /// Dependency type
+  const dependencyType _dependencyType;
 
   /// HiCR Consumer interface
   const std::unique_ptr<channelConsumerInterface_t> _consumerInterface;
