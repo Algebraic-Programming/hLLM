@@ -37,45 +37,29 @@ class Engine final
 
   ~Engine() {}
 
-  __INLINE__ bool initialize()
+  __INLINE__ void initialize()
   {
     // Registering entry point function in DeployR
     _deployr.registerFunction(_entryPointName, [this]() { entryPoint(); });
 
-    // Register broadcast configuration function in hLLM
-    auto broadcastConfigurationExecutionUnit = HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) {
-      // Serializing configuration
-      const auto serializedConfiguration = _config.dump();
-
-      // Returning serialized configuration
-      _rpcEngine->submitReturnValue((void *)serializedConfiguration.c_str(), serializedConfiguration.size() + 1);
-    });
-    _rpcEngine->addRPCTarget(__HLLM_BROADCAST_CONFIGURATION, broadcastConfigurationExecutionUnit);
-
     // Initializing DeployR
     _deployr.initialize();
-
-    // Return whether the current instance is root
-    return _deployr.getCurrentInstance().isRootInstance();
   }
 
   __INLINE__ void deploy(const nlohmann::json &config)
   {
     // Storing configuration
-    _config = config;
+    _config = parseConfiguration(config);
 
     // Deploying
-    _deploy(_config);
+    if (_deployr.getCurrentInstance().isRootInstance()) _deploy(_config);
+
+    // Create channels
+    createChannels();
   }
 
   __INLINE__ void run()
   {
-    // Broadcast the config to all instances
-    broadcastConfiguration();
-
-    // Create channels
-    createChannels();
-
     // Start computation
     _deployr.runInitialFunction();
   }
@@ -196,40 +180,10 @@ class Engine final
                                                                                                                                                  const size_t      bufferCapacity,
                                                                                                                                                  const size_t      bufferSize);
 
-  // TODO: not all the instances need the configuration. Find a way to pass channel data to all the other instances
-  // TODO: move to main
-  __INLINE__ void broadcastConfiguration()
-  {
-    if (_deployr.getCurrentInstance().isRootInstance() == true)
-    {
-      // Listen for the incoming RPCs and return the hLLM configuration
-      for (size_t i = 0; i < _deployr.getInstances().size() - 1; ++i) _rpcEngine->listen();
-    }
-    else
-    {
-      auto &rootInstance = _deployr.getRootInstance();
-
-      // Request the root instance to send the configuration
-      _rpcEngine->requestRPC(rootInstance, __HLLM_BROADCAST_CONFIGURATION);
-
-      // Get the return value as a memory slot
-      auto returnValue = _rpcEngine->getReturnValue(rootInstance);
-
-      // Receive raw information from root
-      std::string serializedConfiguration = static_cast<char *>(returnValue->getPointer());
-
-      // Parse the configuration
-      _config = nlohmann::json::parse(serializedConfiguration);
-
-      // Free return value
-      _rpcEngine->getMemoryManager()->freeLocalMemorySlot(returnValue);
-    }
-  }
-
   __INLINE__ nlohmann::json createDeployrRequest(const nlohmann::json &requestJs)
   {
     // Getting the instance vector
-    const auto &instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
+    const auto &instancesJs = hicr::json::getArray<nlohmann::json>(requestJs["hLLM Configuration"], "Instances");
 
     // Creating deployR initial request
     nlohmann::json deployrRequestJs;
@@ -288,7 +242,7 @@ class Engine final
     doLocalTermination();
   }
 
-  __INLINE__ void _deploy(const nlohmann::json &config)
+  __INLINE__ nlohmann::json parseConfiguration(const nlohmann::json &config)
   {
     // Create request json
     nlohmann::json requestJs;
@@ -315,22 +269,25 @@ class Engine final
     taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
     taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
 
-    // Creating deployR request object
-    auto deployrRequest = createDeployrRequest(requestJs);
-
     // Adding hLLM as metadata in the request object
-    deployrRequest["hLLM Configuration"] = _config;
-
-    // Adding Deployr configuration
-    // deployrRequest["DeployR Configuration"] = deployrConfig;
+    requestJs["hLLM Configuration"] = config;
 
     // Adding taskr configuration
-    deployrRequest["TaskR Configuration"] = taskrConfig;
+    requestJs["TaskR Configuration"] = taskrConfig;
 
-    _config = deployrRequest;
+    requestJs["DeployR Configuration"] = createDeployrRequest(requestJs);
+
+    // Creating deployR request object
+    return requestJs;
+  }
+
+  __INLINE__ void _deploy(nlohmann::json &requestJs)
+  {
+    // Get DeployR configuration
+    const auto &deployrRequestJs = hicr::json::getObject(requestJs, "DeployR Configuration");
 
     // Creating request object
-    deployr::Request request(deployrRequest);
+    deployr::Request request(deployrRequestJs);
 
     // Deploying request
     try
@@ -366,18 +323,7 @@ class Engine final
     const auto &myInstance     = _deployr.getLocalInstance();
     const auto &myInstanceName = myInstance.getName();
 
-    // Getting deployment
-    const auto &deployment = _deployr.getDeployment();
-
-    // Getting request from deployment
-    const auto &request = deployment.getRequest();
-
-    // Getting request configuration from the request ibject
-    const auto &requestJs = request.serialize();
-
-    // Getting LLM engine configuration from request configuration
-    // TODO: maybe it is better to save the whole request, which holds also the channel informations
-    _config = hicr::json::getObject(requestJs, "hLLM Configuration");
+    const auto &hllmConfig = hicr::json::getObject(_config, "hLLM Configuration");
 
     // Creating HWloc topology object
     hwloc_topology_t topology;
@@ -410,14 +356,14 @@ class Engine final
     hwloc_topology_destroy(topology);
 
     // Creating taskr object
-    const auto &taskRConfig = hicr::json::getObject(requestJs, "TaskR Configuration");
+    const auto &taskRConfig = hicr::json::getObject(_config, "TaskR Configuration");
     _taskr                  = std::make_unique<taskr::Runtime>(&_boostComputeManager, &_pthreadsComputeManager, computeResources, taskRConfig);
 
     // Initializing TaskR
     _taskr->initialize();
 
     // Finding instance information on the configuration
-    const auto    &instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
+    const auto    &instancesJs = hicr::json::getArray<nlohmann::json>(hllmConfig, "Instances");
     nlohmann::json myInstanceConfig;
     std::string    instanceName;
     for (const auto &instance : instancesJs)
@@ -449,7 +395,7 @@ class Engine final
       std::unordered_map<std::string, channel::Producer> producers;
       std::unordered_map<std::string, channel::Consumer> consumers;
 
-      const auto &channels = hicr::json::getObject(requestJs, "Channels");
+      const auto &channels = hicr::json::getObject(_config, "Channels");
 
       const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
       for (const auto &inputJs : inputsJs)

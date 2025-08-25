@@ -1,8 +1,7 @@
 testSuite = ['examples', 'basic']
 
-basic = executable('basic', ['basic.cpp'], dependencies: hLLMBuildDep)
-
 if engine == 'mpi'
+	basic = executable('basic', ['mpi.cpp'], dependencies: hLLMBuildDep)
 	if get_option('buildTests')
 		test(
 			'basic',
@@ -19,6 +18,7 @@ if engine == 'mpi'
 endif
 
 if engine == 'cloudr'
+	basic = executable('basic', ['cloudr.cpp'], dependencies: hLLMBuildDep)
 	if get_option('buildTests')
 		test(
 			'basic',
