@@ -100,7 +100,7 @@
             ]
         },
         {
-            "Name": "Transformer 2",
+            "Name": "Pre Transformer 2",
             "Partition ID": 3,
             "Topology": [
                 {
@@ -133,13 +133,36 @@
                     "Outputs": [
                         "Pre-Transform Request Output"
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "Name": "Transformer 2",
+            "Partition ID": 7,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 2748779060,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
                 {
                     "Name": "Transform Request 2",
                     "Inputs": [
                         {
                             "Name": "Pre-Transform Request Output",
-                            "Type": "Unbuffered",
+                            "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 1,
                             "Buffer Size (Bytes)": 167772160
                         }

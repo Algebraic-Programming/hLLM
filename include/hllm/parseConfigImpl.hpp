@@ -5,73 +5,74 @@
 namespace hLLM
 {
 
-void Engine::parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs)
+__INLINE__ void Engine::validateConfiguration(const nlohmann::json &config)
 {
-  ////// Instances information
-  std::vector<nlohmann::json> newInstances;
-  for (const auto &instance : config["Instances"])
+  const auto &partitions = hicr::json::getArray<nlohmann::json>(config, "Partitions");
+
+  // Check partition id uniqueness
+  std::set<partitionId_t> seenPartitionIds;
+  for (const auto &partition : partitions)
   {
-    nlohmann::json newInstance;
-    newInstance["Name"]          = instance["Name"];
-    newInstance["Host Topology"] = instance["Host Topology"];
-    newInstance["Function"]      = _entryPointName;
-    newInstances.push_back(newInstance);
+    const auto &partitionId = hicr::json::getNumber<partitionId_t>(partition, "Partition ID");
+    if (seenPartitionIds.contains(partitionId)) { HICR_THROW_FATAL("The configuration has a duplicated partition ID: %lu", partitionId); }
   }
-  requestJs["Instances"] = newInstances;
 }
 
-__INLINE__ std::unordered_map<std::string, nlohmann::json> Engine::parseDependencies(const std::vector<nlohmann::json> &instancesJS)
+__INLINE__ std::unordered_map<std::string, nlohmann::json> Engine::parseDependencies(const std::vector<nlohmann::json> &partitionsJs)
 {
-  std::unordered_map<std::string, nlohmann::json> dependencies;
+  std::unordered_map<std::string, nlohmann::json> dependenciesMap;
 
   // Get the consumers
-  for (const auto &instance : instancesJS)
+  for (const auto &partition : partitionsJs)
   {
-    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
+    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(partition, "Execution Graph");
     for (const auto &function : executionGraph)
     {
       const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
       for (const auto &input : inputs)
       {
-        const auto &inputName   = hicr::json::getString(input, "Name");
-        dependencies[inputName] = input;
-        dependencies[inputName].erase("Name");
-        dependencies[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-        dependencies[inputName]["Type"]     = hicr::json::getString(input, "Type");
+        const auto &inputName      = hicr::json::getString(input, "Name");
+        dependenciesMap[inputName] = input;
+        dependenciesMap[inputName].erase("Name");
+        dependenciesMap[inputName]["Consumer"] = hicr::json::getNumber<partitionId_t>(partition, "Partition ID");
+        dependenciesMap[inputName]["Type"]     = hicr::json::getString(input, "Type");
       }
     }
   }
 
   size_t producersCount = 0;
-  for (const auto &instance : instancesJS)
+  for (const auto &partition : partitionsJs)
   {
-    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
+    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(partition, "Execution Graph");
     for (const auto &function : executionGraph)
     {
       const auto &outputs = hicr::json::getArray<nlohmann::json>(function, "Outputs");
       for (const auto &output : outputs)
       {
-        if (dependencies.contains(output) == false)
+        if (dependenciesMap.contains(output) == false)
         {
-          HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]);
+          HICR_THROW_RUNTIME("Producer %s defined in partition %s has no consumers defined", output.get<std::string>(), partition["Name"]);
         }
 
-        if (dependencies[output].contains("Producer"))
+        if (dependenciesMap[output].contains("Producer"))
         {
           HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
                              output,
-                             hicr::json::getString(dependencies[output], "Producer"),
-                             hicr::json::getString(instance, "Name").c_str());
+                             hicr::json::getNumber<partitionId_t>(dependenciesMap[output], "Producer"),
+                             hicr::json::getString(partition, "Name").c_str());
         }
 
         producersCount++;
-        dependencies[output]["Producer"] = hicr::json::getString(instance, "Name");
+        dependenciesMap[output]["Producer"] = hicr::json::getNumber<partitionId_t>(partition, "Partition ID");
       }
     }
   }
 
   // Check set equality
-  if (producersCount != dependencies.size()) { HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", producersCount, dependencies.size()); }
-  return dependencies;
+  if (producersCount != dependenciesMap.size())
+  {
+    HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", producersCount, dependenciesMap.size());
+  }
+  return dependenciesMap;
 }
 } // namespace hLLM

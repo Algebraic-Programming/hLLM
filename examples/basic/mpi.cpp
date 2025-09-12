@@ -2,12 +2,14 @@
 #include <thread>
 #include <fstream>
 
+#include <hicr/backends/hwloc/memoryManager.hpp>
+#include <hicr/backends/hwloc/topologyManager.hpp>
 #include <hicr/backends/mpi/instanceManager.hpp>
 #include <hicr/backends/mpi/communicationManager.hpp>
 #include <hicr/backends/mpi/memoryManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
+#include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
-#include <hicr/backends/hwloc/topologyManager.hpp>
 
 #include <hllm/engine.hpp>
 
@@ -15,6 +17,52 @@
 #include "requester.hpp"
 
 #define __BASIC_BROADCAST_CONFIGURATION_RPC "[Basic] Exchange Configuration"
+
+void broadcastConfigJson(std::shared_ptr<HiCR::frontend::RPCEngine> &rpcEngine,
+                         nlohmann::json_abi_v3_11_2::json           &configJs,
+                         const bool                                  isRoot,
+                         std::unique_ptr<HiCR::InstanceManager>     &instanceManager)
+{
+  // Register the RPC to exchange the JSON configuration
+  rpcEngine->addRPCTarget(__BASIC_BROADCAST_CONFIGURATION_RPC, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([&](void *) {
+                            // Serializing configuration
+                            const auto serializedConfiguration = configJs.dump();
+
+                            // Returning serialized configuration
+                            rpcEngine->submitReturnValue((void *)serializedConfiguration.c_str(), serializedConfiguration.size() + 1);
+                          }));
+
+  // Listen for the incoming RPCs and return the hLLM configuration
+  if (isRoot)
+  {
+    for (size_t i = 0; i < instanceManager->getInstances().size() - 1; ++i) rpcEngine->listen();
+  }
+  // Request the configuration from the root instance
+  else
+  {
+    // Find the root instance
+    HiCR::Instance *rootInstance = nullptr;
+    for (auto &instance : instanceManager->getInstances())
+    {
+      if (instance->isRootInstance()) { rootInstance = instance.get(); }
+    }
+
+    // Request the root instance to send the configuration
+    rpcEngine->requestRPC(rootInstance->getId(), __BASIC_BROADCAST_CONFIGURATION_RPC);
+
+    // Get the return value as a memory slot
+    auto returnValue = rpcEngine->getReturnValue();
+
+    // Receive raw information from root
+    std::string serializedConfiguration = static_cast<char *>(returnValue->getPointer());
+
+    // Parse the configuration
+    configJs = nlohmann::json::parse(serializedConfiguration);
+
+    // Free return value
+    rpcEngine->getMemoryManager()->freeLocalMemorySlot(returnValue);
+  }
+}
 
 int main(int argc, char *argv[])
 {
@@ -46,13 +94,15 @@ int main(int argc, char *argv[])
   auto computeResource = *computeResources.begin();
 
   // Getting MPI managers
-  auto instanceManager      = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
-  auto communicationManager = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
-  auto memoryManager        = std::make_shared<HiCR::backend::mpi::MemoryManager>();
-  auto computeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto instanceManager              = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
+  auto mpiCommunicationManager      = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
+  auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
+  auto computeManager               = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto pthreadsCommunicationManager = std::make_shared<HiCR::backend::pthreads::CommunicationManager>();
+  auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&topology);
 
   // Instantiate RPC Engine
-  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*communicationManager, *instanceManager, *memoryManager, *computeManager, bufferMemorySpace, computeResource);
+  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *computeManager, bufferMemorySpace, computeResource);
 
   // Initialize RPC Engine
   rpcEngine->initialize();
@@ -79,51 +129,22 @@ int main(int argc, char *argv[])
     configJs = nlohmann::json::parse(ifs);
   }
 
-  // Register the RPC to exchange the JSON configuration
-  rpcEngine->addRPCTarget(__BASIC_BROADCAST_CONFIGURATION_RPC, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([&](void *) {
-                            // Serializing configuration
-                            const auto serializedConfiguration = configJs.dump();
-
-                            // Returning serialized configuration
-                            rpcEngine->submitReturnValue((void *)serializedConfiguration.c_str(), serializedConfiguration.size() + 1);
-                          }));
-
-  // Listen for the incoming RPCs and return the hLLM configuration
-  if (isRoot)
-  {
-    for (size_t i = 0; i < instanceManager->getInstances().size() - 1; ++i) rpcEngine->listen();
-  }
-  // Request the configuration from the root instance
-  else
-  {
-    // Find the root instance
-    HiCR::Instance *rootInstance = nullptr;
-    for (auto &instance : instanceManager->getInstances())
-    {
-      if (instance->isRootInstance()) { rootInstance = instance.get(); }
-    }
-
-    // Request the root instance to send the configuration
-    rpcEngine->requestRPC(*rootInstance, __BASIC_BROADCAST_CONFIGURATION_RPC);
-
-    // Get the return value as a memory slot
-    auto returnValue = rpcEngine->getReturnValue(*rootInstance);
-
-    // Receive raw information from root
-    std::string serializedConfiguration = static_cast<char *>(returnValue->getPointer());
-
-    // Parse the configuration
-    configJs = nlohmann::json::parse(serializedConfiguration);
-
-    // Free return value
-    rpcEngine->getMemoryManager()->freeLocalMemorySlot(returnValue);
-  }
+  // Send the configuration to all the other instances
+  broadcastConfigJson(rpcEngine, configJs, isRoot, instanceManager);
 
   // Creating hLLM Engine object
-  hLLM::Engine engine(instanceManager.get(), communicationManager.get(), memoryManager.get(), rpcEngine.get(), bufferMemorySpace);
+  hLLM::Engine engine(instanceManager.get(),
+                      mpiCommunicationManager.get(),
+                      pthreadsCommunicationManager.get(),
+                      mpiMemoryManager.get(),
+                      hwlocMemoryManager.get(),
+                      rpcEngine.get(),
+                      bufferMemorySpace,
+                      bufferMemorySpace,
+                      t);
 
   // Create hLLM tasks for the application
-  createTasks(engine, memoryManager.get(), bufferMemorySpace);
+  createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
 
   // Instantiating request server (emulates live users)
   size_t requestCount   = 32;
@@ -131,14 +152,11 @@ int main(int argc, char *argv[])
   initializeRequestServer(&engine, requestCount);
   auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
 
-  // Initializing LLM engine
-  engine.initialize();
+  // Initializing LLM engine with deployer id 0
+  engine.initialize(0);
 
   // Deploy all LLM Engine instances
   engine.deploy(configJs);
-
-  // Run the engine
-  engine.run();
 
   // Waiting for request server to finish producing requests
   printf("[basic.cpp] Waiting for request engine thread to come back...\n");
@@ -147,4 +165,8 @@ int main(int argc, char *argv[])
   // Finalizing LLM engine
   printf("[basic.cpp] Finalizing...\n");
   engine.finalize();
+
+  printf("[basic.cpp] Finalizing Instance Manager...\n");
+  // Finalize Instance Manager
+  instanceManager->finalize();
 }
