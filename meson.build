@@ -9,14 +9,14 @@ project(
 
 hLLMDependencies = []
 
-# Getting selected distributed engine
+# Getting selected distributed engines
 
-engine = get_option('engine')
+engines = get_option('engines')
 
 ####### Getting HiCR dependency
 
 HiCRDistributedBackend = []
-if engine == 'cloudr' or engine == 'mpi'
+if 'cloudr' in engines or 'mpi' in engines
   HiCRDistributedBackend = ['mpi']
 endif
 
@@ -30,13 +30,13 @@ HiCRProject = subproject(
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
 hLLMDependencies += HiCRBuildDep
 
-if engine == 'cloudr' or engine == 'mpi'
+if 'cloudr' in engines or 'mpi' in engines
   mpirunExecutable = HiCRProject.get_variable('mpirunExecutable')
 endif
 
 ####### Getting DeployR dependency
 
-DeployRProject = subproject('DeployR', required: true, default_options: ['engine=' + engine])
+DeployRProject = subproject('DeployR', required: true, default_options: ['engines=' + ','.join(engines)])
 DeployRBuildDep = DeployRProject.get_variable('DeployRBuildDep')
 hLLMDependencies += DeployRBuildDep
 
