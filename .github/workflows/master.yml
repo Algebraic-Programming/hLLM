@@ -4,7 +4,7 @@ name: Merge into master - Build and Run Tests
 
 on:
   push:
-    branches: ["master"]
+    branches: ["main"]
 
 env:
   REGISTRY: ghcr.io
@@ -12,13 +12,13 @@ env:
 
 jobs:
   compile-and-test-arm64:
-    uses: Algebraic-Programming/hLLM/.github/workflows/master-test-workflow.yml@master
+    uses: Algebraic-Programming/hLLM/.github/workflows/master-test-workflow.yml@main
     with:
       os: ubuntu-24.04-arm
       arch: arm64
 
   compile-and-test-amd64:
-    uses: Algebraic-Programming/hLLM/.github/workflows/master-test-workflow.yml@master
+    uses: Algebraic-Programming/hLLM/.github/workflows/master-test-workflow.yml@main
     with:
       os: ubuntu-24.04
       arch: amd64

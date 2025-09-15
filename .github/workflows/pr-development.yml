@@ -4,7 +4,7 @@ name: PR development - Build and Run Tests
 
 on:
   pull_request:
-    branches: ["master"]
+    branches: ["main"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -13,13 +13,13 @@ concurrency:
 
 jobs:
   ci-arm64:
-    uses: Algebraic-Programming/hLLM/.github/workflows/pr-development-workflow.yml@master
+    uses: Algebraic-Programming/hLLM/.github/workflows/pr-development-workflow.yml@main
     with:
       os: ubuntu-24.04-arm
       arch: arm64
   
   ci-amd64:
-    uses: Algebraic-Programming/hLLM/.github/workflows/pr-development-workflow.yml@master
+    uses: Algebraic-Programming/hLLM/.github/workflows/pr-development-workflow.yml@main
     with:
       os: ubuntu-24.04
       arch: amd64
