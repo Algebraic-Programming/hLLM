@@ -88,13 +88,6 @@ void Engine::createChannels(HiCR::CommunicationManager         &bufferedCommunic
     // Getting buffer size (bytes)
     const auto &bufferSize = hicr::json::getNumber<uint64_t>(dependency, "Buffer Size (Bytes)");
 
-    if (_instanceManager->getCurrentInstance()->isRootInstance())
-    {
-      std::cout << "[Partition " << _partitionId << " ] Creating unbuffered channel " << name << " between " << producerPartitionId << " and " << consumerPartitionId << std::endl;
-    }
-
-    auto e = dynamic_cast<HiCR::backend::pthreads::CommunicationManager *>(&unbufferedCommunicationManager);
-    if (e == nullptr) HICR_THROW_RUNTIME("AAA");
     // Creating channel object and increase channelId
     //TODO: for malleability check the channel type to be used
     auto [producer, consumer] = createChannel(channelId++,
@@ -110,10 +103,6 @@ void Engine::createChannels(HiCR::CommunicationManager         &bufferedCommunic
     // Adding channel to map, only if defined
     if (producer != nullptr) _producers.emplace(name, std::move(producer));
     if (consumer != nullptr) _consumers.emplace(name, std::move(consumer));
-    if (_instanceManager->getCurrentInstance()->isRootInstance())
-    {
-      std::cout << "[Partition " << _partitionId << " ] Created channel " << name << " between " << producerPartitionId << " and " << consumerPartitionId << std::endl;
-    }
   }
 
   for (const auto &name : bufferedDependencies)

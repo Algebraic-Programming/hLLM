@@ -27,7 +27,7 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
     printf("Request %lu received.\n", requestId);
 
     // Create and register request as output
-    requestOutput = std::string("This is request ") + std::to_string(requestId);
+    requestOutput             = std::string("This is request ") + std::to_string(requestId);
     const auto requestMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, requestOutput.data(), requestOutput.size() + 1);
     task->setOutput("Request", requestMemSlot);
   });

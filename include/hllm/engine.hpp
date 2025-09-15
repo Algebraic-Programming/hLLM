@@ -353,7 +353,6 @@ class Engine final
         if (runnerId == _deployr.getRunnerId())
         {
           _partitionId = partitionId;
-          std::cout << "[Instance " << _instanceManager->getCurrentInstance()->getId() << "] Runner: " << _deployr.getRunnerId() << " Partition: " << _partitionId << std::endl;
         }
       }
 
@@ -370,7 +369,6 @@ class Engine final
     {
       _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_PARTITION_ID);
       _partitionId = *((partitionId_t *)_rpcEngine->getReturnValue()->getPointer());
-      std::cout << "[Instance " << _instanceManager->getCurrentInstance()->getId() << "] Runner: " << _deployr.getRunnerId() << " Partition: " << _partitionId << std::endl;
     }
   }
 
@@ -490,8 +488,6 @@ class Engine final
           memorySpace    = _unbufferedMemorySpace;
         }
 
-        std::cout << "Consumer Channel " << inputName << " in " << functionJs["Name"] << " is " << dependencyTypeString << std::endl;
-
         consumers.try_emplace(inputName, inputName, memoryManager, memorySpace, dependencyType, moveConsumer(inputName));
       }
 
@@ -511,7 +507,6 @@ class Engine final
           memoryManager  = _unbufferedMemoryManager;
           memorySpace    = _unbufferedMemorySpace;
         }
-        std::cout << "Producer Channel " << outputName << " in " << functionJs["Name"] << " is " << dependencyTypeString << std::endl;
         producers.try_emplace(outputName, outputName, memoryManager, memorySpace, dependencyType, moveProducer(outputName));
       }
 
