@@ -10,35 +10,73 @@
 #include <hicr/backends/hwloc/topologyManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
+
 #include "task.hpp"
+
+#define __HLLM_BROADCAST_CONFIGURATION "[hLLM] Broadcast Configuration"
 
 namespace hLLM
 {
+
+typedef uint64_t partitionId_t;
 
 class Engine final
 {
   public:
 
-  Engine() {}
+  Engine(HiCR::InstanceManager             *instanceManager,
+         HiCR::CommunicationManager        *bufferedCommunicationManager,
+         HiCR::CommunicationManager        *unbufferedCommunicationManager,
+         HiCR::MemoryManager               *bufferedMemoryManager,
+         HiCR::MemoryManager               *unbufferedMemoryManager,
+         HiCR::frontend::RPCEngine         *rpcEngine,
+         std::shared_ptr<HiCR::MemorySpace> bufferedMemorySpace,
+         std::shared_ptr<HiCR::MemorySpace> unbufferedMemorySpace,
+         const HiCR::Topology              &localTopology)
+    : _deployr(instanceManager, rpcEngine, localTopology),
+      _instanceManager(instanceManager),
+      _bufferedCommunicationManager(bufferedCommunicationManager),
+      _unbufferedCommunicationManager(unbufferedCommunicationManager),
+      _bufferedMemoryManager(bufferedMemoryManager),
+      _unbufferedMemoryManager(unbufferedMemoryManager),
+      _rpcEngine(rpcEngine),
+      _bufferedMemorySpace(bufferedMemorySpace),
+      _unbufferedMemorySpace(unbufferedMemorySpace)
+  {}
 
   ~Engine() {}
 
-  __INLINE__ bool initialize(int *pargc, char ***pargv)
+  __INLINE__ void initialize(HiCR::Instance::instanceId_t deployerInstanceId)
   {
-    // Registering entry point function
+    // Store the id of the coordinator partition
+    _deployerInstanceId = deployerInstanceId;
+
+    // Registering entry point function in DeployR
     _deployr.registerFunction(_entryPointName, [this]() { entryPoint(); });
 
     // Initializing DeployR
-    return _deployr.initialize(pargc, pargv);
+    _deployr.initialize();
   }
 
-  __INLINE__ void run(const nlohmann::json &config)
+  __INLINE__ void deploy(const nlohmann::json &config)
   {
+    // Validate configuration
+    validateConfiguration(config);
+
     // Storing configuration
-    _config = config;
+    _config = parseConfiguration(config);
+
+    // Get global Topology
+    gatherGlobalTopology();
+
+    // Broadcast the global topology to everyone else
+    // broadcastGlobalTopology();
+
+    // Sort partitions according to the partition id that serves as a priority
+    sortPartitions(_config["Partitions"], "Partition ID");
 
     // Deploying
-    deploy(_config);
+    _deploy(hicr::json::getArray<nlohmann::json>(_config, "Partitions"));
   }
 
   __INLINE__ void abort() { _deployr.abort(); }
@@ -48,7 +86,7 @@ class Engine final
    * 
    * If a requested initial function is not registered by this function, deployment will fail.
    * 
-   * @param[in] functionName The name of the function to register. This value will be used to match against the requested instance functions
+   * @param[in] functionName The name of the function to register. This value will be used to match against the requested partition functions
    * @param[in] fc The actual function to register
    * 
    */
@@ -67,113 +105,139 @@ class Engine final
 
   __INLINE__ void terminate()
   {
-    const auto &currentInstance = _deployr.getCurrentInstance();
-    auto       &rootInstance    = _deployr.getRootInstance();
+    const auto &currentInstance = _deployr.getCurrentHiCRInstance();
 
-    // If I am the root instance, broadcast termination directly
-    if (currentInstance.isRootInstance() == true) broadcastTermination();
+    // If I am the deployer instance, broadcast termination directly
+    if (currentInstance.getId() == _deployerInstanceId) broadcastTermination();
 
-    // If I am not the root instance, request the root to please broadcast termination
-    if (currentInstance.isRootInstance() == false)
-    {
-      printf("[hLLM] Instance %lu requesting root instance %lu to finish execution.\n", currentInstance.getId(), rootInstance.getId());
-      _rpcEngine->requestRPC(rootInstance, _requestStopRPCName);
-    }
+    // If I am not the deployer instance, request the deployer to please broadcast terminationp
+    printf("[hLLM] Instance %lu requesting deployer instance %lu to finish execution.\n", currentInstance.getId(), _deployerInstanceId);
+    _rpcEngine->requestRPC(_deployerInstanceId, _requestStopRPCName);
   }
 
   __INLINE__ void finalize()
   {
     // Finished execution, then finish deployment
-    const auto &currentInstance = _deployr.getCurrentInstance();
+    const auto &currentInstance = _deployr.getCurrentHiCRInstance();
     printf("[hLLM] Instance %lu finalizing deployr.\n", currentInstance.getId());
     _deployr.finalize();
   }
 
   private:
 
-  __INLINE__ nlohmann::json createDeployrRequest(const nlohmann::json &requestJs)
-  {
-    // Getting the instance vector
-    const auto &instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
+  //////////////////////////////// Configuration parsing
 
-    // Creating deployR initial request
-    nlohmann::json deployrRequestJs;
-    deployrRequestJs["Name"] = requestJs["Name"];
+  /**
+   * Validate the configuration
+   * 
+   * @param[in] config hLLM configuration
+  */
+  __INLINE__ static void validateConfiguration(const nlohmann::json_abi_v3_11_2::json &config);
 
-    // Adding a different host type and instance entries per instance requested
-    auto hostTypeArray = nlohmann::json::array();
-    auto instanceArray = nlohmann::json::array();
-    for (const auto &instance : instancesJs)
-    {
-      const auto &instanceName = hicr::json::getString(instance, "Name");
-      const auto &hostTypeName = instanceName + std::string(" Host Type");
+  /**
+   * Parse dependencies. Contains information on the dependencies to be created
+   * 
+   * @param instanceJs Instance information in JSON format
+   * 
+   * @return a map with the dependencies information in JSON format 
+  */
+  __INLINE__ std::unordered_map<std::string, nlohmann::json> parseDependencies(const std::vector<nlohmann::json> &instancesJS);
 
-      // Creating host type entry
-      nlohmann::json hostType;
-      hostType["Name"]                = instanceName + std::string(" Host Type");
-      hostType["Topology"]["Devices"] = instance["Host Topology"];
-      hostTypeArray.push_back(hostType);
+  //////////////////////////////// Channels management
 
-      // Creating instance entry
-      nlohmann::json newInstance;
-      newInstance["Name"]      = instanceName;
-      newInstance["Host Type"] = hostTypeName;
-      newInstance["Function"]  = _entryPointName;
-      instanceArray.push_back(newInstance);
-    }
-    deployrRequestJs["Host Types"]              = hostTypeArray;
-    deployrRequestJs["Instances"]               = instanceArray;
-    deployrRequestJs["Channels"]                = requestJs["Channels"];
-    deployrRequestJs["Unbuffered Dependencies"] = requestJs["Unbuffered Dependencies"];
+  /**
+   * Retrieves one of the producer channels creates during deployment.
+   * 
+   * If the provided name is not registered for this partition, the function will produce an exception.
+   * 
+   * @param[in] name The channel name
+   * @return The requested producer
+   */
+  __INLINE__ std::unique_ptr<channel::channelProducerInterface_t> moveProducer(const std::string &name);
 
-    return deployrRequestJs;
-  }
+  /**
+   * Retrieves one of the consumer channels creates during deployment.
+   * 
+   * If the provided name is not registered for this partition, the function will produce an exception.
+   * 
+   * @param[in] name The channel name
+   * @return The requested consumer
+   */
+  __INLINE__ std::unique_ptr<channel::channelConsumerInterface_t> moveConsumer(const std::string &name);
+
+  /**
+  * Function to create all the channels based on the previously passed configuration
+  * */
+  void createChannels(HiCR::CommunicationManager         &bufferedCommunicationManager,
+                      HiCR::MemoryManager                &bufferedMemoryManager,
+                      std::shared_ptr<HiCR::MemorySpace> &bufferedMemorySpace,
+                      HiCR::CommunicationManager         &unbufferedCommunicationManager,
+                      HiCR::MemoryManager                &unbufferedMemoryManager,
+                      std::shared_ptr<HiCR::MemorySpace> &unbufferedMemorySpace);
+
+  /**
+      * Function to create a variable-sized token locking channel between N producers and 1 consumer
+      *
+      * @note This is a collective operation. All instances must participate in this call, even if they don't play a producer or consumer role
+      *
+      * @param[in] channelTag The unique identifier for the channel. This tag should be unique for each channel
+      * @param[in] channelName The name of the channel. This will be the identifier used to retrieve the channel
+      * @param[in] isProducer whether a producer should be created
+      * @param[in] isConsumer whether a consumer should be created
+      * @param[in] bufferCapacity The number of tokens that can be simultaneously held in the channel's buffer
+      * @param[in] bufferSize The size (bytes) of the buffer.
+      * @return A shared pointer of the newly created channel
+      */
+  __INLINE__ std::pair<std::unique_ptr<channel::channelProducerInterface_t>, std::unique_ptr<channel::channelConsumerInterface_t>> createChannel(
+    const size_t                        channelTag,
+    const std::string                   channelName,
+    const bool                          isProducer,
+    const bool                          isConsumer,
+    HiCR::CommunicationManager         &communicationManager,
+    HiCR::MemoryManager                &memoryManager,
+    std::shared_ptr<HiCR::MemorySpace> &memorySpace,
+    const size_t                        bufferCapacity,
+    const size_t                        bufferSize);
 
   __INLINE__ void doLocalTermination()
   {
+    printf("[hLLM] Instance %lu terminating TaskR...\n", _deployerInstanceId);
     // Stopping the execution of the current and new tasks
     _continueRunning = false;
     _taskr->forceTermination();
+    printf("[hLLM] Instance %lu terminated TaskR.\n", _deployerInstanceId);
   }
 
   __INLINE__ void broadcastTermination()
   {
-    if (_deployr.getCurrentInstance().isRootInstance() == false) HICR_THROW_RUNTIME("Only the root instance can broadcast termination");
+    if (_deployr.getCurrentHiCRInstance().getId() != _deployerInstanceId) HICR_THROW_RUNTIME("Only the deployer instance %lu can broadcast termination", _deployerInstanceId);
 
     // Send a finalization signal to all other non-root instances
-    const auto &currentInstance = _deployr.getCurrentInstance();
-    auto        instances       = _deployr.getInstances();
+    auto &instances = _instanceManager->getInstances();
     for (auto &instance : instances)
-      if (instance->getId() != currentInstance.getId())
+      if (instance->getId() != _deployerInstanceId)
       {
-        printf("[hLLM] Instance %lu sending stop RPC to instance %lu.\n", instance->getId(), currentInstance.getId());
-        _rpcEngine->requestRPC(*instance, _stopRPCName);
+        printf("[hLLM] Instance %lu sending stop RPC to instance %lu.\n", _deployerInstanceId, instance->getId());
+        _rpcEngine->requestRPC(instance->getId(), _stopRPCName);
       }
 
-    // (Root) Executing local termination myself now
+    // (deployer) Executing local termination myself now
     doLocalTermination();
   }
 
-  __INLINE__ void deploy(const nlohmann::json &config)
+  __INLINE__ nlohmann::json parseConfiguration(const nlohmann::json &config)
   {
-    // Create request json
-    nlohmann::json requestJs;
+    // Copy the configuration
+    nlohmann::json parsedConfig = config;
 
-    // Some information can be passed directly
-    requestJs["Name"] = config["Name"];
+    // Getting the partitions vector
+    const auto &partitionsJs = hicr::json::getArray<nlohmann::json>(parsedConfig, "Partitions");
 
-    parseInstances(config, requestJs);
+    // Extract dependencies
+    const auto &dependencies = parseDependencies(partitionsJs);
 
-    // Getting the instance vector
-    const auto &instancesJs = hicr::json::getArray<nlohmann::json>(config, "Instances");
-
-    // Extract buffered and unbuffered dependencies
-    const auto &[bufferedDependencies, unbufferedDependencies] = splitDependencies(instancesJs);
-
-    // Add buffered and unbuffered dependencies
-    auto bufferedDependenciesValues      = bufferedDependencies | std::views::values;
-    requestJs["Channels"]                = std::vector<nlohmann::json>(bufferedDependenciesValues.begin(), bufferedDependenciesValues.end());
-    requestJs["Unbuffered Dependencies"] = unbufferedDependencies;
+    // Add dependencies to request
+    parsedConfig["Dependencies"] = dependencies;
 
     // Creating configuration for TaskR
     nlohmann::json taskrConfig;
@@ -183,25 +247,69 @@ class Engine final
     taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
     taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
 
-    // Creating deployR request object
-    auto deployrRequest = createDeployrRequest(requestJs);
-
-    // Adding hLLM as metadata in the request object
-    deployrRequest["hLLM Configuration"] = _config;
-
-    // Adding Deployr configuration
-    // deployrRequest["DeployR Configuration"] = deployrConfig;
-
     // Adding taskr configuration
-    deployrRequest["TaskR Configuration"] = taskrConfig;
+    parsedConfig["TaskR Configuration"] = taskrConfig;
 
-    // Creating request object
-    deployr::Request request(deployrRequest);
+    // Creating deployR request object
+    return parsedConfig;
+  }
+
+  __INLINE__ void sortPartitions(nlohmann::json &partitions, std::string field)
+  {
+    // Sort according to partition Id
+    std::sort(partitions.begin(), partitions.end(), [&](const nlohmann::json &a, const nlohmann::json &b) {
+      return hicr::json::getNumber<partitionId_t>(a, field) < hicr::json::getNumber<partitionId_t>(b, field);
+    });
+  }
+
+  __INLINE__ void gatherGlobalTopology()
+  {
+    std::vector<HiCR::Instance::instanceId_t> instanceIds;
+    for (const auto &instance : _instanceManager->getInstances()) instanceIds.push_back(instance->getId());
+    _globalTopology = _deployr.gatherGlobalTopology(_instanceManager->getRootInstanceId(), instanceIds);
+  }
+
+  __INLINE__ void _deploy(const std::vector<nlohmann::json> &partitionRequestsJs)
+  {
+    bool isDeployer = _instanceManager->getCurrentInstance()->getId() == _deployerInstanceId;
+
+    // If am the one designated to coordinate the deployment
+    if (isDeployer)
+    {
+      // Getting requested topologies from the json file
+      std::vector<HiCR::Topology> requestedTopologies;
+
+      // Parse the single topologies
+      for (const auto &partition : partitionRequestsJs) { requestedTopologies.push_back(HiCR::Topology(partition["Topology"])); }
+
+      // Determine best pairing between the detected instances
+      const auto matching = deployr::DeployR::doBipartiteMatching(requestedTopologies, _globalTopology);
+
+      // Check matching
+      if (matching.size() != requestedTopologies.size())
+      {
+        fprintf(stderr, "Error: The provided instances do not have the sufficient hardware resources to run this job.\n");
+        abort();
+      }
+
+      // Creating the runner objects
+      for (size_t i = 0; i < partitionRequestsJs.size(); i++)
+      {
+        // Get partition data
+        const auto &partition = partitionRequestsJs[i];
+
+        // Add runner to deployment
+        _deployment.addRunner(deployr::Runner(i, _entryPointName, matching[i]));
+
+        // Populate the partition runner map
+        _partitionRunnerIdMap[hicr::json::getNumber<partitionId_t>(partition, "Partition ID")] = i;
+      }
+    }
 
     // Deploying request
     try
     {
-      _deployr.deploy(request);
+      _deployr.deploy(_deployment, _deployerInstanceId);
     }
     catch (const std::exception &e)
     {
@@ -210,102 +318,83 @@ class Engine final
     }
   }
 
-  void parseInstances(const nlohmann::json_abi_v3_11_2::json &config, nlohmann::json_abi_v3_11_2::json &requestJs)
-  {
-    ////// Instances information
-    std::vector<nlohmann::json> newInstances;
-    for (const auto &instance : config["Instances"])
-    {
-      nlohmann::json newInstance;
-      newInstance["Name"]          = instance["Name"];
-      newInstance["Host Topology"] = instance["Host Topology"];
-      newInstance["Function"]      = _entryPointName;
-      newInstances.push_back(newInstance);
-    }
-    requestJs["Instances"] = newInstances;
-  }
+#define __HLLM_REQUEST_PARTITION_ID "[hLLM] Request Partition ID"
 
-  __INLINE__ std::pair<std::map<std::string, nlohmann::json>, std::map<std::string, nlohmann::json>> splitDependencies(const std::vector<nlohmann::json> &instancesJS)
+  void broadcastPartitionId()
   {
-    std::map<std::string, nlohmann::json> bufferedConsumers;
-    std::map<std::string, nlohmann::json> unbufferedConsumers;
-
-    // Get all the consumers first since they hold information on the dependency type
-    for (const auto &instance : instancesJS)
-    {
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
+    auto storePartitionIdExecutionUnit = HiCR::backend::pthreads::ComputeManager::createExecutionUnit([&](void *) {
+      const auto &instance = _rpcEngine->getRPCRequester();
+      size_t      rpcRequesterRunnerId;
+      for (rpcRequesterRunnerId = 0; rpcRequesterRunnerId < _deployment.getRunners().size(); rpcRequesterRunnerId++)
       {
-        const auto &inputs = hicr::json::getArray<nlohmann::json>(function, "Inputs");
-        for (const auto &input : inputs)
+        auto runnerInstanceId = _deployment.getRunners()[rpcRequesterRunnerId].getInstanceId();
+        if (runnerInstanceId == instance->getId()) { break; }
+      }
+
+      partitionId_t rpcRequesterPartitionId;
+
+      for (const auto &[partitionId, runnerId] : _partitionRunnerIdMap)
+      {
+        if (runnerId == rpcRequesterRunnerId)
         {
-          const auto &inputName = hicr::json::getString(input, "Name");
-          if (input["Type"] == "Buffered")
-          {
-            bufferedConsumers[inputName]             = input;
-            bufferedConsumers[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-          }
-          else if (input["Type"] == "Unbuffered")
-          {
-            unbufferedConsumers[inputName]             = input;
-            unbufferedConsumers[inputName]["Consumer"] = hicr::json::getString(instance, "Name");
-          }
-          else
-          {
-            HICR_THROW_RUNTIME("Input %s defined in instance %s type not supported: %s",
-                               hicr::json::getString(input, "Name").c_str(),
-                               hicr::json::getString(instance, "Name").c_str(),
-                               hicr::json::getString(input, "Type").c_str());
-          }
+          rpcRequesterPartitionId = partitionId;
+          break;
         }
       }
-    }
+      _rpcEngine->submitReturnValue(&rpcRequesterPartitionId, sizeof(rpcRequesterPartitionId));
+    });
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_PARTITION_ID, storePartitionIdExecutionUnit);
 
-    size_t bufferedProducersCount   = 0;
-    size_t unbufferedProducersCount = 0;
-    for (const auto &instance : instancesJS)
+    if (_deployerInstanceId == _instanceManager->getCurrentInstance()->getId())
     {
-      const auto &executionGraph = hicr::json::getArray<nlohmann::json>(instance, "Execution Graph");
-      for (const auto &function : executionGraph)
+      // If I am the deployer, search for its own partition id
+      for (const auto &[partitionId, runnerId] : _partitionRunnerIdMap)
       {
-        const auto &outputs = hicr::json::getArray<nlohmann::json>(function, "Outputs");
-        for (const auto &output : outputs)
+        if (runnerId == _deployr.getRunnerId())
         {
-          if (bufferedConsumers.contains(output))
-          {
-            bufferedProducersCount++;
-            bufferedConsumers[output]["Producers"] = nlohmann::json::array({hicr::json::getString(instance, "Name")});
-          }
-          else if (unbufferedConsumers.contains(output))
-          {
-            unbufferedProducersCount++;
-            unbufferedConsumers[output]["Producers"] = nlohmann::json::array({hicr::json::getString(instance, "Name")});
-          }
-          else { HICR_THROW_RUNTIME("Producer %s defined in instance %s has no consumers defined", output.get<std::string>(), instance["Name"]); }
+          _partitionId = partitionId;
         }
       }
-    }
 
-    // Check set equality
-    if (bufferedProducersCount != bufferedConsumers.size())
-    {
-      HICR_THROW_RUNTIME("Inconsistent buffered connections #producers: %zud #consumers: %zu", bufferedProducersCount, bufferedConsumers.size());
-    }
-    if (unbufferedProducersCount != unbufferedConsumers.size())
-    {
-      HICR_THROW_RUNTIME("Inconsistent unbuffered connections #producers: %zu #consumers: %zu", unbufferedProducersCount, unbufferedConsumers.size());
-    }
+      // Wait for incoming rpc from all the other_ =nner_
+      for (size_t _ = 0; _ < _deployment.getRunners().size() - 1; _++)
+      {
+        _rpcEngine->listen();
+        printf("listened to request %zu\n", _);
+      }
 
-    return {bufferedConsumers, unbufferedConsumers};
+      printf("finished listening\n");
+    }
+    else
+    {
+      _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_PARTITION_ID);
+      _partitionId = *((partitionId_t *)_rpcEngine->getReturnValue()->getPointer());
+    }
   }
 
   __INLINE__ void entryPoint()
   {
+    // Broadcast the partition id to all the instances
+    broadcastPartitionId();
+
+    // Finding partition information on the configuration
+    const auto    &partitionsJs = hicr::json::getArray<nlohmann::json>(_config, "Partitions");
+    nlohmann::json partitionConfig;
+    for (const auto &partition : partitionsJs)
+    {
+      const auto &partitionId = hicr::json::getNumber<partitionId_t>(partition, "Partition ID");
+      if (partitionId == _partitionId) partitionConfig = partition;
+    }
+
+    // Set partition name
+    _partitionName = hicr::json::getString(partitionConfig, "Name");
+
+    // Create channels
+    createChannels(
+      *_bufferedCommunicationManager, *_bufferedMemoryManager, _bufferedMemorySpace, *_unbufferedCommunicationManager, *_unbufferedMemoryManager, _unbufferedMemorySpace);
+
     // Starting a new deployment
     _continueRunning = true;
-
-    // Getting pointer to RPC engine
-    _rpcEngine = _deployr.getRPCEngine();
 
     // Registering finalization function (for root to execute)
     _rpcEngine->addRPCTarget(_stopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) {
@@ -315,29 +404,9 @@ class Engine final
 
     // Registering finalization request function (for non-root to request roots to end the entire execution)
     _rpcEngine->addRPCTarget(_requestStopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) {
-                               const auto &currentInstance = _deployr.getCurrentInstance();
-                               printf("[hLLM] Instance (%lu) - received RPC request to finalize\n", currentInstance.getId());
+                               printf("[hLLM] Partition %s - received RPC request to finalize\n", _partitionName.c_str());
                                broadcastTermination();
                              }));
-
-    // Getting my instance name after deployment
-    const auto &myInstance     = _deployr.getLocalInstance();
-    const auto &myInstanceName = myInstance.getName();
-
-    // Getting deployment
-    const auto &deployment = _deployr.getDeployment();
-
-    // Getting request from deployment
-    const auto &request = deployment.getRequest();
-
-    // Getting request configuration from the request ibject
-    const auto &requestJs = request.serialize();
-
-    // Getting LLM engine configuration from request configuration
-    _config = hicr::json::getObject(requestJs, "hLLM Configuration");
-
-    // Getting unbuffered dependencies
-    const auto &unbufferedDependencies = hicr::json::getObject(requestJs, "Unbuffered Dependencies");
 
     // Creating HWloc topology object
     hwloc_topology_t topology;
@@ -370,40 +439,20 @@ class Engine final
     hwloc_topology_destroy(topology);
 
     // Creating taskr object
-    const auto &taskRConfig = hicr::json::getObject(requestJs, "TaskR Configuration");
+    const auto &taskRConfig = hicr::json::getObject(_config, "TaskR Configuration");
     _taskr                  = std::make_unique<taskr::Runtime>(&_boostComputeManager, &_pthreadsComputeManager, computeResources, taskRConfig);
 
     // Initializing TaskR
     _taskr->initialize();
 
-    // Finding instance information on the configuration
-    const auto    &instancesJs = hicr::json::getArray<nlohmann::json>(_config, "Instances");
-    nlohmann::json myInstanceConfig;
-    for (const auto &instance : instancesJs)
-    {
-      const auto &instanceName = hicr::json::getString(instance, "Name");
-      if (instanceName == myInstanceName) myInstanceConfig = instance;
-    }
-
-    // Initialize unbuffered dependencies access map
-    for (const auto &dependency : unbufferedDependencies)
-    {
-      const auto &dependencyName = hicr::json::getString(dependency, "Name");
-      const auto &producers      = hicr::json::getArray<std::string>(dependency, "Producers");
-      const auto &consumer       = hicr::json::getString(dependency, "Consumer");
-
-      // TODO: adjust when producer will not be an array anymore
-      if (consumer == myInstanceName || producers[0] == myInstanceName) { _unbufferedMemorySlotsAccessMap[dependencyName] = nullptr; }
-    }
-
     // Getting relevant information
-    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(myInstanceConfig, "Execution Graph");
+    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(partitionConfig, "Execution Graph");
 
     // Creating general TaskR function for all execution graph functions
     _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
 
     // Checking the execution graph functions have been registered
-    taskr::label_t taskrLabelCounter = 0;
+    taskr::taskId_t taskrLabelCounter = 0;
     for (const auto &functionJs : executionGraph)
     {
       const auto &fcName = hicr::json::getString(functionJs, "Name");
@@ -416,41 +465,65 @@ class Engine final
       }
 
       // Getting inputs and outputs
-      std::vector<std::pair<std::string, std::string>> inputs;
-      const auto                                      &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
+      std::unordered_map<std::string, channel::Producer> producers;
+      std::unordered_map<std::string, channel::Consumer> consumers;
+
+      const auto &dependencies = hicr::json::getObject(_config, "Dependencies");
+
+      const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
       for (const auto &inputJs : inputsJs)
       {
-        const auto &inputName = hicr::json::getString(inputJs, "Name");
-        if (unbufferedDependencies.contains(inputName)) { inputs.push_back({inputName, "Unbuffered"}); }
-        else { inputs.push_back({inputName, "Buffered"}); }
+        const auto &inputName            = hicr::json::getString(inputJs, "Name");
+        const auto &dependency           = hicr::json::getObject(dependencies, inputName);
+        const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
+
+        // Determine the dependency type
+        auto                               dependencyType = channel::dependencyType::buffered;
+        HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
+        std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
+        if (dependencyTypeString == "Unbuffered")
+        {
+          dependencyType = channel::dependencyType::unbuffered;
+          memoryManager  = _unbufferedMemoryManager;
+          memorySpace    = _unbufferedMemorySpace;
+        }
+
+        consumers.try_emplace(inputName, inputName, memoryManager, memorySpace, dependencyType, moveConsumer(inputName));
       }
 
-      std::vector<std::pair<std::string, std::string>> outputs;
-      const auto                                      &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+      const auto &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
       for (const auto &outputName : outputsJs)
       {
-        if (unbufferedDependencies.contains(outputName)) { outputs.push_back({outputName, "Unbuffered"}); }
-        else { outputs.push_back({outputName, "Buffered"}); }
+        const auto &dependency           = hicr::json::getObject(dependencies, outputName);
+        const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
+
+        // Determine the dependency type
+        auto                               dependencyType = channel::dependencyType::buffered;
+        HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
+        std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
+        if (dependencyTypeString == "Unbuffered")
+        {
+          dependencyType = channel::dependencyType::unbuffered;
+          memoryManager  = _unbufferedMemoryManager;
+          memorySpace    = _unbufferedMemorySpace;
+        }
+        producers.try_emplace(outputName, outputName, memoryManager, memorySpace, dependencyType, moveProducer(outputName));
       }
 
       // Getting label for taskr function
-      const auto taskLabel = taskrLabelCounter++;
+      const auto taskId = taskrLabelCounter++;
 
       // Creating taskr Task corresponding to the LLM engine task
-      auto taskrTask = std::make_unique<taskr::Task>(_taskrFunction.get());
-      taskrTask->setLabel(taskLabel);
+      auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
 
       // Getting function pointer
       const auto &fc = _registeredFunctions[fcName];
 
       // Creating Engine Task object
-      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, inputs, outputs, std::move(taskrTask));
+      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, std::move(consumers), std::move(producers), std::move(taskrTask));
 
       // Adding task to the label->Task map
-      _taskLabelMap.insert({taskLabel, newTask});
-
-      // Adding task to the function name->Task map
-      _taskNameMap.insert({fcName, newTask});
+      _taskLabelMap.insert({taskId, newTask});
 
       // Adding task to TaskR itself
       _taskr->addTask(newTask->getTaskRTask());
@@ -470,42 +543,15 @@ class Engine final
     _taskr->await();
     _taskr->finalize();
 
-    printf("[hLLM] Instance '%s' TaskR Stopped\n", myInstanceName.c_str());
-  }
-
-  __INLINE__ static bool isValueNull(const std::unordered_map<std::string, deployr::Channel::token_t *> &collection, const std::string &key)
-  {
-    return collection.at(key) == nullptr;
+    printf("[hLLM] Instance '%s' TaskR Stopped\n", _partitionName.c_str());
   }
 
   __INLINE__ void runTaskRFunction(taskr::Task *task)
   {
-    const auto &taskLabel    = task->getLabel();
-    const auto &taskObject   = _taskLabelMap.at(taskLabel);
+    const auto &taskId       = task->getTaskId();
+    const auto &taskObject   = _taskLabelMap.at(taskId);
     const auto &function     = taskObject->getFunction();
     const auto &functionName = taskObject->getName();
-    const auto &inputs       = taskObject->getInputs();
-    const auto &outputs      = taskObject->getOutputs();
-
-    // Resolving pointers to all the required input channels
-    // and gather unbuffered inputs
-    std::map<std::string, deployr::Channel *> inputChannels;
-    std::vector<std::string>                  unbufferedInputs;
-    for (const auto &[input, type] : inputs)
-    {
-      if (type == "Buffered") { inputChannels[input] = &_deployr.getChannel(input); }
-      else { unbufferedInputs.push_back(input); }
-    }
-
-    // Resolving pointers to all the required output channels
-    // and gather unbuffered outputs
-    std::map<std::string, deployr::Channel *> outputChannels;
-    std::vector<std::string>                  unbufferedOutputs;
-    for (const auto &[output, type] : outputs)
-    {
-      if (type == "Buffered") { outputChannels[output] = &_deployr.getChannel(output); }
-      else { unbufferedOutputs.push_back(output); }
-    }
 
     // Function to check for pending operations
     auto pendingOperationsCheck = [&]() {
@@ -513,22 +559,10 @@ class Engine final
       if (_continueRunning == false) return true;
 
       // The task is not ready if any of its inputs are not yet available
-      for (const auto &[_, inputChannel] : inputChannels)
-        if (inputChannel->isEmpty()) return false;
+      if (taskObject->checkInputsReadiness() == false) return false;
 
       // The task is not ready if any of its output channels are still full
-      for (const auto &[_, outputChannel] : outputChannels)
-        if (outputChannel->isFull()) return false;
-
-      // The task is not ready if any of the unbuffered inputs are not available
-      for (const auto &input : unbufferedInputs)
-      {
-        if (isValueNull(_unbufferedMemorySlotsAccessMap, input) == true) return false;
-      }
-
-      // The task is not ready if any of the unbuffered outputs are available to be consumed
-      for (const auto &output : unbufferedOutputs)
-        if (isValueNull(_unbufferedMemorySlotsAccessMap, output) == false) return false;
+      if (taskObject->checkOutputsReadiness() == false) return false;
 
       // All dependencies are satisfied, enable this task for execution
       return true;
@@ -547,76 +581,19 @@ class Engine final
       if (_continueRunning == false) break;
 
       // Inputs dependencies must be satisfied by now; getting them values
-      for (const auto &[input, type] : inputs)
-      {
-        deployr::Channel::token_t token;
-
-        if (type == "Buffered")
-        {
-          // Peeking token from input channel
-          token = inputChannels[input]->peek();
-        }
-        else
-        {
-          // Get from unbuffered memory
-          token = *_unbufferedMemorySlotsAccessMap[input];
-
-          // Set to null the entry in the unbuffered map so new task will wait for the input to become available
-          _unbufferedMemorySlotsAccessMap[input] = nullptr;
-        }
-        // Pushing token onto the task
-        taskObject->setInput(input, token);
-      }
+      taskObject->setInputs();
 
       // Actually run the function now
-      // printf("Running Task: %lu - Function: (%s)\n", taskLabel, functionName.c_str());
       function(taskObject.get());
 
       // Another exit point (the more the better)
       if (_continueRunning == false) break;
 
       // Checking input messages were properly consumed and popping the used token
-      for (const auto &[input, type] : inputs)
-      {
-        if (taskObject->hasInput(input) == true)
-        {
-          fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", functionName.c_str(), input.c_str());
-          abort();
-        }
-
-        // Popping consumed channel from channel
-        if (type == "Buffered") { inputChannels[input]->pop(); }
-      }
+      taskObject->popInputs();
 
       // Validating and pushing output messages
-      for (const auto &[output, type] : outputs)
-      {
-        // Checking if output has been produced by the task
-        if (taskObject->hasOutput(output) == false)
-        {
-          fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", functionName.c_str(), output.c_str());
-          abort();
-        }
-
-        // Now getting output token
-        const auto outputToken = taskObject->getOutput(output);
-
-        if (type == "Buffered")
-        {
-          // Pushing token onto channel
-          outputChannels[output]->push(outputToken.buffer, outputToken.size);
-        }
-        else
-        {
-          // Set token in unbuffered memory slots
-          if (_unbufferedMemorySlotsAccessMap.at(output) != nullptr)
-          {
-            HICR_THROW_RUNTIME("Output %s not null %s", output, (char *)_unbufferedMemorySlotsAccessMap[output]->buffer);
-          }
-          _unbufferedMemorySlotsPool[output]      = outputToken;
-          _unbufferedMemorySlotsAccessMap[output] = &_unbufferedMemorySlotsPool.at(output);
-        }
-      }
+      taskObject->pushOutputs();
 
       // Clearing output token maps
       taskObject->clearOutputs();
@@ -628,7 +605,7 @@ class Engine final
 
   std::unique_ptr<taskr::Function> _taskrFunction;
 
-  /// A map of registered functions, targets for an instance's initial function
+  /// A map of registered functions, targets for an partition's initial function
   std::map<std::string, function_t> _registeredFunctions;
 
   // Copy of the initial configuration file
@@ -646,13 +623,18 @@ class Engine final
   std::unique_ptr<taskr::Runtime> _taskr;
 
   // Map relating task labels to their hLLM task
-  std::map<taskr::label_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
+  std::map<taskr::taskId_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
 
-  // Map relating function name to their hLLM task
-  std::map<std::string, std::shared_ptr<hLLM::Task>> _taskNameMap;
-
+  HiCR::InstanceManager *const      _instanceManager;
+  HiCR::CommunicationManager *const _bufferedCommunicationManager;
+  HiCR::CommunicationManager *const _unbufferedCommunicationManager;
+  HiCR::MemoryManager *const        _bufferedMemoryManager;
+  HiCR::MemoryManager *const        _unbufferedMemoryManager;
   // Pointer to the HiCR RPC Engine
   HiCR::frontend::RPCEngine *_rpcEngine;
+
+  std::shared_ptr<HiCR::MemorySpace> _bufferedMemorySpace;
+  std::shared_ptr<HiCR::MemorySpace> _unbufferedMemorySpace;
 
   ///// HiCR Objects for TaskR
 
@@ -662,12 +644,26 @@ class Engine final
   // Initializing Pthreads-based compute manager to instantiate processing units
   HiCR::backend::pthreads::ComputeManager _pthreadsComputeManager;
 
-  // Map storing pointers to access unbuffered memory slots
-  std::unordered_map<std::string, deployr::Channel::token_t *> _unbufferedMemorySlotsAccessMap;
+  /// Map of created producers and consumers
+  std::unordered_map<std::string, std::unique_ptr<channel::channelConsumerInterface_t>> _consumers;
+  std::unordered_map<std::string, std::unique_ptr<channel::channelProducerInterface_t>> _producers;
 
-  // Map storing pointers to access unbuffered memory slots
-  std::unordered_map<std::string, deployr::Channel::token_t> _unbufferedMemorySlotsPool;
+  // Global topology
+  std::vector<HiCR::Topology> _globalTopology;
 
+  std::string   _partitionName;
+  partitionId_t _partitionId;
+
+  // Creating deployment object
+  deployr::Deployment _deployment;
+
+  // HiCR instance id associated to the instance that will coordinate the deployment
+  HiCR::Instance::instanceId_t _deployerInstanceId;
+
+  std::map<partitionId_t, deployr::Runner::runnerId_t> _partitionRunnerIdMap;
 }; // class Engine
 
 } // namespace hLLM
+
+#include "channelCreationImpl.hpp"
+#include "parseConfigImpl.hpp"
