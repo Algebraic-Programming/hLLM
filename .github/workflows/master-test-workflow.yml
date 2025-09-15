@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup
-        run: source /home/hicr/.bashrc && meson setup build -Dengines=mpi,cloudr -DbuildTests=true -DbuildExamples=true -DcompileWarningsAsErrors=true
+        run: source /home/hicr/.bashrc && meson setup build -Dengines=mpi,cloudr -Db_coverage=true -DbuildTests=true -DbuildExamples=true -DcompileWarningsAsErrors=true
 
       - name: Compile
         run: source /home/hicr/.bashrc && meson compile -C build
