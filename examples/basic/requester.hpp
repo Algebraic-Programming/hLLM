@@ -64,6 +64,6 @@ inline void respondRequest(const std::string &response)
   if (_requestsFinished == _requestCount)
   {
     printf("Finished processing all requests.\n");
-    _engine->terminate();
+    // _engine->terminate();
   }
 }

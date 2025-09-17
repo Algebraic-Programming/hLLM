@@ -1,195 +1,125 @@
 {
-    "Name": "DeepSeek",
-    "Partitions": [
+  "Name": "Basic Deployment",
+  "Partitions": [
+    {
+      "Id": 0,
+      "Name": "Entry Point",
+      "Tasks": [
         {
-            "Name": "Entry Point",
-            "Partition ID": 0,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
-                    "Memory Spaces": []
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Listen Request",
-                    "Inputs": [],
-                    "Outputs": [
-                        "Request"
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Decoder",
-            "Partition ID": 1,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
-                    "Memory Spaces": [
-                        {
-                            "Type": "RAM",
-                            "Size": 2748779060,
-                            "Usage": 0
-                        }
-                    ]
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Decode Request",
-                    "Inputs": [
-                        {
-                            "Name": "Request",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 4096
-                        }
-                    ],
-                    "Outputs": [
-                        "Decoded Request 1",
-                        "Decoded Request 2"
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Transformer 1",
-            "Partition ID": 2,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
-                    "Memory Spaces": [
-                        {
-                            "Type": "RAM",
-                            "Size": 2748779060,
-                            "Usage": 0
-                        }
-                    ]
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Transform Request 1",
-                    "Inputs": [
-                        {
-                            "Name": "Decoded Request 1",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 16777216
-                        }
-                    ],
-                    "Outputs": [
-                        "Transformed Request 1"
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Transformer 2",
-            "Partition ID": 3,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
-                    "Memory Spaces": [
-                        {
-                            "Type": "RAM",
-                            "Size": 2748779060,
-                            "Usage": 0
-                        }
-                    ]
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Pre-Transform Request",
-                    "Inputs": [
-                        {
-                            "Name": "Decoded Request 2",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 16777216
-                        }
-                    ],
-                    "Outputs": [
-                        "Pre-Transform Request Output"
-                    ]
-                },
-                {
-                    "Name": "Transform Request 2",
-                    "Inputs": [
-                        {
-                            "Name": "Pre-Transform Request Output",
-                            "Type": "Unbuffered",
-                            "Buffer Capacity (Tokens)": 1,
-                            "Buffer Size (Bytes)": 167772160
-                        }
-                    ],
-                    "Outputs": [
-                        "Transformed Request 2"
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Exit Point",
-            "Partition ID": 4,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
-                    "Memory Spaces": [
-                        {
-                            "Type": "RAM",
-                            "Size": 2748779060,
-                            "Usage": 0
-                        }
-                    ]
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Respond Request",
-                    "Inputs": [
-                        {
-                            "Name": "Transformed Request 1",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 16777216
-                        },
-                        {
-                            "Name": "Transformed Request 2",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 16777216
-                        }
-                    ],
-                    "Outputs": []
-                }
-            ]
+          "Function Name": "Listen Request",
+          "Inputs": [],
+          "Outputs": [
+            "Request"
+          ]
         }
-    ]
+      ]
+    },
+    {
+      "Id": 1,
+      "Name": "Decode Request",
+      "Tasks": [
+        {
+          "Function Name": "Decode Request",
+          "Inputs": [
+            "Request"
+          ],
+          "Outputs": [
+            "Decoded Request 1",
+            "Decoded Request 2"
+          ]
+        }
+      ]
+    },
+    {
+      "Id": 2,
+      "Name": "Transformer 1",
+      "Tasks": [
+        {
+          "Function Name": "Transform Request 1",
+          "Inputs": [
+            "Decoded Request 1"
+          ],
+          "Outputs": [
+            "Transformed Request 1"
+          ]
+        }
+      ]
+    },
+    {
+      "Id": 3,
+      "Name": "Transformer 2",
+      "Tasks": [
+        {
+          "Function Name": "Pre-Transform Request",
+          "Inputs": [
+            "Decoded Request 2"
+          ],
+          "Outputs": [
+            "Pre-Transform Request Output"
+          ]
+        },
+        {
+          "Function Name": "Transform Request 2",
+          "Inputs": [
+            "Pre-Transform Request Output"
+          ],
+          "Outputs": [
+            "Transformed Request 2"
+          ]
+        }
+      ]
+    },
+    {
+      "Id": 4,
+      "Name": "Exit Point",
+      "Tasks": [
+        {
+          "Function Name": "Return Result",
+          "Inputs": [
+            "Transformed Request 1",
+            "Transformed Request 2"
+          ],
+          "Outputs": []
+        }
+      ]
+    }
+  ],
+  "Channels": [
+    {
+      "Buffer Capacity": 2,
+      "Buffer Size": 4096,
+      "Mode": "Buffered",
+      "Name": "Request"
+    },
+    {
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Buffered",
+      "Name": "Decoded Request 1"
+    },
+    {
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Buffered",
+      "Name": "Decoded Request 2"
+    },
+    {
+      "Buffer Capacity": 1,
+      "Buffer Size": 0,
+      "Mode": "Unbuffered",
+      "Name": "Pre-Transform Request Output"
+    },
+    {
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Buffered",
+      "Name": "Transformed Request 1"
+    },
+    {
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Buffered",
+      "Name": "Transformed Request 2"
+    }
+  ]
 }

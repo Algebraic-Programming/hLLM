@@ -1,11 +1,11 @@
 #pragma once
 
 #include <string>
+#include <array>
 
 #include <hicr/core/memoryManager.hpp>
 #include <hicr/core/memorySpace.hpp>
 #include <hllm/engine.hpp>
-
 #include "requester.hpp"
 
 std::string requestOutput;
@@ -15,6 +15,101 @@ std::string transformedRequest1Output;
 std::string preTransformedRequest;
 std::string transformedRequest2Output;
 std::string resultOutput;
+
+#define BASIC_INSTANCE_COUNT 5
+
+hLLM::configuration::Deployment getHLLMDeployment(const std::array<HiCR::Instance::instanceId_t, BASIC_INSTANCE_COUNT>& instanceIds)
+{
+  hLLM::configuration::Deployment deployment(std::string("Basic Deployment"));
+
+  // Creating new partitions
+  {
+    auto partition = std::make_shared<hLLM::configuration::Partition>(0, "Entry Point", instanceIds[0]);
+
+    // Creating tasks for the partition
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Listen Request"));
+      task->addOutput("Request");
+      partition->addTask(task);
+    }
+
+    deployment.addPartition(partition);
+  }
+
+  {
+    auto partition = std::make_shared<hLLM::configuration::Partition>(1, "Decode Request", instanceIds[1]);
+
+    // Creating tasks for the partition
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Decode Request"));
+      task->addInput("Request");
+      task->addOutput("Decoded Request 1");
+      task->addOutput("Decoded Request 2");
+      partition->addTask(task);
+    }
+
+    deployment.addPartition(partition);
+  }
+
+  {
+    auto partition = std::make_shared<hLLM::configuration::Partition>(2, "Transformer 1", instanceIds[2]);
+
+    // Creating tasks for the partition
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Transform Request 1"));
+      task->addInput("Decoded Request 1");
+      task->addOutput("Transformed Request 1");
+      partition->addTask(task);
+    }
+
+    deployment.addPartition(partition);
+  }
+
+  {
+    auto partition = std::make_shared<hLLM::configuration::Partition>(3, "Transformer 2", instanceIds[3]);
+
+    // Creating tasks for the partition
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Pre-Transform Request"));
+      task->addInput("Decoded Request 2");
+      task->addOutput("Pre-Transform Request Output");
+      partition->addTask(task);
+    }
+
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Transform Request 2"));
+      task->addInput("Pre-Transform Request Output");
+      task->addOutput("Transformed Request 2");
+      partition->addTask(task);
+    }
+
+    deployment.addPartition(partition);
+  }
+
+  {
+    auto partition = std::make_shared<hLLM::configuration::Partition>(4, "Exit Point", instanceIds[4]);
+
+    // Creating tasks for the partition
+    {
+      auto task = std::make_shared<hLLM::configuration::Task>(std::string("Return Result"));
+      task->addInput("Transformed Request 1");
+      task->addInput("Transformed Request 2");
+      partition->addTask(task);
+    }
+
+    deployment.addPartition(partition);
+  }
+
+  // Now creating channel descriptors
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Request", "Buffered", 2, 4096));
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Decoded Request 1", "Buffered", 2, 16777216));
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Decoded Request 2", "Buffered", 2, 16777216));
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Pre-Transform Request Output", "Unbuffered", 1));
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Transformed Request 1", "Buffered", 2, 16777216));
+  deployment.addChannel(std::make_shared<hLLM::configuration::Channel>("Transformed Request 2", "Buffered", 2, 16777216));
+  
+  return deployment;
+}
 
 void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager, std::shared_ptr<HiCR::MemorySpace> memorySpace)
 {
