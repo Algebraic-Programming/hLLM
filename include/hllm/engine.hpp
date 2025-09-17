@@ -168,7 +168,36 @@ class Engine final
   /**
   * Function to create all the channels based on the previously passed configuration
   * */
-  __INLINE__ void createDependencies();
+  void createChannels(HiCR::CommunicationManager         &bufferedCommunicationManager,
+                      HiCR::MemoryManager                &bufferedMemoryManager,
+                      std::shared_ptr<HiCR::MemorySpace> &bufferedMemorySpace,
+                      HiCR::CommunicationManager         &unbufferedCommunicationManager,
+                      HiCR::MemoryManager                &unbufferedMemoryManager,
+                      std::shared_ptr<HiCR::MemorySpace> &unbufferedMemorySpace);
+
+  /**
+      * Function to create a variable-sized token locking channel between N producers and 1 consumer
+      *
+      * @note This is a collective operation. All instances must participate in this call, even if they don't play a producer or consumer role
+      *
+      * @param[in] channelTag The unique identifier for the channel. This tag should be unique for each channel
+      * @param[in] channelName The name of the channel. This will be the identifier used to retrieve the channel
+      * @param[in] isProducer whether a producer should be created
+      * @param[in] isConsumer whether a consumer should be created
+      * @param[in] bufferCapacity The number of tokens that can be simultaneously held in the channel's buffer
+      * @param[in] bufferSize The size (bytes) of the buffer.
+      * @return A shared pointer of the newly created channel
+      */
+  __INLINE__ std::pair<std::unique_ptr<channel::channelProducerInterface_t>, std::unique_ptr<channel::channelConsumerInterface_t>> createChannel(
+    const size_t                        channelTag,
+    const std::string                   channelName,
+    const bool                          isProducer,
+    const bool                          isConsumer,
+    HiCR::CommunicationManager         &communicationManager,
+    HiCR::MemoryManager                &memoryManager,
+    std::shared_ptr<HiCR::MemorySpace> &memorySpace,
+    const size_t                        bufferCapacity,
+    const size_t                        bufferSize);
 
   __INLINE__ void doLocalTermination()
   {
@@ -321,11 +350,20 @@ class Engine final
       // If I am the deployer, search for its own partition id
       for (const auto &[partitionId, runnerId] : _partitionRunnerIdMap)
       {
-        if (runnerId == _deployr.getRunnerId()) { _partitionId = partitionId; }
+        if (runnerId == _deployr.getRunnerId())
+        {
+          _partitionId = partitionId;
+        }
       }
 
       // Wait for incoming rpc from all the other_ =nner_
-      for (size_t _ = 0; _ < _deployment.getRunners().size() - 1; _++) { _rpcEngine->listen(); }
+      for (size_t _ = 0; _ < _deployment.getRunners().size() - 1; _++)
+      {
+        _rpcEngine->listen();
+        printf("listened to request %zu\n", _);
+      }
+
+      printf("finished listening\n");
     }
     else
     {
@@ -339,8 +377,6 @@ class Engine final
     // Broadcast the partition id to all the instances
     broadcastPartitionId();
 
-    printf("[hLLM] Partition %lu starts\n", _partitionId);
-
     // Finding partition information on the configuration
     const auto    &partitionsJs = hicr::json::getArray<nlohmann::json>(_config, "Partitions");
     nlohmann::json partitionConfig;
@@ -353,10 +389,9 @@ class Engine final
     // Set partition name
     _partitionName = hicr::json::getString(partitionConfig, "Name");
 
-    printf("[hLLM] Partition %lu starts creating its dependencies...\n", _partitionId);
     // Create channels
-    createDependencies();
-    printf("[hLLM] Partition %lu created the dependencies\n", _partitionId);
+    createChannels(
+      *_bufferedCommunicationManager, *_bufferedMemoryManager, _bufferedMemorySpace, *_unbufferedCommunicationManager, *_unbufferedMemoryManager, _unbufferedMemorySpace);
 
     // Starting a new deployment
     _continueRunning = true;

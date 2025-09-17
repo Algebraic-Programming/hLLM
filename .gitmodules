@@ -7,6 +7,3 @@
 [submodule "extern/DeployR"]
 	path = extern/DeployR
 	url = https://github.com/Algebraic-Programming/DeployR.git
-[submodule "CloudR"]
-	path = CloudR
-	url = git@github.com:Algebraic-Programming/CloudR.git
