@@ -52,7 +52,7 @@ plantuml = "java -Djava.awt.headless=true -jar /usr/share/plantuml/plantuml.jar"
 plantuml_output_format = "svg"
 
 # extlinks
-extlinks = {'githubRepository': ('https://github.com/Algebraic-Programming/DeployR/%s', '%s')}
+extlinks = {'githubRepository': ('https://github.com/Algebraic-Programming/hLLM/%s', '%s')}
 
 # Myst
 myst_enable_extensions = ["colon_fence"]
@@ -87,8 +87,8 @@ numfig = True
 html_theme = 'sphinx_rtd_theme'
 html_options = {             "show_nav_level": 1,
             "collapse_navigation": True,
-            "github_url": "https://github.com/Algebraic-Programming/DeployR",
-            "repository_url": "https://github.com/Algebraic-Programming/DeployR",
+            "github_url": "https://github.com/Algebraic-Programming/hLLM",
+            "repository_url": "https://github.com/Algebraic-Programming/hLLM",
             "logo_only": False, }
 
 # Add any paths that contain custom static files (such as style sheets) here,

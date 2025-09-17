@@ -203,36 +203,7 @@ class Engine final
   /**
   * Function to create all the channels based on the previously passed configuration
   * */
-  void createChannels(HiCR::CommunicationManager         &bufferedCommunicationManager,
-                      HiCR::MemoryManager                &bufferedMemoryManager,
-                      std::shared_ptr<HiCR::MemorySpace> &bufferedMemorySpace,
-                      HiCR::CommunicationManager         &unbufferedCommunicationManager,
-                      HiCR::MemoryManager                &unbufferedMemoryManager,
-                      std::shared_ptr<HiCR::MemorySpace> &unbufferedMemorySpace);
-
-  /**
-      * Function to create a variable-sized token locking channel between N producers and 1 consumer
-      *
-      * @note This is a collective operation. All instances must participate in this call, even if they don't play a producer or consumer role
-      *
-      * @param[in] channelTag The unique identifier for the channel. This tag should be unique for each channel
-      * @param[in] channelName The name of the channel. This will be the identifier used to retrieve the channel
-      * @param[in] isProducer whether a producer should be created
-      * @param[in] isConsumer whether a consumer should be created
-      * @param[in] bufferCapacity The number of tokens that can be simultaneously held in the channel's buffer
-      * @param[in] bufferSize The size (bytes) of the buffer.
-      * @return A shared pointer of the newly created channel
-      */
-  __INLINE__ std::pair<std::unique_ptr<channel::channelProducerInterface_t>, std::unique_ptr<channel::channelConsumerInterface_t>> createChannel(
-    const size_t                        channelTag,
-    const std::string                   channelName,
-    const bool                          isProducer,
-    const bool                          isConsumer,
-    HiCR::CommunicationManager         &communicationManager,
-    HiCR::MemoryManager                &memoryManager,
-    std::shared_ptr<HiCR::MemorySpace> &memorySpace,
-    const size_t                        bufferCapacity,
-    const size_t                        bufferSize);
+  __INLINE__ void createDependencies();
 
   __INLINE__ void doLocalTermination()
   {
