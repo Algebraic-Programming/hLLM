@@ -8,21 +8,25 @@
 namespace hLLM::configuration
 {
 
-class Channel
+class Edge
 {
   public:
 
-  Channel(const nlohmann::json& js) { deserialize(js); } 
-  Channel(const std::string& name, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
+  Edge(const nlohmann::json& js) { deserialize(js); } 
+  Edge(const std::string& name, const std::string& producer, std::string& consumer, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
    :  _name(name),
+      _producer(producer),
+      _consumer(consumer),
       _mode(mode),
      _bufferCapacity(bufferCapacity),
      _bufferSize(bufferSize)
   {  validate(); }
-  virtual ~Channel() = default;
+  virtual ~Edge() = default;
 
   __INLINE__ void setName(const std::string& name) { _name = name; }
   [[nodiscard]] __INLINE__ std::string getName() const { return _name; }
+  [[nodiscard]] __INLINE__ std::string getProducer() const { return _producer; }
+  [[nodiscard]] __INLINE__ std::string getConsumer() const { return _consumer; }
   [[nodiscard]] __INLINE__ size_t getBufferCapacity() const { return _bufferCapacity; }
   [[nodiscard]] __INLINE__ size_t getBufferSize() const { return _bufferSize; }
   [[nodiscard]] __INLINE__ std::string getMode() const { return _mode; }
@@ -33,6 +37,8 @@ class Channel
 
     js["Name"] = _name;
     js["Mode"] = _mode;
+    js["Producer"] = _producer;
+    js["Consumer"] = _consumer;
     js["Buffer Capacity"] = _bufferCapacity;
     js["Buffer Size"] = _bufferSize;
 
@@ -43,6 +49,8 @@ class Channel
   {
     _name = hicr::json::getString(js, "Name");
     _mode = hicr::json::getString(js, "Mode");
+    _producer = hicr::json::getString(js, "Producer");
+    _consumer = hicr::json::getString(js, "Consumer");
     _bufferCapacity = hicr::json::getNumber<size_t>(js, "Buffer Capacity");
     _bufferSize = hicr::json::getNumber<size_t>(js, "Buffer Size");
 
@@ -61,6 +69,8 @@ class Channel
   }
 
   std::string _name;
+  std::string _producer;
+  std::string _consumer;
   std::string _mode;
   size_t _bufferCapacity;
   size_t _bufferSize;

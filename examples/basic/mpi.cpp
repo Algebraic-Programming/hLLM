@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <thread>
 #include <fstream>
-
 #include <hicr/backends/hwloc/memoryManager.hpp>
 #include <hicr/backends/hwloc/topologyManager.hpp>
 #include <hicr/backends/mpi/instanceManager.hpp>
@@ -9,8 +8,10 @@
 #include <hicr/backends/mpi/memoryManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
 #include <hicr/backends/pthreads/communicationManager.hpp>
+#include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <hllm/engine.hpp>
+#include <taskr/taskr.hpp>
 #include "basic.hpp"
 #include "requester.hpp"
 
@@ -47,12 +48,22 @@ int main(int argc, char *argv[])
   auto instanceManager              = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
   auto mpiCommunicationManager      = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
   auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
-  auto computeManager               = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
   auto pthreadsCommunicationManager = std::make_shared<HiCR::backend::pthreads::CommunicationManager>();
   auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
+  // Creating taskr object
+  nlohmann::json taskrConfig;
+  taskrConfig["Task Worker Inactivity Time (Ms)"] = 100;   // Suspend workers if a certain time of inactivity elapses
+  taskrConfig["Task Suspend Interval Time (Ms)"]  = 100;   // Workers suspend for this time before checking back
+  taskrConfig["Minimum Active Task Workers"]      = 1;     // Have at least one worker active at all times
+  taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
+  taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
+  auto taskr  = std::make_unique<taskr::Runtime>(boostComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
+
   // Instantiate RPC Engine
-  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *computeManager, bufferMemorySpace, computeResource);
+  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *pthreadsComputeManager, bufferMemorySpace, computeResource);
 
   // Initialize RPC Engine
   rpcEngine->initialize();
@@ -61,21 +72,10 @@ int main(int argc, char *argv[])
   const auto isRoot = instanceManager->getCurrentInstance()->isRootInstance();
 
   // Creating hLLM Engine object
-  hLLM::Engine engine(instanceManager.get(),
-                      mpiCommunicationManager.get(),
-                      pthreadsCommunicationManager.get(),
-                      mpiMemoryManager.get(),
-                      hwlocMemoryManager.get(),
-                      rpcEngine.get(),
-                      bufferMemorySpace,
-                      bufferMemorySpace,
-                      topology);
+  hLLM::Engine engine(instanceManager.get(), rpcEngine.get(), taskr.get());
 
   // Declaring the hLLM tasks for the application
   createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
-
-  // If I am not root, await deployment
-  if (isRoot == false) engine.awaitDeployment();
 
   // If I am root, checking arguments and config file and deploying
   if (isRoot == true)
@@ -112,6 +112,9 @@ int main(int argc, char *argv[])
     engine.deploy(deployment);
   }
 
+  // If I am not root, await deployment
+  if (isRoot == false) engine.awaitDeployment();
+
   // // Instantiating request server (emulates live users)
   // size_t requestCount   = 32;
   // size_t requestDelayMs = 100;
@@ -132,7 +135,7 @@ int main(int argc, char *argv[])
   // printf("[basic.cpp] Finalizing...\n");
   // engine.finalize();
 
-  printf("[basic.cpp] Finalizing Instance Manager...\n");
+  // printf("[basic.cpp] Finalizing Instance Manager...\n");
   // Finalize Instance Manager
   instanceManager->finalize();
 }

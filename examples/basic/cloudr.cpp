@@ -1,5 +1,4 @@
 #include <fstream>
-#include <deployr/deployr.hpp>
 #include <nlohmann_json/json.hpp>
 #include <hicr/backends/cloudr/instanceManager.hpp>
 #include <hicr/backends/cloudr/communicationManager.hpp>
@@ -107,19 +106,19 @@ int main(int argc, char *argv[])
     // Getting our instance's emulated topology
     const auto &emulatedTopology = dynamic_pointer_cast<HiCR::backend::cloudr::Instance>(currentInstance)->getTopology();
 
-    // Creating hLLM Engine object
-    hLLM::Engine engine(&cloudrInstanceManager,
-                    &mpiCommunicationManager,
-                    &pthreadsCommunicationManager,
-                    &mpiMemoryManager,
-                    &hwlocMemoryManager,
-                    &rpcEngine,
-                    bufferMemorySpace,
-                    bufferMemorySpace,
-                    emulatedTopology);
+    // // Creating hLLM Engine object
+    // hLLM::Engine engine(&cloudrInstanceManager,
+    //                 &mpiCommunicationManager,
+    //                 &pthreadsCommunicationManager,
+    //                 &mpiMemoryManager,
+    //                 &hwlocMemoryManager,
+    //                 &rpcEngine,
+    //                 bufferMemorySpace,
+    //                 bufferMemorySpace,
+    //                 emulatedTopology);
 
-    // Deploy all LLM Engine instances
-    engine.deploy(hllmConfigJs);
+    // // Deploy all LLM Engine instances
+    // engine.deploy(hllmConfigJs);
   });
 
   // Initializing CloudR -- this is a bifurcation point. Only the root instance advances now

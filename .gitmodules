@@ -4,6 +4,6 @@
 [submodule "extern/TaskR"]
 	path = extern/TaskR
 	url = https://github.com/Algebraic-Programming/TaskR.git
-[submodule "extern/DeployR"]
-	path = extern/DeployR
-	url = https://github.com/Algebraic-Programming/DeployR.git
+[submodule "extern/CloudR"]
+	path = extern/CloudR
+	url = https://github.com/Algebraic-Programming/CloudR.git

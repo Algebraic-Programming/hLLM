@@ -4,13 +4,11 @@
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
-#include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
-#include <hicr/frontends/channel/variableSize/mpsc/locking/producer.hpp>
+// #include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
+// #include <hicr/frontends/channel/variableSize/mpsc/locking/producer.hpp>
 #include <taskr/taskr.hpp>
-#include <deployr/deployr.hpp>
-
-#include "channels/consumer.hpp"
-#include "channels/producer.hpp"
+// #include "channels/consumer.hpp"
+// #include "channels/producer.hpp"
 
 namespace hLLM
 {
@@ -30,13 +28,13 @@ class Task final
 
   Task(const std::string                                 &name,
        const function_t                                  &function,
-       std::unordered_map<std::string, channel::Consumer> consumers,
-       std::unordered_map<std::string, channel::Producer> producers,
+      //  std::unordered_map<std::string, channel::Consumer> consumers,
+      //  std::unordered_map<std::string, channel::Producer> producers,
        std::unique_ptr<taskr::Task>                       taskrTask)
     : _name(name),
       _function(function),
-      _consumers(std::move(consumers)),
-      _producers(std::move(producers)),
+      // _consumers(std::move(consumers)),
+      // _producers(std::move(producers)),
       _taskrTask(std::move(taskrTask))
   {}
 
@@ -74,65 +72,65 @@ class Task final
 
   __INLINE__ bool checkInputsReadiness()
   {
-    for (auto &[_, consumer] : _consumers)
-    {
-      if (consumer.isEmpty()) return false;
-    }
+    // for (auto &[_, consumer] : _consumers)
+    // {
+    //   if (consumer.isEmpty()) return false;
+    // }
     return true;
   }
 
   __INLINE__ bool checkOutputsReadiness()
   {
-    for (auto &[_, producer] : _producers)
-    {
-      if (producer.isFull()) return false;
-    }
+    // for (auto &[_, producer] : _producers)
+    // {
+    //   if (producer.isFull()) return false;
+    // }
     return true;
   }
 
   __INLINE__ void setInputs()
   {
-    for (auto &[input, consumer] : _consumers)
-    {
-      // Get token
-      auto token = consumer.peek();
+    // for (auto &[input, consumer] : _consumers)
+    // {
+    //   // Get token
+    //   auto token = consumer.peek();
 
-      // Pushing token onto the task
-      setInput(input, token);
-    }
+    //   // Pushing token onto the task
+    //   setInput(input, token);
+    // }
   }
 
   __INLINE__ void popInputs()
   {
-    for (auto &[input, consumer] : _consumers)
-    {
-      if (hasInput(input) == true)
-      {
-        fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", _name.c_str(), input.c_str());
-        abort();
-      }
+    // for (auto &[input, consumer] : _consumers)
+    // {
+    //   if (hasInput(input) == true)
+    //   {
+    //     fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", _name.c_str(), input.c_str());
+    //     abort();
+    //   }
 
-      consumer.pop();
-    }
+    //   consumer.pop();
+    // }
   }
 
   __INLINE__ void pushOutputs()
   {
-    for (auto &[output, producer] : _producers)
-    {
-      // Checking if output has been produced by the task
-      if (hasOutput(output) == false)
-      {
-        fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", _name.c_str(), output.c_str());
-        abort();
-      }
+    // for (auto &[output, producer] : _producers)
+    // {
+    //   // Checking if output has been produced by the task
+    //   if (hasOutput(output) == false)
+    //   {
+    //     fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", _name.c_str(), output.c_str());
+    //     abort();
+    //   }
 
-      // Now getting output token
-      const auto outputToken = getOutput(output);
+    //   // Now getting output token
+    //   const auto outputToken = getOutput(output);
 
-      // Pushing token onto channel
-      if (producer.push(outputToken) == false) { HICR_THROW_RUNTIME("Channel full"); }
-    }
+    //   // Pushing token onto channel
+    //   if (producer.push(outputToken) == false) { HICR_THROW_RUNTIME("Channel full"); }
+    // }
   }
 
   private:
@@ -157,8 +155,8 @@ class Task final
 
   const std::string                                  _name;
   const function_t                                   _function;
-  std::unordered_map<std::string, channel::Consumer> _consumers;
-  std::unordered_map<std::string, channel::Producer> _producers;
+  // std::unordered_map<std::string, channel::Consumer> _consumers;
+  // std::unordered_map<std::string, channel::Producer> _producers;
   const std::unique_ptr<taskr::Task>                 _taskrTask;
 
   std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputTokens;
