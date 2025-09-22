@@ -1,10 +1,16 @@
-
 #pragma once
+
+#include <unordered_map>
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
+#include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
+#include <hicr/frontends/channel/variableSize/mpsc/locking/producer.hpp>
 #include <taskr/taskr.hpp>
 #include <deployr/deployr.hpp>
+
+#include "channels/consumer.hpp"
+#include "channels/producer.hpp"
 
 namespace hLLM
 {
@@ -12,7 +18,7 @@ namespace hLLM
 class Engine;
 class Task;
 
-typedef std::function<void(hLLM::Task *task)> function_t;
+using function_t = std::function<void(hLLM::Task *task)>;
 
 class Task final
 {
@@ -22,15 +28,15 @@ class Task final
 
   Task() = delete;
 
-  Task(const std::string                                     &name,
-       const function_t                                      &function,
-       const std::vector<std::pair<std::string, std::string>> inputs,
-       const std::vector<std::pair<std::string, std::string>> outputs,
-       std::unique_ptr<taskr::Task>                           taskrTask)
+  Task(const std::string                                 &name,
+       const function_t                                  &function,
+       std::unordered_map<std::string, channel::Consumer> consumers,
+       std::unordered_map<std::string, channel::Producer> producers,
+       std::unique_ptr<taskr::Task>                       taskrTask)
     : _name(name),
       _function(function),
-      _inputs(inputs),
-      _outputs(outputs),
+      _consumers(std::move(consumers)),
+      _producers(std::move(producers)),
       _taskrTask(std::move(taskrTask))
   {}
 
@@ -38,10 +44,10 @@ class Task final
 
   ~Task() = default;
 
-  __INLINE__ const deployr::Channel::token_t getInput(const std::string &inputName)
+  __INLINE__ const std::shared_ptr<HiCR::LocalMemorySlot> getInput(const std::string &inputName)
   {
     // First, get the token
-    const auto &token = _inputTokens.at(inputName);
+    const auto token = _inputTokens.at(inputName);
 
     // Then, erasing it from the map to indicate it was consumed
     _inputTokens.erase(inputName);
@@ -50,14 +56,14 @@ class Task final
     return token;
   }
 
-  __INLINE__ void setOutput(const std::string &outputName, const void *bufferData, const size_t bufferSize)
+  __INLINE__ void setOutput(const std::string &outputName, const std::shared_ptr<HiCR::LocalMemorySlot> &memorySlot)
   {
     if (_outputTokens.contains(outputName))
     {
       fprintf(stderr, "Function '%s' is setting output '%s' twice.\n", _name.c_str(), outputName.c_str());
       abort();
     }
-    _outputTokens[outputName] = deployr::Channel::token_t{.success = true, .buffer = (void *)bufferData, .size = bufferSize};
+    _outputTokens[outputName] = memorySlot;
   }
 
   __INLINE__ void waitFor(taskr::Task::pendingOperation_t operation)
@@ -66,16 +72,77 @@ class Task final
     _taskrTask->suspend();
   }
 
+  __INLINE__ bool checkInputsReadiness()
+  {
+    for (auto &[_, consumer] : _consumers)
+    {
+      if (consumer.isEmpty()) return false;
+    }
+    return true;
+  }
+
+  __INLINE__ bool checkOutputsReadiness()
+  {
+    for (auto &[_, producer] : _producers)
+    {
+      if (producer.isFull()) return false;
+    }
+    return true;
+  }
+
+  __INLINE__ void setInputs()
+  {
+    for (auto &[input, consumer] : _consumers)
+    {
+      // Get token
+      auto token = consumer.peek();
+
+      // Pushing token onto the task
+      setInput(input, token);
+    }
+  }
+
+  __INLINE__ void popInputs()
+  {
+    for (auto &[input, consumer] : _consumers)
+    {
+      if (hasInput(input) == true)
+      {
+        fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", _name.c_str(), input.c_str());
+        abort();
+      }
+
+      consumer.pop();
+    }
+  }
+
+  __INLINE__ void pushOutputs()
+  {
+    for (auto &[output, producer] : _producers)
+    {
+      // Checking if output has been produced by the task
+      if (hasOutput(output) == false)
+      {
+        fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", _name.c_str(), output.c_str());
+        abort();
+      }
+
+      // Now getting output token
+      const auto outputToken = getOutput(output);
+
+      // Pushing token onto channel
+      if (producer.push(outputToken) == false) { HICR_THROW_RUNTIME("Channel full"); }
+    }
+  }
+
   private:
 
   __INLINE__ function_t getFunction() const { return _function; }
   __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
-  __INLINE__ const std::vector<std::pair<std::string, std::string>> &getInputs() const { return _inputs; }
-  __INLINE__ const std::vector<std::pair<std::string, std::string>> &getOutputs() const { return _outputs; }
 
-  __INLINE__ const deployr::Channel::token_t getOutput(const std::string &outputName)
+  __INLINE__ std::shared_ptr<HiCR::LocalMemorySlot> getOutput(const std::string &outputName)
   { // First, get the token
-    const auto &token = _outputTokens.at(outputName);
+    const auto token = _outputTokens.at(outputName);
 
     // Then, erasing it from the map to indicate it was consumed
     _outputTokens.erase(outputName);
@@ -83,19 +150,19 @@ class Task final
     // Returning consumed token
     return token;
   }
-  __INLINE__ void setInput(const std::string &inputName, const deployr::Channel::token_t token) { _inputTokens[inputName] = token; }
+  __INLINE__ void setInput(const std::string &inputName, const std::shared_ptr<HiCR::LocalMemorySlot> token) { _inputTokens[inputName] = token; }
   __INLINE__ bool hasOutput(const std::string &outputName) { return _outputTokens.contains(outputName); }
   __INLINE__ bool hasInput(const std::string &inputName) { return _inputTokens.contains(inputName); }
   __INLINE__ void clearOutputs() { _outputTokens.clear(); }
 
-  const std::string                                      _name;
-  const function_t                                       _function;
-  const std::vector<std::pair<std::string, std::string>> _inputs;
-  const std::vector<std::pair<std::string, std::string>> _outputs;
-  const std::unique_ptr<taskr::Task>                     _taskrTask;
+  const std::string                                  _name;
+  const function_t                                   _function;
+  std::unordered_map<std::string, channel::Consumer> _consumers;
+  std::unordered_map<std::string, channel::Producer> _producers;
+  const std::unique_ptr<taskr::Task>                 _taskrTask;
 
-  std::map<std::string, deployr::Channel::token_t> _inputTokens;
-  std::map<std::string, deployr::Channel::token_t> _outputTokens;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputTokens;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputTokens;
 
 }; // class Task
 

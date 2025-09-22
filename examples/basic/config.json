@@ -1,18 +1,15 @@
 {
     "Name": "DeepSeek",
-    "Instances": [
+    "Partitions": [
         {
             "Name": "Entry Point",
-            "Host Topology": [
+            "Partition ID": 0,
+            "Topology": [
                 {
                     "Type": "NUMA Domain",
                     "Compute Resources": [
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        }
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
                     ],
                     "Memory Spaces": []
                 }
@@ -29,39 +26,19 @@
         },
         {
             "Name": "Decoder",
-            "Host Topology": [
+            "Partition ID": 1,
+            "Topology": [
                 {
                     "Type": "NUMA Domain",
                     "Compute Resources": [
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        }
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
                     ],
                     "Memory Spaces": [
                         {
                             "Type": "RAM",
-                            "Size": 274877906944,
+                            "Size": 2748779060,
                             "Usage": 0
                         }
                     ]
@@ -87,39 +64,19 @@
         },
         {
             "Name": "Transformer 1",
-            "Host Topology": [
+            "Partition ID": 2,
+            "Topology": [
                 {
                     "Type": "NUMA Domain",
                     "Compute Resources": [
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        }
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
                     ],
                     "Memory Spaces": [
                         {
                             "Type": "RAM",
-                            "Size": 274877906944,
+                            "Size": 2748779060,
                             "Usage": 0
                         }
                     ]
@@ -144,39 +101,19 @@
         },
         {
             "Name": "Transformer 2",
-            "Host Topology": [
+            "Partition ID": 3,
+            "Topology": [
                 {
                     "Type": "NUMA Domain",
                     "Compute Resources": [
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        }
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
                     ],
                     "Memory Spaces": [
                         {
                             "Type": "RAM",
-                            "Size": 274877906944,
+                            "Size": 2748779060,
                             "Usage": 0
                         }
                     ]
@@ -202,7 +139,9 @@
                     "Inputs": [
                         {
                             "Name": "Pre-Transform Request Output",
-                            "Type": "Unbuffered"
+                            "Type": "Unbuffered",
+                            "Buffer Capacity (Tokens)": 1,
+                            "Buffer Size (Bytes)": 167772160
                         }
                     ],
                     "Outputs": [
@@ -213,39 +152,19 @@
         },
         {
             "Name": "Exit Point",
-            "Host Topology": [
+            "Partition ID": 4,
+            "Topology": [
                 {
                     "Type": "NUMA Domain",
                     "Compute Resources": [
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        },
-                        {
-                            "Type": "Processing Unit"
-                        }
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
                     ],
                     "Memory Spaces": [
                         {
                             "Type": "RAM",
-                            "Size": 274877906944,
+                            "Size": 2748779060,
                             "Usage": 0
                         }
                     ]

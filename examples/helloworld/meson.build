@@ -4,7 +4,7 @@ helloworld = executable('helloworld', [ 'helloworld.cpp'], dependencies: hLLMBui
 
 if get_option('buildTests')
 
-	if engine == 'mpi'
+	if 'mpi' in engines
 		test('helloworld', mpirunExecutable, args : [ '-np', '1', '--oversubscribe', helloworld.full_path(), meson.current_source_dir() + '/config.json'], timeout: 30, suite: testSuite )
 	
 		if get_option('buildPyLLM')
@@ -15,7 +15,9 @@ if get_option('buildTests')
 				suite: testSuite,
 				workdir: meson.current_source_dir())
 		endif
-	elif engine == 'cloudr'
+	endif
+	
+	if 'cloudr' in engines
 		test(
 			'helloworld',
 			mpirunExecutable,

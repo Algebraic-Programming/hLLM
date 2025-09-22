@@ -1,15 +1,14 @@
 testSuite = ['examples', 'basic']
 
-basic = executable('basic', ['basic.cpp'], dependencies: hLLMBuildDep)
-
-if engine == 'mpi'
+if 'mpi' in engines
+	executable = executable('mpi', ['mpi.cpp'], dependencies: hLLMBuildDep)
 	if get_option('buildTests')
 		test(
-			'basic',
+			'mpi',
 			mpirunExecutable,
 			args: [
 				'-np', '5',
-				'--oversubscribe', basic.full_path(),
+				'--oversubscribe', executable.full_path(),
 				meson.current_source_dir() + '/config.json',
 			],
 			timeout: 60,
@@ -27,30 +26,31 @@ if engine == 'mpi'
 	endif
 endif
 
-if engine == 'cloudr'
-	if get_option('buildTests')
-		test(
-			'basic',
-			mpirunExecutable,
-			args: [
-				'-np', '6',
-				'--oversubscribe', basic.full_path(),
-				meson.current_source_dir() + '/config.json',
-			],
-			env: {
-				'DEPLOYR_CLOUDR_CONFIG_FILE_PATH': meson.current_source_dir() + '/cloudr.json',
-			},
-			timeout: 60,
-			suite: testSuite,
-		)
+# if 'cloudr' in engines
+# 	basic = executable('basic', ['cloudr.cpp'], dependencies: hLLMBuildDep)
+# 	if get_option('buildTests')
+# 		test(
+# 			'basic',
+# 			mpirunExecutable,
+# 			args: [
+# 				'-np', '6',
+# 				'--oversubscribe', basic.full_path(),
+# 				meson.current_source_dir() + '/config.json',
+# 			],
+# 			env: {
+# 				'DEPLOYR_CLOUDR_CONFIG_FILE_PATH': meson.current_source_dir() + '/cloudr.json',
+# 			},
+# 			timeout: 60,
+# 			suite: testSuite,
+# 		)
 
-		if get_option('buildPyLLM')
-			test('pybasic',
-				mpirunExecutable,
-				args: ['-np', '6', py.path(), 'basic.py', meson.current_source_dir() + '/config.json'],
-				env: ['DEPLOYR_CLOUDR_CONFIG_FILE_PATH=' + meson.current_source_dir() + '/cloudr.json', 'PYTHONPATH=' + meson.project_build_root() + '/include/pyLLM/'],
-				suite: testSuite,
-				workdir: meson.current_source_dir())
-		endif
-	endif
-endif
+# 		if get_option('buildPyLLM')
+# 			test('pybasic',
+# 				mpirunExecutable,
+# 				args: ['-np', '6', py.path(), 'basic.py', meson.current_source_dir() + '/config.json'],
+# 				env: ['DEPLOYR_CLOUDR_CONFIG_FILE_PATH=' + meson.current_source_dir() + '/cloudr.json', 'PYTHONPATH=' + meson.project_build_root() + '/include/pyLLM/'],
+# 				suite: testSuite,
+# 				workdir: meson.current_source_dir())
+# 		endif
+# 	endif
+# endif

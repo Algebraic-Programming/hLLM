@@ -4,7 +4,7 @@ sendrecv = executable('sendrecv', [ 'sendrecv.cpp'], dependencies: hLLMBuildDep)
 
 if get_option('buildTests')
 
-	if engine == 'mpi'
+	if 'mpi' in engines
 		test('sendrecv', mpirunExecutable, args : [ '-np', '2', '--oversubscribe', sendrecv.full_path(), meson.current_source_dir() + '/config.json'], timeout: 30, suite: testSuite )
 	
 		if get_option('buildPyLLM')
@@ -15,7 +15,9 @@ if get_option('buildTests')
 				suite: testSuite,
 				workdir: meson.current_source_dir())
 		endif
-	elif engine == 'cloudr'
+	endif
+	
+	if 'cloudr' in engines
 		test(
 			'sendrecv',
 			mpirunExecutable,

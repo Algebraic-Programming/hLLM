@@ -1,8 +1,10 @@
-option('engine', type : 'combo',
-       choices : [ 'local', 'mpi', 'cloudr' ], 
-       description : 'Specifies which distributed execution engine to use',
-       value: 'local'
-       )
+option('engines',
+       type : 'array',
+       choices : [ 'mpi', 'cloudr' ], 
+       description : 'Specifies which DeployR distributed execution engine(s) to build examples with',
+       value: [ 'mpi' ]
+)
+
 
 option('buildTests', type : 'boolean', value : false,
        description: 'Indicates whether to build tests'
