@@ -1,6 +1,6 @@
 testSuite = [ 'examples', 'sendrecv' ]
 
-sendrecv = executable('sendrecv', [ 'sendrecv.cpp'], dependencies: LLMEngineBuildDep)
+sendrecv = executable('sendrecv', [ 'sendrecv.cpp'], dependencies: hLLMBuildDep)
 
 if get_option('buildTests')
 

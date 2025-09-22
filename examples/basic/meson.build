@@ -1,12 +1,21 @@
-testSuite = [ 'examples', 'basic' ]
+testSuite = ['examples', 'basic']
 
-basic = executable('basic', [ 'basic.cpp'], dependencies: LLMEngineBuildDep)
+basic = executable('basic', ['basic.cpp'], dependencies: hLLMBuildDep)
 
-if get_option('buildTests')
+if engine == 'mpi'
+	if get_option('buildTests')
+		test(
+			'basic',
+			mpirunExecutable,
+			args: [
+				'-np', '5',
+				'--oversubscribe', basic.full_path(),
+				meson.current_source_dir() + '/config.json',
+			],
+			timeout: 60,
+			suite: testSuite,
+		)
 
-	if engine == 'mpi'
-		test('basic', mpirunExecutable, args : [ '-np', '5', '--oversubscribe', basic.full_path(), meson.current_source_dir() + '/config.json'], timeout: 60, suite: testSuite )
-	
 		if get_option('buildPyLLM')
 			test('pybasic',
 				mpirunExecutable,
@@ -15,15 +24,26 @@ if get_option('buildTests')
 				suite: testSuite,
 				workdir: meson.current_source_dir())
 		endif
-	elif engine == 'cloudr'
+	endif
+endif
+
+if engine == 'cloudr'
+	if get_option('buildTests')
 		test(
 			'basic',
 			mpirunExecutable,
-			env: ['DEPLOYR_CLOUDR_CONFIG_FILE_PATH=' + meson.current_source_dir() + '/cloudr.json'], 
-			args : [ '-np', '6', '--oversubscribe', basic.full_path(), meson.current_source_dir() + '/config.json'], 
-			timeout: 60, 
-			suite: testSuite ) # atm deadlocks in the finalization
-	
+			args: [
+				'-np', '6',
+				'--oversubscribe', basic.full_path(),
+				meson.current_source_dir() + '/config.json',
+			],
+			env: {
+				'DEPLOYR_CLOUDR_CONFIG_FILE_PATH': meson.current_source_dir() + '/cloudr.json',
+			},
+			timeout: 60,
+			suite: testSuite,
+		)
+
 		if get_option('buildPyLLM')
 			test('pybasic',
 				mpirunExecutable,

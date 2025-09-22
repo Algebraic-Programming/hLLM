@@ -1,14 +1,13 @@
-project('LLM-Engine', [ 'cpp', 'c'],
-  subproject_dir : 'extern',
-  default_options : [
-  'cpp_std=c++20',
-  'buildtype=release'
-  ]
+project(
+  'hLLM',
+  ['cpp', 'c'],
+  subproject_dir: 'extern',
+  default_options: ['cpp_std=c++20', 'buildtype=release'],
 )
 
-####### Storage for LLM-Engine dependencies
+####### Storage for hLLM dependencies
 
-LLMEngineDependencies = [ ]
+hLLMDependencies = []
 
 # Getting selected distributed engine
 
@@ -23,35 +22,40 @@ if engine == 'cloudr' or engine == 'mpi'
 endif
 
 # Selecting default HiCR Backends
-HiCRBackends = [ 'hwloc', 'pthreads', 'boost' ] + HiCRDistributedBackend
-HiCRProject = subproject('HiCR', required: true, default_options: [ 'backends=' + ','.join(HiCRBackends), 'frontends=tasking' ])
+HiCRBackends = ['hwloc', 'pthreads', 'boost'] + HiCRDistributedBackend
+HiCRProject = subproject(
+  'HiCR',
+  required: true,
+  default_options: ['backends=' + ','.join(HiCRBackends), 'frontends=tasking'],
+)
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
-LLMEngineDependencies += HiCRBuildDep
+hLLMDependencies += HiCRBuildDep
+
+if engine == 'cloudr' or engine == 'mpi'
+  mpirunExecutable = HiCRProject.get_variable('mpirunExecutable')
+endif
 
 ####### Getting DeployR dependency
 
-DeployRProject = subproject('DeployR', required: true, default_options: [ 'engine=' + engine ])
+DeployRProject = subproject('DeployR', required: true, default_options: ['engine=' + engine])
 DeployRBuildDep = DeployRProject.get_variable('DeployRBuildDep')
-LLMEngineDependencies += DeployRBuildDep
+hLLMDependencies += DeployRBuildDep
 
 ####### Getting TaskR dependency
 
-TaskRProject = subproject('TaskR', required: true, default_options: [  ])
+TaskRProject = subproject('TaskR', required: true, default_options: [])
 TaskRBuildDep = TaskRProject.get_variable('TaskRBuildDep')
-LLMEngineDependencies += TaskRBuildDep
+hLLMDependencies += TaskRBuildDep
 
-####### Creating LLMEngine dependency
+####### Creating hLLM dependency
 
 # Warning handling option
-warningAsErrorFlags=[]
+warningAsErrorFlags = []
 if get_option('compileWarningsAsErrors') == true
-  warningAsErrorFlags=[ '-Werror' ]
+  warningAsErrorFlags = ['-Werror']
 endif
 
-LLMEngineBuildCppArgs = [
- '-Wfatal-errors',
-  warningAsErrorFlags
- ]
+hLLMBuildCppArgs = ['-Wfatal-errors', warningAsErrorFlags]
 
 includes = ['include']
 
@@ -59,15 +63,15 @@ if get_option('buildPyLLM')
   includes += ['extern/pybind11_json/include', 'extern/nlohmann_json/include']
 endif
 
-LLMEngineBuildIncludes = include_directories(includes)
+hLLMBuildIncludes = include_directories(includes)
 
 ####### Collect the dependencies
 
-LLMEngineBuildDep = declare_dependency(
-    compile_args: LLMEngineBuildCppArgs,
-    include_directories: LLMEngineBuildIncludes,
-    dependencies: LLMEngineDependencies
-    )
+hLLMBuildDep = declare_dependency(
+  compile_args: hLLMBuildCppArgs,
+  include_directories: hLLMBuildIncludes,
+  dependencies: hLLMDependencies,
+)
 
 ####### Build PyLMM
 if get_option('buildPyLLM')
@@ -80,12 +84,12 @@ if meson.is_subproject() == false
 
   # Build example targets
   if get_option('buildExamples')
-  subdir('examples')
+    subdir('examples')
   endif
 
   # Build test targets
   if get_option('buildTests')
-  subdir('tests')
+    subdir('tests')
   endif
 
 endif

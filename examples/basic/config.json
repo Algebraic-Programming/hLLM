@@ -1,173 +1,274 @@
 {
     "Name": "DeepSeek",
-
-    "Host Types":
-    [
-        {
-            "Name": "CPU Frontend",
-            "Topology":
-            {
-                "Devices":
-                [
-                    {
-                        "Type": "NUMA Domain",
-                        "Compute Resources":
-                        [
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" }
-                        ],
-                        "Memory Spaces":
-                        [
-                        ]
-                    }
-                ]
-            }
-        },
-        {
-            "Name": "CPU Compute",
-            "Topology":
-            {
-                "Devices":
-                [
-                    {
-                        "Type": "NUMA Domain",
-                        "Compute Resources":
-                        [
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" },
-                            { "Type": "Processing Unit" }
-                        ],
-                        "Memory Spaces":
-                        [
-                            {
-                                "Type": "RAM",
-                                "Size": 274877906944,
-                                "Usage": 0
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-    ],
-
-    "Instances":
-    [
+    "Instances": [
         {
             "Name": "Entry Point",
-            "Host Type": "CPU Frontend",
-            "Execution Graph":
-            [
+            "Host Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        }
+                    ],
+                    "Memory Spaces": []
+                }
+            ],
+            "Execution Graph": [
                 {
                     "Name": "Listen Request",
-                    "Dependencies": [ ],
-                    "Inputs": [ ],
-                    "Outputs": [ "Request" ]
-                },
-                {
-                    "Name": "Return Result",
-                    "Dependencies": [ ],
-                    "Inputs": [  
-                       {
-                        "Name": "Result",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       }
-                    ],
-                    "Outputs": [  ]
+                    "Inputs": [],
+                    "Outputs": [
+                        "Request"
+                    ]
                 }
             ]
         },
         {
             "Name": "Decoder",
-            "Host Type": "CPU Compute",
-            "Execution Graph":
-            [
+            "Host Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
                 {
                     "Name": "Decode Request",
-                    "Dependencies": [ ],
                     "Inputs": [
-                       {
-                        "Name": "Request",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 4096
-                       }
+                        {
+                            "Name": "Request",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 4096
+                        }
                     ],
-                    "Outputs": [ "Decoded Request 1", "Decoded Request 2" ]
+                    "Outputs": [
+                        "Decoded Request 1",
+                        "Decoded Request 2"
+                    ]
                 }
             ]
         },
         {
             "Name": "Transformer 1",
-            "Host Type": "CPU Compute",
-            "Execution Graph":
-            [
+            "Host Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
                 {
                     "Name": "Transform Request 1",
-                    "Dependencies": [ ],
                     "Inputs": [
-                       {
-                        "Name": "Decoded Request 1",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       }
+                        {
+                            "Name": "Decoded Request 1",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
                     ],
-                    "Outputs": [ "Transformed Request 1" ]
+                    "Outputs": [
+                        "Transformed Request 1"
+                    ]
                 }
             ]
         },
         {
             "Name": "Transformer 2",
-            "Host Type": "CPU Compute",
-            "Execution Graph":
-            [
+            "Host Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
                 {
                     "Name": "Pre-Transform Request",
-                    "Dependencies": [ ],
-                    "Inputs": [ 
-                       {
-                        "Name": "Decoded Request 2",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       }
+                    "Inputs": [
+                        {
+                            "Name": "Decoded Request 2",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
                     ],
-                    "Outputs": [ ]
+                    "Outputs": [
+                        "Pre-Transform Request Output"
+                    ]
                 },
-
                 {
                     "Name": "Transform Request 2",
-                    "Dependencies": [ "Pre-Transform Request" ],
-                    "Inputs": [ ],
-                    "Outputs": [ "Transformed Request 2" ]
+                    "Inputs": [
+                        {
+                            "Name": "Pre-Transform Request Output",
+                            "Type": "Unbuffered"
+                        }
+                    ],
+                    "Outputs": [
+                        "Transformed Request 2"
+                    ]
                 }
             ]
         },
         {
-            "Name": "Joiner",
-            "Host Type": "CPU Compute",
-            "Execution Graph":
-            [
+            "Name": "Exit Point",
+            "Host Topology": [
                 {
-                    "Name": "Joiner",
-                    "Dependencies": [ ],
-                    "Inputs": [ 
-                       {
-                        "Name": "Transformed Request 1",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       },
-                       {
-                        "Name": "Transformed Request 2",
-                        "Buffer Capacity (Tokens)": 2,
-                        "Buffer Size (Bytes)": 16777216
-                       }
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        },
+                        {
+                            "Type": "Processing Unit"
+                        }
                     ],
-                    "Outputs": [ "Result" ]
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 274877906944,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Respond Request",
+                    "Inputs": [
+                        {
+                            "Name": "Transformed Request 1",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        },
+                        {
+                            "Name": "Transformed Request 2",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
+                    ],
+                    "Outputs": []
                 }
             ]
         }

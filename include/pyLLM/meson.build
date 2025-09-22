@@ -8,5 +8,5 @@ pybind11_dep = dependency('pybind11', required: true)
 py.extension_module('llmEngine',
     ['pyLLM.cpp'],
     install: true,
-    dependencies : [LLMEngineBuildDep, pybind11_dep],
+    dependencies : [hLLMBuildDep, pybind11_dep],
 )

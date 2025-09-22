@@ -1,6 +1,6 @@
 testSuite = [ 'examples', 'helloworld' ]
 
-helloworld = executable('helloworld', [ 'helloworld.cpp'], dependencies: LLMEngineBuildDep)
+helloworld = executable('helloworld', [ 'helloworld.cpp'], dependencies: hLLMBuildDep)
 
 if get_option('buildTests')
 

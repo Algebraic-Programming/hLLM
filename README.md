@@ -1,4 +1,4 @@
-LLM-Engine is a [HiCR](https://github.com/Algebraic-Programming/HiCR)-based LLM deployment and execution engine.
+hLLM is a [HiCR](https://github.com/Algebraic-Programming/HiCR)-based LLM deployment and execution engine.
 
 ## License
 
