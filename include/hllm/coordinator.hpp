@@ -1,10 +1,13 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
 #include "configuration/deployment.hpp"
+#include "edge/input.hpp"
+#include "edge/output.hpp"
 
 namespace hLLM
 {
@@ -15,7 +18,10 @@ class Coordinator final
 
   Coordinator() = delete;
 
-  Coordinator(const configuration::Deployment deployment, const size_t partitionIdx) :
+  Coordinator(
+    const configuration::Deployment deployment,
+    const size_t partitionIdx
+  ) :
     _deployment(deployment),
     _partitionIdx(partitionIdx)
   {}
@@ -31,17 +37,30 @@ class Coordinator final
     const auto& partitionName = partitionConfiguration->getName();
 
     // Getting list of edges in the deployment
-    const auto& edges = _deployment.getEdges();
+    const auto& edgeConfigs = _deployment.getEdges();
 
-    // Gathering edges where I am the producer
-    std::vector<std::shared_ptr<configuration::Edge>> _producerEdges;
-    for (const auto& e : edges) if (e->getProducer() == partitionName) _producerEdges.push_back(e);
+    // Iterating through edges by their index
+    for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
+    {
+      // Getting edge object by index
+      const auto edgeConfig = edgeConfigs[edgeIdx];
 
-    // Gathering edges where I am the consumer
-    std::vector<std::shared_ptr<configuration::Edge>> _consumerEdges;
-    for (const auto& e : edges) if (e->getConsumer() == partitionName) _consumerEdges.push_back(e);
+      // If I am a consumer in this edge
+      if (edgeConfig->getConsumer() == partitionName)
+      {
+        // Create the input edges to pass this information to the receiving partition
+        _partitionInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+      } 
 
-    printf("Deploying Partition Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _consumerEdges.size(), _producerEdges.size());
+      // If I am a producer in this edge
+      if (edgeConfig->getProducer() == partitionName)
+      {
+        // Create the output edge to pass this information to the receiving partition
+        _partitionOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+      } 
+    }
+
+    printf("Deploying Partition Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionInputs.size(), _partitionOutputs.size());
   }
 
   private:
@@ -50,7 +69,12 @@ class Coordinator final
   const size_t _partitionIdx;
 
   // Input edges from other partition coordinators
-  std::map<
+  std::vector<std::shared_ptr<edge::Input>> _partitionInputs;
+  std::vector<std::shared_ptr<edge::Output>> _partitionOutputs;
+
+  // Input edges from my partition's replicas
+  std::vector<std::shared_ptr<edge::Input>> _replicaInputs;
+  std::vector<std::shared_ptr<edge::Output>> _replicaOutputs;
 
 }; // class Coordinator
 

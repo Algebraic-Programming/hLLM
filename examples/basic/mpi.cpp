@@ -72,10 +72,10 @@ int main(int argc, char *argv[])
   const auto isRoot = instanceManager->getCurrentInstance()->isRootInstance();
 
   // Creating hLLM Engine object
-  hLLM::Engine engine(instanceManager.get(), rpcEngine.get(), taskr.get());
+  hLLM::Engine hllm(instanceManager.get(), rpcEngine.get(), taskr.get());
 
-  // Declaring the hLLM tasks for the application
-  createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
+  // Deployment object, it dictates how the work will be distributed
+  hLLM::configuration::Deployment deployment;
 
   // If I am root, checking arguments and config file and deploying
   if (isRoot == true)
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
     auto hllmConfigJs = nlohmann::json::parse(hllmConfigFs);
 
     // Parsing config file using hLLM
-    hLLM::configuration::Deployment deployment(hllmConfigJs);
+    deployment.deserialize(hllmConfigJs);
 
     // Checking I have the correct number of instances (one per partition)
     if (instanceManager->getInstances().size() != deployment.getPartitions().size())
@@ -107,33 +107,49 @@ int main(int argc, char *argv[])
     auto instanceItr = instanceManager->getInstances().begin();
     for (auto p : deployment.getPartitions()) p->setInstanceId(instanceItr++.operator*()->getId());
     // printf("%s\n", deployment.serialize().dump(2).c_str());
-
-    // Deploying
-    engine.deploy(deployment);
   }
 
-  // If I am not root, await deployment
-  if (isRoot == false) engine.awaitDeployment();
+  // Broadcasting deployment from the root instance to all the other intervening instances
+  hllm.initialize(deployment, instanceManager->getRootInstanceId());
 
+  // Declaring the hLLM tasks for the application
+  createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
+
+  // Before deploying, we need to indicate what communication and memory managers to assign to each of the edges
+  // This allows for flexibility to choose in which devices to place the payload and coordination buffers
+  for (const auto& edge : hllm.getDeployment().getEdges())
+  {
+    edge->setPayloadCommunicationManager(mpiCommunicationManager.get());
+    edge->setPayloadMemoryManager(mpiMemoryManager.get());
+    edge->setPayloadMemorySpace(bufferMemorySpace.get());
+
+    edge->setCoordinationCommunicationManager(mpiCommunicationManager.get());
+    edge->setCoordinationMemoryManager(mpiMemoryManager.get());
+    edge->setCoordinationMemorySpace(bufferMemorySpace.get());
+  }
+
+  // Deploying hLLM
+  // hllm.deploy(deployment);
+    
   // // Instantiating request server (emulates live users)
   // size_t requestCount   = 32;
   // size_t requestDelayMs = 100;
-  // initializeRequestServer(&engine, requestCount);
+  // initializeRequestServer(&hllm, requestCount);
   // auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
 
-  // // Initializing LLM engine with deployer id 0
-  // engine.initialize(0);
+  // // Initializing LLM hllm with deployer id 0
+  // hllm.initialize(0);
 
-  // // Deploy all LLM Engine instances
-  // engine.deploy(hllmConfigJs);
+  // // Deploy all hLLM instances
+  // hllm.deploy(hllmConfigJs);
 
   // // Waiting for request server to finish producing requests
-  // printf("[basic.cpp] Waiting for request engine thread to come back...\n");
+  // printf("[basic.cpp] Waiting for request hllm thread to come back...\n");
   // requestThread.join();
 
-  // // Finalizing LLM engine
+  // // Finalizing hLLM
   // printf("[basic.cpp] Finalizing...\n");
-  // engine.finalize();
+  // hllm.finalize();
 
   // printf("[basic.cpp] Finalizing Instance Manager...\n");
   // Finalize Instance Manager

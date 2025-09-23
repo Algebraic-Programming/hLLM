@@ -5,13 +5,13 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/localMemorySlot.hpp>
 #include <hicr/core/globalMemorySlot.hpp>
-#include "configuration/edge.hpp"
-#include "configuration/replica.hpp"
+#include "../configuration/edge.hpp"
+#include "../configuration/replica.hpp"
 
-namespace hLLM
+namespace hLLM::edge
 {
 
-class Edge final
+class Base 
 {
   public:
 
@@ -23,17 +23,25 @@ class Edge final
   static constexpr HiCR::GlobalMemorySlot::globalKey_t maxChannelSpecificKey = 1ul << maxChannelSpecificKeyBits;
   static constexpr configuration::Replica::replicaIndex_t coordinatorReplicaIndex = maxReplicaIndex - 1;
   
-  Edge(const configuration::Edge edgeConfig,
+  Base(const configuration::Edge edgeConfig,
        const configuration::Edge::edgeIndex_t edgeIndex,
        const configuration::Replica::replicaIndex_t replicaIndex) : 
+    _edgeConfig(edgeConfig),
     _edgeIndex(edgeIndex),
-    _replicaIndex(replicaIndex),
-    _edgeConfig(edgeConfig)
+    _replicaIndex(replicaIndex)
   {
-
+    // Verifying all the required HiCR object have been passed
+    if (_edgeConfig.getPayloadCommunicationManager     () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'PayloadCommunicationManager' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+    if (_edgeConfig.getPayloadMemoryManager            () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'PayloadMemoryManager' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+    if (_edgeConfig.getPayloadMemorySpace              () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'PayloadMemorySpace' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+    if (_edgeConfig.getCoordinationCommunicationManager() == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationCommunicationManager' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+    if (_edgeConfig.getCoordinationMemoryManager       () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationMemoryManager not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+    if (_edgeConfig.getCoordinationMemorySpace         () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationMemorySpace' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
   }
 
-  ~Edge() = default;
+  virtual ~Base() = default;
+
+  virtual HiCR::CommunicationManager::globalKeyToMemorySlotMap_t getMemorySlotsToExchange() const = 0;
 
   private:
 
@@ -48,7 +56,7 @@ class Edge final
     // + 8 bits for channel-specific keys (max: 256)
 
     // Sanity checks
-    if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Edge index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
+    if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Base index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
     if (replicaIndex >= maxReplicaIndex - 1) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
     if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
 
@@ -59,10 +67,9 @@ class Edge final
     );
   }
 
+  const configuration::Edge _edgeConfig;
   const configuration::Edge::edgeIndex_t _edgeIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
-  const configuration::Edge _edgeConfig;
+}; // class Base
 
-}; // class Edge
-
-} // namespace hLLM
+} // namespace hLLM::edge
