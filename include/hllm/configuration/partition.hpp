@@ -15,6 +15,8 @@ class Partition final
 {
   public:
 
+  typedef uint64_t partitionIndex_t;
+  
   Partition(const nlohmann::json js) { deserialize(js); };
   Partition(const std::string& name, const HiCR::Instance::instanceId_t instanceId)
     : _name(name), _instanceId(instanceId) {}

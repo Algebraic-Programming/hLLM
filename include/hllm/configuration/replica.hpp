@@ -11,6 +11,8 @@ namespace hLLM::configuration
 class Replica final
 {
   public:
+  
+  typedef uint64_t replicaIndex_t;
 
   Replica(const nlohmann::json js) { deserialize(js); };
   Replica(const std::string& name, const HiCR::Instance::instanceId_t instanceId) : _name(name), _instanceId(instanceId) {}

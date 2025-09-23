@@ -12,6 +12,8 @@ class Edge
 {
   public:
 
+  typedef uint64_t edgeIndex_t;
+
   Edge(const nlohmann::json& js) { deserialize(js); } 
   Edge(const std::string& name, const std::string& producer, std::string& consumer, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
    :  _name(name),

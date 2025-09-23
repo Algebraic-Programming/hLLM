@@ -9,18 +9,18 @@
 namespace hLLM
 {
 
-class PartitionCoordinator final
+class Coordinator final
 {
   public:
 
-  PartitionCoordinator() = delete;
+  Coordinator() = delete;
 
-  PartitionCoordinator(const configuration::Deployment deployment, const size_t partitionIdx) :
+  Coordinator(const configuration::Deployment deployment, const size_t partitionIdx) :
     _deployment(deployment),
     _partitionIdx(partitionIdx)
   {}
 
-  ~PartitionCoordinator() = default;
+  ~Coordinator() = default;
 
   __INLINE__ void deploy()
   {
@@ -49,6 +49,9 @@ class PartitionCoordinator final
   const configuration::Deployment _deployment;
   const size_t _partitionIdx;
 
-}; // class PartitionCoordinator
+  // Input edges from other partition coordinators
+  std::map<
+
+}; // class Coordinator
 
 } // namespace hLLM
