@@ -1,0 +1,174 @@
+{
+    "Name": "DeepSeek",
+    "Partitions": [
+        {
+            "Name": "Listen Request",
+            "Partition ID": 0,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": []
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Listen Request",
+                    "Inputs": [],
+                    "Outputs": [
+                        "Request"
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Request Memory Allocate",
+            "Partition ID": 1,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 2748779060,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Request Memory Allocate",
+                    "Inputs": [
+                        {
+                            "Name": "Request",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 4096
+                        }
+                    ],
+                    "Outputs": [
+                        "Request Memory Allocated"
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Prompt Phase",
+            "Partition ID": 2,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 2748779060,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Prompt Phase",
+                    "Inputs": [
+                        {
+                            "Name": "Request Memory Allocated",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
+                    ],
+                    "Outputs": [
+                        "KV Cache computed"
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Autoregressive Phase",
+            "Partition ID": 3,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 2748779060,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Autoregressive Phase",
+                    "Inputs": [
+                        {
+                            "Name": "KV Cache computed",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
+                    ],
+                    "Outputs": [
+                        "LLM Output"
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Respond Request",
+            "Partition ID": 4,
+            "Topology": [
+                {
+                    "Type": "NUMA Domain",
+                    "Compute Resources": [
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" },
+                        { "Type": "Processing Unit" }
+                    ],
+                    "Memory Spaces": [
+                        {
+                            "Type": "RAM",
+                            "Size": 2748779060,
+                            "Usage": 0
+                        }
+                    ]
+                }
+            ],
+            "Execution Graph": [
+                {
+                    "Name": "Respond Request",
+                    "Inputs": [
+                        {
+                            "Name": "LLM Output",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        }
+                    ],
+                    "Outputs": []
+                }
+            ]
+        }
+    ]
+}
