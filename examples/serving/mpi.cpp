@@ -12,6 +12,7 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 
 #include <hllm/engine.hpp>
+#include <torch/torch.h>
 
 #include "serving.hpp"
 #include "requester.hpp"
