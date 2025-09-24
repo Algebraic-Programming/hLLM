@@ -112,24 +112,24 @@ int main(int argc, char *argv[])
   // Broadcasting deployment from the root instance to all the other intervening instances
   hllm.initialize(deployment, instanceManager->getRootInstanceId());
 
-  // Declaring the hLLM tasks for the application
-  createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
-
   // Before deploying, we need to indicate what communication and memory managers to assign to each of the edges
   // This allows for flexibility to choose in which devices to place the payload and coordination buffers
   for (const auto& edge : hllm.getDeployment().getEdges())
   {
     edge->setPayloadCommunicationManager(mpiCommunicationManager.get());
     edge->setPayloadMemoryManager(mpiMemoryManager.get());
-    edge->setPayloadMemorySpace(bufferMemorySpace.get());
+    edge->setPayloadMemorySpace(bufferMemorySpace);
 
     edge->setCoordinationCommunicationManager(mpiCommunicationManager.get());
     edge->setCoordinationMemoryManager(mpiMemoryManager.get());
-    edge->setCoordinationMemorySpace(bufferMemorySpace.get());
+    edge->setCoordinationMemorySpace(bufferMemorySpace);
   }
 
+  // Declaring the hLLM tasks for the application
+  createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
+
   // Deploying hLLM
-  // hllm.deploy(deployment);
+  hllm.deploy(deployment);
     
   // // Instantiating request server (emulates live users)
   // size_t requestCount   = 32;

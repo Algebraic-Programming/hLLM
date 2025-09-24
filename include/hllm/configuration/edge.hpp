@@ -62,18 +62,18 @@ class Edge
   // Functions to set the HiCR elements required for the creation of edge channels
   __INLINE__ void setPayloadCommunicationManager(HiCR::CommunicationManager* const communicationManager) { _payloadCommunicationManager = communicationManager; }
   __INLINE__ void setPayloadMemoryManager(HiCR::MemoryManager* const memoryManager) { _payloadMemoryManager = memoryManager; }
-  __INLINE__ void setPayloadMemorySpace(HiCR::MemorySpace* const memorySpace) { _payloadMemorySpace = memorySpace; }
+  __INLINE__ void setPayloadMemorySpace(const std::shared_ptr<HiCR::MemorySpace> memorySpace) { _payloadMemorySpace = memorySpace; }
   __INLINE__ void setCoordinationCommunicationManager(HiCR::CommunicationManager* const communicationManager) { _coordinationCommunicationManager = communicationManager; }
   __INLINE__ void setCoordinationMemoryManager(HiCR::MemoryManager* const memoryManager) { _coordinationMemoryManager = memoryManager; }
-  __INLINE__ void setCoordinationMemorySpace(HiCR::MemorySpace* const memorySpace) { _coordinationMemorySpace = memorySpace; }
+  __INLINE__ void setCoordinationMemorySpace(const std::shared_ptr<HiCR::MemorySpace> memorySpace) { _coordinationMemorySpace = memorySpace; }
 
     // Functions to set the HiCR elements required for the creation of edge channels
   __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }
   __INLINE__ HiCR::MemoryManager*        getPayloadMemoryManager            () const { return _payloadMemoryManager; }
-  __INLINE__ HiCR::MemorySpace*          getPayloadMemorySpace              () const { return _payloadMemorySpace; }
+  __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getPayloadMemorySpace              () const { return _payloadMemorySpace; }
   __INLINE__ HiCR::CommunicationManager* getCoordinationCommunicationManager() const { return _coordinationCommunicationManager; }
   __INLINE__ HiCR::MemoryManager*        getCoordinationMemoryManager       () const { return _coordinationMemoryManager; }
-  __INLINE__ HiCR::MemorySpace*          getCoordinationMemorySpace         () const { return _coordinationMemorySpace; }
+  __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getCoordinationMemorySpace         () const { return _coordinationMemorySpace; }
 
   private:
 
@@ -81,6 +81,10 @@ class Edge
 
   void validate()
   {
+    bool modeRecognized = false;
+    if (_mode == "Copy" || _mode == "Reference") modeRecognized = true;
+    if (modeRecognized == false) HICR_THROW_LOGIC("Edge mode '%s' is unrecognized", _mode.c_str());
+
     if (_mode == "Copy" && _bufferSize == 0) HICR_THROW_LOGIC("A zero buffer size provided, although operation mode 'Copy' was indicated");
     if (_mode == "Reference" && _bufferSize == 0) _bufferSize = getReferenceBufferSize(_bufferCapacity);
     if (_mode == "Reference" && _bufferSize != getReferenceBufferSize(_bufferCapacity)) HICR_THROW_LOGIC("A non-zero buffer size provided, although operation mode 'Reference' was indicated");
@@ -96,12 +100,12 @@ class Edge
   // HiCR-specific objects to create the payload buffers. These are to be set at runtime
   HiCR::CommunicationManager* _payloadCommunicationManager = nullptr;
   HiCR::MemoryManager* _payloadMemoryManager  = nullptr;
-  HiCR::MemorySpace* _payloadMemorySpace  = nullptr;
+  std::shared_ptr<HiCR::MemorySpace> _payloadMemorySpace  = nullptr;
 
   // HiCR-specific objects to create the coordination buffers. These are to be set at runtime
   HiCR::CommunicationManager* _coordinationCommunicationManager  = nullptr;
   HiCR::MemoryManager* _coordinationMemoryManager  = nullptr;
-  HiCR::MemorySpace* _coordinationMemorySpace  = nullptr;
+  std::shared_ptr<HiCR::MemorySpace> _coordinationMemorySpace  = nullptr;
 
 }; // class Base
 

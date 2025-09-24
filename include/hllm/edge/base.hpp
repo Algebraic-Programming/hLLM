@@ -11,6 +11,18 @@
 namespace hLLM::edge
 {
 
+struct memorySlotExchangeInfo_t
+{
+  /// Pointer to the communication manager required to exchange this memory slot
+  HiCR::CommunicationManager* communicationManager;
+
+  /// Global key to use for the exchange
+  HiCR::GlobalMemorySlot::globalKey_t globalKey;
+  
+  /// Local memory slot to exchange
+  std::shared_ptr<HiCR::LocalMemorySlot> memorySlot;
+};
+
 class Base 
 {
   public:
@@ -37,13 +49,18 @@ class Base
     if (_edgeConfig.getCoordinationCommunicationManager() == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationCommunicationManager' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
     if (_edgeConfig.getCoordinationMemoryManager       () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationMemoryManager not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
     if (_edgeConfig.getCoordinationMemorySpace         () == nullptr) HICR_THROW_LOGIC("Required HiCR object 'CoordinationMemorySpace' not provided at deployment time for edge '%s'", _edgeConfig.getName().c_str());
+
+    // Reserving memory for the local coordination buffers
+    const auto coordinationBufferSize = HiCR::channel::Base::getCoordinationBufferSize();
+    _localCoordinationBufferForSizes = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
+    _localCoordinationBufferForPayloads = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
   }
 
   virtual ~Base() = default;
 
-  virtual HiCR::CommunicationManager::globalKeyToMemorySlotMap_t getMemorySlotsToExchange() const = 0;
+  virtual void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const = 0;
 
-  private:
+  protected:
 
   __INLINE__ static HiCR::GlobalMemorySlot::globalKey_t encodeGlobalKey(
     const configuration::Edge::edgeIndex_t edgeIndex,
@@ -57,7 +74,7 @@ class Base
 
     // Sanity checks
     if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Base index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
-    if (replicaIndex >= maxReplicaIndex - 1) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
+    if (replicaIndex >= maxReplicaIndex) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", replicaIndex, maxEdgeIndex);
     if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
 
     return HiCR::GlobalMemorySlot::globalKey_t(
@@ -67,9 +84,30 @@ class Base
     );
   }
 
+  // Assigning keys to the global slots to exchange between consumer and producer sides of this edge
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerSizesBufferKey = 0;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerPayloadBufferKey = 1;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerCoordinationBufferforSizesKey = 2;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerCoordinationBufferforPayloadKey = 3;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _producerCoordinationBufferforSizesKey = 4;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _producerCoordinationBufferforPayloadKey = 5;
+
   const configuration::Edge _edgeConfig;
   const configuration::Edge::edgeIndex_t _edgeIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
+
+  // Here we declare the local coordination buffer memory slots we need to allocate
+  std::shared_ptr<HiCR::LocalMemorySlot> _localCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::LocalMemorySlot> _localCoordinationBufferForPayloads;
+
+  // Here we declare the global memory slots we need to exchange to build a variable sized SPSC channel in HICR
+  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerSizesBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerPayloadBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerCoordinationBufferForPayloads;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _producerCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _producerCoordinationBufferForPayloads;
+
 }; // class Base
 
 } // namespace hLLM::edge

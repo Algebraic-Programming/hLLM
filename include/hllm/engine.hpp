@@ -13,6 +13,7 @@
 #define __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME "[hLLM] Request Deployment Configuration"
 #define __HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME "[hLLM] Request Deployment Stop"
 #define __HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME "[hLLM] Broadcast Deployment Stop"
+#define __HLLM_DEFAULT_EXCHANGE_TAG 0x0000A000
 
 namespace hLLM
 {
@@ -23,11 +24,13 @@ class Engine final
 
   Engine(HiCR::InstanceManager             *instanceManager,
          HiCR::frontend::RPCEngine         *rpcEngine,
-         taskr::Runtime                    *taskr)
+         taskr::Runtime                    *taskr,
+         const HiCR::GlobalMemorySlot::tag_t exchangeTag = __HLLM_DEFAULT_EXCHANGE_TAG)
     : _instanceManager(instanceManager),
       _rpcEngine(rpcEngine),
       _taskr(taskr),
-      _instanceId(_instanceManager->getCurrentInstance()->getId())
+      _instanceId(_instanceManager->getCurrentInstance()->getId()),
+      _exchangeTag(exchangeTag)
   {
     // Registering entry point function for partition coordinators / replicas. Not for the deployment launcher
     _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) { entryPoint(); }));
@@ -274,12 +277,19 @@ class Engine final
     std::unique_ptr<Coordinator> coordinator;
     std::unique_ptr<Replica> replica;
 
+    // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
+    // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
+    // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
+    std::vector<edge::memorySlotExchangeInfo_t> memorySlotsToExchange;
+
     // If I am a partition coordinator, construct the coordinator object
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
       coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex);
-      coordinator->deploy();
+
+      // Get memory slots to exchange for the partition coordinator
+      coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // If I am a replica, construct the replica object:
@@ -288,16 +298,51 @@ class Engine final
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
       replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex);
+
+    // Get memory slots to exchange for the replica
+      coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // Sanity check
-    if (isPartitionCoordinator == false && isPartitionReplica == false)
+    if (isPartitionCoordinator == false && isPartitionReplica == false) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it. This must be a bug in hLLM", _instanceId);
 
-    // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
-    // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
-    // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
-    HiCR::CommunicationManager::globalMemorySlotTagKeyMap_t _exchangeMemorySlotMap;
+    ////////// Exchange memory slots now
+    // printf("[Instance %lu] Memory Slots to exchange: %lu\n", _instanceId, memorySlotsToExchange.size());
 
+    // Finding all distinct communication managers and storing them in the order in which they were declared.
+    // This is important for all intervening instances to do the exchange in the same order
+    std::set<HiCR::CommunicationManager*> communicationManagerSet;
+    std::vector<HiCR::CommunicationManager*> communicationManagerVector;
+    for (const auto& edge : _deployment.getEdges())
+    {
+      const auto coordinationComunicationManager = edge->getCoordinationCommunicationManager();
+      if (communicationManagerSet.contains(coordinationComunicationManager) == false)
+      {
+        communicationManagerSet.insert(coordinationComunicationManager);
+        communicationManagerVector.push_back(coordinationComunicationManager);
+      }
+
+      const auto payloadComunicationManager = edge->getPayloadCommunicationManager();
+      if (communicationManagerSet.contains(payloadComunicationManager) == false)
+      {
+        communicationManagerSet.insert(payloadComunicationManager);
+        communicationManagerVector.push_back(payloadComunicationManager);
+      }
+    }
+
+    // Now creating a map of memory slots to exchange, mapped by communication manager
+    std::map<HiCR::CommunicationManager*, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> exchangeMap;
+    for (const auto& entry : memorySlotsToExchange) exchangeMap[entry.communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
+
+    // Finally, doing the exchange, one communication manager at a time, in the order given by the edge ordering
+    for (const auto communicationManager : communicationManagerVector)
+    {
+        printf("[Instance %lu] Exchanging...\n", _instanceId);
+        communicationManager->exchangeGlobalMemorySlots(_exchangeTag, exchangeMap[communicationManager]);
+    } 
+
+    // Waiting for the finalization of the exchange
+    for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
   }
 
     // // Starting a new deployment
@@ -500,6 +545,9 @@ class Engine final
 
   // My instance Id
   const HiCR::Instance::instanceId_t _instanceId;
+
+  // HiCR Tag to use for channel exchanges
+  const HiCR::GlobalMemorySlot::tag_t _exchangeTag;
 
   // HiCR instance id associated to the instance that will coordinate the deployment
   HiCR::Instance::instanceId_t _deployerInstanceId;

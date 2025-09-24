@@ -109,7 +109,7 @@
       "Consumer": "Decoder Partition",
       "Buffer Capacity": 2,
       "Buffer Size": 4096,
-      "Mode": "Buffered"
+      "Mode": "Copy"
       
     },
     {
@@ -118,7 +118,7 @@
       "Consumer": "Transformer Partition 1",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,
-      "Mode": "Buffered"
+      "Mode": "Copy"
     },
     {
       "Name": "Decoded Request 2",
@@ -126,7 +126,7 @@
       "Consumer": "Transformer Partition 2",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,
-      "Mode": "Buffered"
+      "Mode": "Copy"
     },
     {
       "Name": "Pre-Transform Request Output",
@@ -134,7 +134,7 @@
       "Consumer": "Transformer Partition 2",
       "Buffer Capacity": 1,
       "Buffer Size": 0,
-      "Mode": "Unbuffered"
+      "Mode": "Reference"
     },
     {
       "Name": "Transformed Request 1",
@@ -142,7 +142,7 @@
       "Consumer": "Joiner Partition",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,
-      "Mode": "Buffered"
+      "Mode": "Copy"
     },
     {
       "Name": "Transformed Request 2",
@@ -150,7 +150,7 @@
       "Consumer": "Joiner Partition",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,
-      "Mode": "Buffered"
+      "Mode": "Copy"
     }
   ]
 }

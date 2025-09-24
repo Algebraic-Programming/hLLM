@@ -20,15 +20,10 @@ class Coordinator final
 
   Coordinator(
     const configuration::Deployment deployment,
-    const size_t partitionIdx
+    const configuration::Partition::partitionIndex_t partitionIdx
   ) :
     _deployment(deployment),
     _partitionIdx(partitionIdx)
-  {}
-
-  ~Coordinator() = default;
-
-  __INLINE__ void deploy()
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -50,6 +45,10 @@ class Coordinator final
       {
         // Create the input edges to pass this information to the receiving partition
         _partitionInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+
+        // Create the output edges to pass this distribute the input to any of the replicas
+        for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
+          _replicaOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, replicaIdx));
       } 
 
       // If I am a producer in this edge
@@ -57,22 +56,36 @@ class Coordinator final
       {
         // Create the output edge to pass this information to the receiving partition
         _partitionOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+
+        // Create the input edges to receive the output from any of the replicas
+        for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
+          _replicaInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, replicaIdx));
       } 
     }
 
     printf("Deploying Partition Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionInputs.size(), _partitionOutputs.size());
   }
 
+  ~Coordinator() = default;
+
+  __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
+  {
+    for (const auto& edge : _partitionInputs)  edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _partitionOutputs) edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _replicaInputs)    edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _replicaOutputs)   edge->getMemorySlotsToExchange(memorySlots);
+  }
+
   private:
 
   const configuration::Deployment _deployment;
-  const size_t _partitionIdx;
+  const configuration::Partition::partitionIndex_t _partitionIdx;
 
-  // Input edges from other partition coordinators
+  // Input / Output  edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionOutputs;
 
-  // Input edges from my partition's replicas
+  // Input / Output edges from my partition's replicas
   std::vector<std::shared_ptr<edge::Input>> _replicaInputs;
   std::vector<std::shared_ptr<edge::Output>> _replicaOutputs;
 

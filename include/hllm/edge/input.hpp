@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base.hpp"
+#include "hicr/frontends/channel/variableSize/spsc/consumer.hpp"
 
 namespace hLLM::edge
 {
@@ -14,22 +15,38 @@ class Input final : public Base
         const configuration::Replica::replicaIndex_t replicaIndex) :
          Base(edgeConfig, edgeIndex, replicaIndex)
   {
-    
+    // Allocating additional local buffers required for the consumer 
+
+    // Getting required buffer size
+    auto sizesBufferSize = HiCR::channel::variableSize::Base::getTokenBufferSize(sizeof(size_t), _edgeConfig.getBufferCapacity());
+
+    // Allocating sizes buffer as a local memory slot
+    _sizesBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizesBufferSize);
+
+    // Allocating payload buffer as a local memory slot
+    _payloadBuffer = _edgeConfig.getPayloadMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), _edgeConfig.getBufferSize());
   }
 
   ~Input() = default;
 
   public:
 
-  __INLINE__ HiCR::CommunicationManager::globalKeyToMemorySlotMap_t getMemorySlotsToExchange() const override
+  __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
-    HiCR::CommunicationManager::globalKeyToMemorySlotMap_t memorySlotMap;
-
-    return memorySlotMap;
+    // Getting key / memory slot pairs
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerSizesBufferKey),                  .memorySlot = _sizesBuffer } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getPayloadCommunicationManager(),      .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerPayloadBufferKey),                .memorySlot = _payloadBuffer } );
   }
 
   private:
 
+  std::shared_ptr<HiCR::LocalMemorySlot> _sizesBuffer;
+  std::shared_ptr<HiCR::LocalMemorySlot> _payloadBuffer;
+
+  // The HiCR channels we use to communicate
+  std::shared_ptr<HiCR::channel::variableSize::SPSC::Consumer> _channel;
 
 }; // class Input
 
