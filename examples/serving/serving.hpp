@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <torch/torch.h>
+#include <iostream>
 
 #include <hicr/core/memoryManager.hpp>
 #include <hicr/core/memorySpace.hpp>
@@ -15,6 +17,8 @@ std::string transformedRequest1Output;
 std::string preTransformedRequest;
 std::string transformedRequest2Output;
 std::string resultOutput;
+
+torch::manual_seed(42);
 
 void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager, std::shared_ptr<HiCR::MemorySpace> memorySpace)
 {

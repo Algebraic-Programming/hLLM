@@ -12,12 +12,11 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 
 #include <hllm/engine.hpp>
-#include <torch/torch.h>
 
 #include "serving.hpp"
 #include "requester.hpp"
 
-#define __SERVING_BROADCAST_CONFIGURATION_RPC "[Basic] Exchange Configuration"
+#define __SERVING_BROADCAST_CONFIGURATION_RPC "[serving.cpp] Exchange Configuration"
 
 void broadcastConfigJson(std::shared_ptr<HiCR::frontend::RPCEngine> &rpcEngine,
                          nlohmann::json_abi_v3_11_2::json           &configJs,
@@ -160,14 +159,14 @@ int main(int argc, char *argv[])
   engine.deploy(configJs);
 
   // Waiting for request server to finish producing requests
-  printf("[basic.cpp] Waiting for request engine thread to come back...\n");
+  printf("[serving.cpp] Waiting for request engine thread to come back...\n");
   requestThread.join();
 
   // Finalizing LLM engine
-  printf("[basic.cpp] Finalizing...\n");
+  printf("[serving.cpp] Finalizing...\n");
   engine.finalize();
 
-  printf("[basic.cpp] Finalizing Instance Manager...\n");
+  printf("[serving.cpp] Finalizing Instance Manager...\n");
   // Finalize Instance Manager
   instanceManager->finalize();
 }
