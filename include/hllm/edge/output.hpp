@@ -17,10 +17,14 @@ class Output final : public Base
         const configuration::Replica::replicaIndex_t replicaIndex) :
          Base(edgeConfig, edgeIndex, replicaIndex)
   {
-    
+    _producerSizeInfoBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizeof(size_t)); 
   }
 
-  ~Output() = default;
+  ~Output()
+  {
+    // Freeing up buffers
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_producerSizeInfoBuffer);
+  }
 
   public:
   
@@ -34,7 +38,29 @@ class Output final : public Base
   private:
 
   //// We use a variable size SPSC channel to communicate, where as an output edge we take the producer interface
+
+  __INLINE__ void createChannels() override
+  {
+    // Creating producer channel
+    _channel = std::make_shared<HiCR::channel::variableSize::SPSC::Producer>(
+      *_edgeConfig.getCoordinationCommunicationManager(),
+      _producerSizeInfoBuffer,
+      _consumerPayloadBuffer,
+      _consumerSizesBuffer,
+      _producerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
+      _producerCoordinationBufferForPayloads->getSourceLocalMemorySlot(),
+      _consumerCoordinationBufferForSizes,
+      _consumerCoordinationBufferForPayloads,
+      _edgeConfig.getBufferSize(),
+      sizeof(uint8_t),
+      _edgeConfig.getBufferCapacity()
+    );
+  }
+
   
+  // Internal memory slot for producer coordination
+  std::shared_ptr<HiCR::LocalMemorySlot> _producerSizeInfoBuffer;
+
   // The HiCR channels we use to communicate
   std::shared_ptr<HiCR::channel::variableSize::SPSC::Producer> _channel;
   

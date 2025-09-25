@@ -343,6 +343,10 @@ class Engine final
 
     // Waiting for the finalization of the exchange
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
+
+    // After the exchange, we can now initialize the edges
+    if (isPartitionCoordinator == true) coordinator->initializeEdges(_exchangeTag);
+    if (isPartitionReplica == true) replica->initializeEdges(_exchangeTag);
   }
 
     // // Starting a new deployment

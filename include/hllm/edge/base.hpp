@@ -56,11 +56,33 @@ class Base
     _localCoordinationBufferForPayloads = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
   }
 
-  virtual ~Base() = default;
+  virtual ~Base()
+  {
+    // Freeing up buffers
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_localCoordinationBufferForSizes);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_localCoordinationBufferForPayloads);
+  }
 
   virtual void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const = 0;
+  
+  // Function to initialize the channels. It must be called only all the memory slots have been exchanged
+  __INLINE__ void initialize(const HiCR::GlobalMemorySlot::tag_t tag)
+  {
+    // Obtaining the globally exchanged memory slots
+    _consumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerSizesBufferKey));
+    _consumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerPayloadBufferKey));
+    _consumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforSizesKey));
+    _consumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforPayloadKey));
+    _producerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforSizesKey));
+    _producerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforPayloadKey));
+
+    // Creating channels now
+    createChannels();
+  }
 
   protected:
+
+  virtual void createChannels() = 0;
 
   __INLINE__ static HiCR::GlobalMemorySlot::globalKey_t encodeGlobalKey(
     const configuration::Edge::edgeIndex_t edgeIndex,

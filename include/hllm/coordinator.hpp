@@ -66,6 +66,15 @@ class Coordinator final
     printf("Deploying Partition Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionInputs.size(), _partitionOutputs.size());
   }
 
+  /// This function completes the initialization of the edges, after the memory slot exchanges are completed
+  __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
+  {
+    for (const auto& edge : _partitionInputs)  edge->initialize(tag);
+    for (const auto& edge : _partitionOutputs) edge->initialize(tag);
+    for (const auto& edge : _replicaInputs)    edge->initialize(tag);
+    for (const auto& edge : _replicaOutputs)   edge->initialize(tag);
+  }
+
   ~Coordinator() = default;
 
   __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)

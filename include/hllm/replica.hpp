@@ -65,6 +65,13 @@ class Replica final
 
   ~Replica() = default;
 
+  /// This function completes the initialization of the edges, after the memory slot exchanges are completed
+  __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
+  {
+    for (const auto& edge : _coordinatorInputs)  edge->initialize(tag);
+    for (const auto& edge : _coordinatorOutputs) edge->initialize(tag);
+  }
+
   __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
   {
     for (const auto& edge : _coordinatorInputs)  edge->getMemorySlotsToExchange(memorySlots);

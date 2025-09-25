@@ -27,9 +27,12 @@ class Input final : public Base
     _payloadBuffer = _edgeConfig.getPayloadMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), _edgeConfig.getBufferSize());
   }
 
-  ~Input() = default;
-
-  public:
+  ~Input()
+  {
+    // Freeing up buffers
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_sizesBuffer);
+    _edgeConfig.getPayloadMemoryManager()->freeLocalMemorySlot(_payloadBuffer);
+  }
 
   __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
@@ -42,6 +45,23 @@ class Input final : public Base
 
   private:
 
+  __INLINE__ void createChannels() override
+  {
+    // Creating consumer channel
+    _channel = std::make_shared<HiCR::channel::variableSize::SPSC::Consumer>(
+        *_edgeConfig.getCoordinationCommunicationManager(),
+        _consumerPayloadBuffer /*payload buffer */,
+        _consumerSizesBuffer,
+        _consumerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
+        _consumerCoordinationBufferForPayloads->getSourceLocalMemorySlot(),
+        _producerCoordinationBufferForSizes,
+        _producerCoordinationBufferForPayloads,
+        _edgeConfig.getBufferSize(),
+        _edgeConfig.getBufferCapacity()
+      );
+  }
+
+  // Buffers associated with this channel
   std::shared_ptr<HiCR::LocalMemorySlot> _sizesBuffer;
   std::shared_ptr<HiCR::LocalMemorySlot> _payloadBuffer;
 
