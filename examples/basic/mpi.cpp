@@ -96,16 +96,42 @@ int main(int argc, char *argv[])
     // Parsing config file using hLLM
     deployment.deserialize(hllmConfigJs);
 
-    // Checking I have the correct number of instances (one per partition)
-    if (instanceManager->getInstances().size() != deployment.getPartitions().size())
+    // Checking I have the correct number of replicas (at least one per partition)
+    size_t replicasRequired = 0;
+    for (auto p : deployment.getPartitions())
     {
-      fprintf(stderr, "Error: %lu MPI instances provided, but %lu partitions were requested\n", instanceManager->getInstances().size(),  deployment.getPartitions().size());
+      // Getting number of replicas required
+      const auto replicaCount = p->getReplicas().size();
+
+      // Checking replicas count for this partition is not zero
+      if (replicaCount == 0)
+      {
+        fprintf(stderr, "Error: This example requires at least one replica per partition to be provided. Partition '%s' has no replicas\n", p->getName().c_str());
+        instanceManager->abort(-1);
+      }
+
+      // Adding the number of requested replicas
+      replicasRequired += p->getReplicas().size();
+    } 
+    
+    // Checking I have the correct number of instances (one per replica)
+    if (instanceManager->getInstances().size() != replicasRequired)
+    {
+      fprintf(stderr, "Error: %lu MPI instances provided, but %lu partition replicas were requested\n", instanceManager->getInstances().size(), replicasRequired);
       instanceManager->abort(-1);
     }
 
     // Assigning instance ids to the partitions
     auto instanceItr = instanceManager->getInstances().begin();
-    for (auto p : deployment.getPartitions()) p->setInstanceId(instanceItr++.operator*()->getId());
+    for (auto p : deployment.getPartitions()) 
+    {
+      // Setting this partition to be executed by the same instance than replica zero
+      p->setInstanceId(instanceItr.operator*()->getId());
+
+      // Setting this partition replicas incrementally
+      for (auto r : p->getReplicas()) r->setInstanceId(instanceItr++.operator*()->getId());
+    }
+    
     // printf("%s\n", deployment.serialize().dump(2).c_str());
   }
 

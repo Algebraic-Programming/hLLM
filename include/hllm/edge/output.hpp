@@ -13,9 +13,10 @@ class Output final : public Base
   public:
 
   Output(const configuration::Edge edgeConfig,
+        const edgeType_t edgeType,
         const configuration::Edge::edgeIndex_t edgeIndex,
         const configuration::Replica::replicaIndex_t replicaIndex) :
-         Base(edgeConfig, edgeIndex, replicaIndex)
+         Base(edgeConfig, edgeType, edgeIndex, replicaIndex)
   {
     _producerSizeInfoBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizeof(size_t)); 
   }
@@ -31,8 +32,8 @@ class Output final : public Base
   __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
     // Getting key / memory slot pairs
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
   }
 
   private:

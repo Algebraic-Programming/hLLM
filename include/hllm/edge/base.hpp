@@ -11,6 +11,15 @@
 namespace hLLM::edge
 {
 
+typedef uint8_t edgeTypeDatatype_t;
+enum edgeType_t : edgeTypeDatatype_t
+{
+  coordinatorToCoordinator = 0,
+  coordinatorToReplica = 1,
+  replicaToCoordinator = 2
+};
+
+
 struct memorySlotExchangeInfo_t
 {
   /// Pointer to the communication manager required to exchange this memory slot
@@ -29,16 +38,20 @@ class Base
 
   static constexpr size_t maxEdgeIndexBits = 32;
   static constexpr size_t maxReplicaIndexBits = 24;
-  static constexpr size_t maxChannelSpecificKeyBits = 8;
+  static constexpr size_t maxEdgeTypeBits = 2;
+  static constexpr size_t maxChannelSpecificKeyBits = 6;
   static constexpr configuration::Edge::edgeIndex_t maxEdgeIndex = 1ul << maxEdgeIndexBits;
   static constexpr configuration::Replica::replicaIndex_t maxReplicaIndex = 1ul << maxReplicaIndexBits;
+  static constexpr edgeTypeDatatype_t maxEdgeType = 1u << maxEdgeTypeBits;
   static constexpr HiCR::GlobalMemorySlot::globalKey_t maxChannelSpecificKey = 1ul << maxChannelSpecificKeyBits;
   static constexpr configuration::Replica::replicaIndex_t coordinatorReplicaIndex = maxReplicaIndex - 1;
   
   Base(const configuration::Edge edgeConfig,
+       const edgeType_t edgeType,
        const configuration::Edge::edgeIndex_t edgeIndex,
        const configuration::Replica::replicaIndex_t replicaIndex) : 
     _edgeConfig(edgeConfig),
+    _edgeType(edgeType),
     _edgeIndex(edgeIndex),
     _replicaIndex(replicaIndex)
   {
@@ -69,12 +82,12 @@ class Base
   __INLINE__ void initialize(const HiCR::GlobalMemorySlot::tag_t tag)
   {
     // Obtaining the globally exchanged memory slots
-    _consumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerSizesBufferKey));
-    _consumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerPayloadBufferKey));
-    _consumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforSizesKey));
-    _consumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforPayloadKey));
-    _producerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforSizesKey));
-    _producerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _producerCoordinationBufferforPayloadKey));
+    _consumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerSizesBufferKey));
+    _consumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerPayloadBufferKey));
+    _consumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforSizesKey));
+    _consumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforPayloadKey));
+    _producerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforSizesKey));
+    _producerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforPayloadKey));
 
     // Creating channels now
     createChannels();
@@ -87,6 +100,7 @@ class Base
   __INLINE__ static HiCR::GlobalMemorySlot::globalKey_t encodeGlobalKey(
     const configuration::Edge::edgeIndex_t edgeIndex,
     const configuration::Replica::replicaIndex_t replicaIndex,
+    const edgeType_t edgeType,
     const HiCR::GlobalMemorySlot::globalKey_t channelKey)
   {
     // Encoding reserves:
@@ -97,13 +111,20 @@ class Base
     // Sanity checks
     if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Base index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
     if (replicaIndex >= maxReplicaIndex) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", replicaIndex, maxEdgeIndex);
+    if (edgeType >= maxEdgeType) HICR_THROW_LOGIC("Edge type value %lu exceeds maximum: %lu (this must be a bug in hLLM)\n", edgeType, maxEdgeType);
     if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
 
-    return HiCR::GlobalMemorySlot::globalKey_t(
-        edgeIndex    << (maxReplicaIndexBits + maxChannelSpecificKeyBits + 0) |
-        replicaIndex << (maxChannelSpecificKeyBits + 0) |
+    // Creating global key
+    const auto globalKey = HiCR::GlobalMemorySlot::globalKey_t(
+        edgeIndex    << (maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + 0) |
+        replicaIndex << (maxChannelSpecificKeyBits + maxEdgeTypeBits + 0) |
+        edgeType     << (maxChannelSpecificKeyBits + 0) |
         channelKey   << (0)
     );
+
+    // printf("Key: %lu = f(%lu, %lu, %u, %lu)\n", globalKey, edgeIndex, replicaIndex, edgeType, channelKey);
+
+    return globalKey;
   }
 
   // Assigning keys to the global slots to exchange between consumer and producer sides of this edge
@@ -115,6 +136,7 @@ class Base
   static constexpr HiCR::GlobalMemorySlot::globalKey_t _producerCoordinationBufferforPayloadKey = 5;
 
   const configuration::Edge _edgeConfig;
+  const edgeType_t _edgeType;
   const configuration::Edge::edgeIndex_t _edgeIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
 

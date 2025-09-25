@@ -11,9 +11,10 @@ class Input final : public Base
   public:
 
   Input(const configuration::Edge edgeConfig,
+        const edgeType_t edgeType,
         const configuration::Edge::edgeIndex_t edgeIndex,
         const configuration::Replica::replicaIndex_t replicaIndex) :
-         Base(edgeConfig, edgeIndex, replicaIndex)
+         Base(edgeConfig, edgeType, edgeIndex, replicaIndex)
   {
     // Allocating additional local buffers required for the consumer 
 
@@ -37,10 +38,10 @@ class Input final : public Base
   __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
     // Getting key / memory slot pairs
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerSizesBufferKey),                  .memorySlot = _sizesBuffer } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getPayloadCommunicationManager(),      .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _consumerPayloadBufferKey),                .memorySlot = _payloadBuffer } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerSizesBufferKey),                  .memorySlot = _sizesBuffer } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getPayloadCommunicationManager(),      .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerPayloadBufferKey),                .memorySlot = _payloadBuffer } );
   }
 
   private:

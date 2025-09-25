@@ -81,6 +81,8 @@ class Engine final
       // Freeing return value
       _rpcEngine->getMemoryManager()->freeLocalMemorySlot(returnValue);
 
+      printf("Instance %lu - Got deployment configuration\n", _instanceId);
+
       // Return now
       return;
     }
@@ -95,7 +97,7 @@ class Engine final
       const auto coordinatorInstanceId = partition->getInstanceId();
 
       // Adding it to the set
-      _instanceSet.push_back(coordinatorInstanceId);
+      _instanceSet.insert(coordinatorInstanceId);
 
       // Now getting all replicas for the replica
       for (const auto& replica : partition->getReplicas())
@@ -104,14 +106,17 @@ class Engine final
         const auto replicaInstanceId = replica->getInstanceId();
 
         // Adding it to the collection
-        _instanceSet.push_back(replicaInstanceId);
+        _instanceSet.insert(replicaInstanceId);
       }
     }
 
     // Iterating over the instances involved in the deployment
     for (const auto instanceId : _instanceSet)
       if (instanceId != _deployerInstanceId) // If it's not me, listen for a deployment configuration request
+      {
+        printf("Deployer %lu: Listening for instance %lu\n", _instanceId, instanceId);
          _rpcEngine->listen();
+      }
   }
 
   __INLINE__ void deploy(const configuration::Deployment deployment)
@@ -289,6 +294,7 @@ class Engine final
       coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex);
 
       // Get memory slots to exchange for the partition coordinator
+      printf("Registering Coordinator Memory Slots...\n");
       coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
@@ -299,8 +305,9 @@ class Engine final
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
       replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex);
 
-    // Get memory slots to exchange for the replica
-      coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
+      // Get memory slots to exchange for the replica
+      printf("Registering Replica Memory Slots...\n");
+      replica->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // Sanity check
@@ -557,7 +564,7 @@ class Engine final
   HiCR::Instance::instanceId_t _deployerInstanceId;
 
   // For the deployer instance, this holds the ids of all the initially deployed instances
-  std::vector<HiCR::Instance::instanceId_t> _instanceSet;
+  std::set<HiCR::Instance::instanceId_t> _instanceSet;
 }; // class Engine
 
 } // namespace hLLM

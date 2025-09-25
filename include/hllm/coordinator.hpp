@@ -44,22 +44,22 @@ class Coordinator final
       if (edgeConfig->getConsumer() == partitionName)
       {
         // Create the input edges to pass this information to the receiving partition
-        _partitionInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+        _partitionInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, edge::Base::coordinatorReplicaIndex));
 
         // Create the output edges to pass this distribute the input to any of the replicas
         for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, replicaIdx));
+          _replicaOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, replicaIdx));
       } 
 
       // If I am a producer in this edge
       if (edgeConfig->getProducer() == partitionName)
       {
         // Create the output edge to pass this information to the receiving partition
-        _partitionOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, edge::Base::coordinatorReplicaIndex));
+        _partitionOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, edge::Base::coordinatorReplicaIndex));
 
         // Create the input edges to receive the output from any of the replicas
         for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, replicaIdx));
+          _replicaInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, replicaIdx));
       } 
     }
 

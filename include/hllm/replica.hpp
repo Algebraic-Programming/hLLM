@@ -49,14 +49,14 @@ class Replica final
       if (edgeConfig->getConsumer() == partitionName)
       {
         // Create the input edges to pass this information to the receiving partition
-        _coordinatorInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeIdx, _replicaIdx));
+        _coordinatorInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _replicaIdx));
       } 
 
       // If I am a producer in this edge
       if (edgeConfig->getProducer() == partitionName)
       {
         // Create the output edge to pass this information to the receiving partition
-        _coordinatorOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeIdx, _replicaIdx));
+        _coordinatorOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _replicaIdx));
       } 
     }
 
