@@ -11,7 +11,7 @@ if 'mpi' in engines
 				'--oversubscribe', executable.full_path(),
 				meson.current_source_dir() + '/config.json',
 			],
-			timeout: 60,
+			timeout: 30,
 			suite: testSuite,
 		)
 	endif
@@ -31,7 +31,7 @@ endif
 #			env: {
 #				'DEPLOYR_CLOUDR_CONFIG_FILE_PATH': meson.current_source_dir() + '/cloudr.json',
 #			},
-#			timeout: 60,
+#			timeout: 30,
 #			suite: testSuite,
 #		)
 #	endif

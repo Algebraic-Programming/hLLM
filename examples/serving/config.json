@@ -11,30 +11,6 @@
                         { "Type": "Processing Unit" },
                         { "Type": "Processing Unit" }
                     ],
-                    "Memory Spaces": []
-                }
-            ],
-            "Execution Graph": [
-                {
-                    "Name": "Listen Request",
-                    "Inputs": [],
-                    "Outputs": [
-                        "Request"
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Request Memory Allocate",
-            "Partition ID": 1,
-            "Topology": [
-                {
-                    "Type": "NUMA Domain",
-                    "Compute Resources": [
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" },
-                        { "Type": "Processing Unit" }
-                    ],
                     "Memory Spaces": [
                         {
                             "Type": "RAM",
@@ -46,24 +22,18 @@
             ],
             "Execution Graph": [
                 {
-                    "Name": "Request Memory Allocate",
-                    "Inputs": [
-                        {
-                            "Name": "Request",
-                            "Type": "Buffered",
-                            "Buffer Capacity (Tokens)": 2,
-                            "Buffer Size (Bytes)": 4096
-                        }
-                    ],
+                    "Name": "Listen Request",
+                    "Inputs": [],
                     "Outputs": [
-                        "Request Memory Allocated"
+                        "Prompts1",
+                        "KV_Cache1"
                     ]
                 }
             ]
         },
         {
             "Name": "Prompt Phase",
-            "Partition ID": 2,
+            "Partition ID": 1,
             "Topology": [
                 {
                     "Type": "NUMA Domain",
@@ -86,21 +56,28 @@
                     "Name": "Prompt Phase",
                     "Inputs": [
                         {
-                            "Name": "Request Memory Allocated",
+                            "Name": "Prompts1",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        },
+                        {
+                            "Name": "KV_Cache1",
                             "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         }
                     ],
                     "Outputs": [
-                        "KV Cache computed"
+                        "Prompts2",
+                        "KV_Cache2"
                     ]
                 }
             ]
         },
         {
             "Name": "Autoregressive Phase",
-            "Partition ID": 3,
+            "Partition ID": 2,
             "Topology": [
                 {
                     "Type": "NUMA Domain",
@@ -123,21 +100,27 @@
                     "Name": "Autoregressive Phase",
                     "Inputs": [
                         {
-                            "Name": "KV Cache computed",
+                            "Name": "Prompts2",
+                            "Type": "Buffered",
+                            "Buffer Capacity (Tokens)": 2,
+                            "Buffer Size (Bytes)": 16777216
+                        },
+                        {
+                            "Name": "KV_Cache2",
                             "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216
                         }
                     ],
                     "Outputs": [
-                        "LLM Output"
+                        "Prompts3"
                     ]
                 }
             ]
         },
         {
             "Name": "Respond Request",
-            "Partition ID": 4,
+            "Partition ID": 3,
             "Topology": [
                 {
                     "Type": "NUMA Domain",
@@ -160,7 +143,7 @@
                     "Name": "Respond Request",
                     "Inputs": [
                         {
-                            "Name": "LLM Output",
+                            "Name": "Prompts3",
                             "Type": "Buffered",
                             "Buffer Capacity (Tokens)": 2,
                             "Buffer Size (Bytes)": 16777216

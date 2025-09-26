@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
   createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
 
   // Instantiating request server (emulates live users)
-  size_t requestCount   = 32;
+  size_t requestCount   = 1;
   size_t requestDelayMs = 100;
   initializeRequestServer(&engine, requestCount);
   auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });

@@ -29,11 +29,11 @@ if 'mpi' in engines
 			'mpi',
 			mpirunExecutable,
 			args: [
-				'-np', '5',
+				'-np', '4',
 				'--oversubscribe', executable.full_path(),
 				meson.current_source_dir() + '/config.json',
 			],
-			timeout: 60,
+			timeout: 30,
 			suite: testSuite,
 		)
 	endif
@@ -50,7 +50,7 @@ if 'mpi' in engines
 		test(
 			'attention_example',
 			attention_example,
-			timeout: 60,
+			timeout: 30,
 			suite: testSuite,
 		)
 	endif

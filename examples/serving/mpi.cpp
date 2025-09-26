@@ -142,14 +142,16 @@ int main(int argc, char *argv[])
                       bufferMemorySpace,
                       bufferMemorySpace,
                       t);
-
-  // Create hLLM tasks for the application
-  createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
-
+                      
   // Instantiating request server (emulates live users)
   size_t requestCount   = 1;
   size_t requestDelayMs = 100;
   initializeRequestServer(&engine, requestCount);
+  
+  // Create hLLM tasks for the application
+  createTasks(engine, mpiMemoryManager.get(), bufferMemorySpace);
+
+  // Start running the  request Server (which creates requests)
   auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
 
   // Initializing LLM engine with deployer id 0

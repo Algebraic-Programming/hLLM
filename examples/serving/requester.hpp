@@ -57,9 +57,8 @@ inline void startRequestServer(size_t delayMs)
   }
 }
 
-inline void respondRequest(const std::string &response)
+inline void respondRequest()
 {
-  printf("Response received: '%s'\n", response.c_str());
   _requestsFinished++;
   if (_requestsFinished == _requestCount)
   {
