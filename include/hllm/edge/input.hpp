@@ -59,6 +59,45 @@ class Input final : public Base
     memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelConsumerPayloadBufferKey),             .memorySlot = _metadataChannelPayloadBuffer } );
   }
 
+  // Function to check for incoming messages in the edge
+  __INLINE__ bool hasMessage() const
+  { 
+    // Requesting the re-check of the channel's usage
+    _dataChannel->updateDepth();
+    _metadataChannel->updateDepth();
+
+    // Check if both are not empty
+    return _dataChannel->isEmpty() == false && _metadataChannel->isEmpty() == false;
+  } 
+
+  __INLINE__ Message getMessage() const
+  {
+    if (hasMessage() == false) HICR_THROW_RUNTIME("Trying to get message when there is none available. This is a bug in hLLM.");
+
+    // Receiving message
+    const auto dataBufferPtr = (uint8_t*) _dataChannel->getPayloadBufferMemorySlot()->getSourceLocalMemorySlot()->getPointer();
+    const auto dataToken     = _dataChannel->peek();
+    const auto dataMessagePos = dataToken[0];
+    const auto dataMessagePtr = &dataBufferPtr[dataMessagePos];
+    const auto dataMessageSize = dataToken[1];
+
+    const auto metadataBufferPtr  = (uint8_t*) _metadataChannel->getTokenBuffer()->getSourceLocalMemorySlot()->getPointer(); 
+    const auto metadataToken      = _metadataChannel->peek();
+    const auto metadataMessagePos = metadataToken;
+    const auto metadataMessagePtr = (Message::metadata_t*)&metadataBufferPtr[metadataMessagePos];
+    const Message::metadata_t metadata = *metadataMessagePtr;
+
+    return Message(dataMessagePtr, dataMessageSize, metadata);
+  }
+
+  __INLINE__ Message popMessage()
+  {
+    if (hasMessage() == false) HICR_THROW_RUNTIME("Trying to pop message when there is none available. This is a bug in hLLM.");
+
+    _dataChannel->pop();
+    _metadataChannel->pop();
+  }
+
   private:
 
   __INLINE__ void createChannels() override
@@ -76,16 +115,16 @@ class Input final : public Base
         _edgeConfig.getBufferCapacity()
       );
 
-  // Creating consumer data channel
-  _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Consumer>(
-    *_edgeConfig.getCoordinationCommunicationManager(),
-    _metadataChannelConsumerPayloadBuffer,
-    _metadataChannelConsumerCoordinationBuffer->getSourceLocalMemorySlot(),
-    _metadataChannelProducerCoordinationBuffer,
-    sizeof(Message::metadata_t),
-    _edgeConfig.getBufferCapacity()
-  );
-  }
+    // Creating consumer data channel
+    _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Consumer>(
+      *_edgeConfig.getCoordinationCommunicationManager(),
+      _metadataChannelConsumerPayloadBuffer,
+      _metadataChannelConsumerCoordinationBuffer->getSourceLocalMemorySlot(),
+      _metadataChannelProducerCoordinationBuffer,
+      sizeof(Message::metadata_t),
+      _edgeConfig.getBufferCapacity()
+      );
+    }
 
   // Buffers associated with the data channel
   std::shared_ptr<HiCR::LocalMemorySlot> _dataChannelSizesBuffer;

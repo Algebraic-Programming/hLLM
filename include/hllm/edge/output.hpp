@@ -70,7 +70,6 @@ class Output final : public Base
     );
   }
 
-  
   // Internal memory slot for data channel producer coordination buffer
   std::shared_ptr<HiCR::LocalMemorySlot> _dataChannelProducerSizeInfoBuffer;
 
