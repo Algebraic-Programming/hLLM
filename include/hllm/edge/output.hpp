@@ -4,6 +4,7 @@
 #include "hicr/core/communicationManager.hpp"
 #include "hicr/core/memoryManager.hpp"
 #include "hicr/frontends/channel/variableSize/spsc/producer.hpp"
+#include "hicr/frontends/channel/fixedSize/spsc/producer.hpp"
 
 namespace hLLM::edge
 {
@@ -18,13 +19,13 @@ class Output final : public Base
         const configuration::Replica::replicaIndex_t replicaIndex) :
          Base(edgeConfig, edgeType, edgeIndex, replicaIndex)
   {
-    _producerSizeInfoBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizeof(size_t)); 
+    _dataChannelProducerSizeInfoBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizeof(size_t)); 
   }
 
   ~Output()
   {
     // Freeing up buffers
-    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_producerSizeInfoBuffer);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_dataChannelProducerSizeInfoBuffer);
   }
 
   public:
@@ -32,8 +33,9 @@ class Output final : public Base
   __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
     // Getting key / memory slot pairs
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforSizesKey),   .memorySlot = _localCoordinationBufferForSizes } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforPayloadKey), .memorySlot = _localCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey),   .memorySlot = _dataChannelLocalCoordinationBufferForSizes } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey), .memorySlot = _dataChannelLocalCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey),       .memorySlot = _metadataChannelLocalCoordinationBuffer } );
   }
 
   private:
@@ -42,28 +44,39 @@ class Output final : public Base
 
   __INLINE__ void createChannels() override
   {
-    // Creating producer channel
-    _channel = std::make_shared<HiCR::channel::variableSize::SPSC::Producer>(
+    // Creating producer data channel
+    _dataChannel = std::make_shared<HiCR::channel::variableSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
-      _producerSizeInfoBuffer,
-      _consumerPayloadBuffer,
-      _consumerSizesBuffer,
-      _producerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
-      _producerCoordinationBufferForPayloads->getSourceLocalMemorySlot(),
-      _consumerCoordinationBufferForSizes,
-      _consumerCoordinationBufferForPayloads,
+      _dataChannelProducerSizeInfoBuffer,
+      _dataChannelConsumerPayloadBuffer,
+      _dataChannelConsumerSizesBuffer,
+      _dataChannelProducerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
+      _dataChannelProducerCoordinationBufferForPayloads->getSourceLocalMemorySlot(),
+      _dataChannelconsumerCoordinationBufferForSizes,
+      _dataChannelConsumerCoordinationBufferForPayloads,
       _edgeConfig.getBufferSize(),
       sizeof(uint8_t),
+      _edgeConfig.getBufferCapacity()
+    );
+
+    // Creating producer metadata channel
+    _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Producer>(
+      *_edgeConfig.getCoordinationCommunicationManager(),
+      _metadataChannelConsumerCoordinationBuffer,
+      _metadataChannelProducerCoordinationBuffer->getSourceLocalMemorySlot(),
+      _metadataChannelConsumerCoordinationBuffer,
+      sizeof(Message::metadata_t),
       _edgeConfig.getBufferCapacity()
     );
   }
 
   
-  // Internal memory slot for producer coordination
-  std::shared_ptr<HiCR::LocalMemorySlot> _producerSizeInfoBuffer;
+  // Internal memory slot for data channel producer coordination buffer
+  std::shared_ptr<HiCR::LocalMemorySlot> _dataChannelProducerSizeInfoBuffer;
 
   // The HiCR channels we use to communicate
-  std::shared_ptr<HiCR::channel::variableSize::SPSC::Producer> _channel;
+  std::shared_ptr<HiCR::channel::variableSize::SPSC::Producer> _dataChannel;
+  std::shared_ptr<HiCR::channel::fixedSize::SPSC::Producer> _metadataChannel;
   
 }; // class Output
 

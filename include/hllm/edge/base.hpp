@@ -65,15 +65,17 @@ class Base
 
     // Reserving memory for the local coordination buffers
     const auto coordinationBufferSize = HiCR::channel::Base::getCoordinationBufferSize();
-    _localCoordinationBufferForSizes = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
-    _localCoordinationBufferForPayloads = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
+    _dataChannelLocalCoordinationBufferForSizes    = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
+    _dataChannelLocalCoordinationBufferForPayloads = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
+    _metadataChannelLocalCoordinationBuffer        = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
   }
 
   virtual ~Base()
   {
     // Freeing up buffers
-    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_localCoordinationBufferForSizes);
-    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_localCoordinationBufferForPayloads);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_dataChannelLocalCoordinationBufferForSizes);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_dataChannelLocalCoordinationBufferForPayloads);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(_metadataChannelLocalCoordinationBuffer);
   }
 
   virtual void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const = 0;
@@ -81,13 +83,18 @@ class Base
   // Function to initialize the channels. It must be called only all the memory slots have been exchanged
   __INLINE__ void initialize(const HiCR::GlobalMemorySlot::tag_t tag)
   {
-    // Obtaining the globally exchanged memory slots
-    _consumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerSizesBufferKey));
-    _consumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerPayloadBufferKey));
-    _consumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforSizesKey));
-    _consumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _consumerCoordinationBufferforPayloadKey));
-    _producerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforSizesKey));
-    _producerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _producerCoordinationBufferforPayloadKey));
+    ///// Data Channel common (producer and consumer) global memory slots
+    _dataChannelConsumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelConsumerSizesBufferKey));
+    _dataChannelConsumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelConsumerPayloadBufferKey));
+    _dataChannelconsumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforSizesKey));
+    _dataChannelConsumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforPayloadKey));
+    _dataChannelProducerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey));
+    _dataChannelProducerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey));
+
+    ///// Metadata Channel common (producer and consumer) global memory slots
+    _metadataChannelConsumerPayloadBuffer                 = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelConsumerPayloadBufferKey));
+    _metadataChannelConsumerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelConsumerCoordinationBufferKey));
+    _metadataChannelProducerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey));
 
     // Creating channels now
     createChannels();
@@ -106,7 +113,8 @@ class Base
     // Encoding reserves:
     // + 32 bits for edgeIndex (max: 4294967296)
     // + 24 bits for replicaIndex (max: 16777216) minus one -- the last one -- which is reserved for the coordinator index
-    // + 8 bits for channel-specific keys (max: 256)
+    // + 2 bits for edge type (max: 4)
+    // + 6 bits for channel-specific keys (max: 64)
 
     // Sanity checks
     if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Base index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
@@ -114,12 +122,15 @@ class Base
     if (edgeType >= maxEdgeType) HICR_THROW_LOGIC("Edge type value %lu exceeds maximum: %lu (this must be a bug in hLLM)\n", edgeType, maxEdgeType);
     if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
 
+    // Initial bit for encoding
+    const uint8_t initialBit = 0;
+
     // Creating global key
     const auto globalKey = HiCR::GlobalMemorySlot::globalKey_t(
-        edgeIndex    << (maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + 0) |
-        replicaIndex << (maxChannelSpecificKeyBits + maxEdgeTypeBits + 0) |
-        edgeType     << (maxChannelSpecificKeyBits + 0) |
-        channelKey   << (0)
+        edgeIndex    << (maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        replicaIndex << (maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        edgeType     << (maxChannelSpecificKeyBits + initialBit) |
+        channelKey   << (initialBit)
     );
 
     // printf("Key: %lu = f(%lu, %lu, %u, %lu)\n", globalKey, edgeIndex, replicaIndex, edgeType, channelKey);
@@ -127,30 +138,50 @@ class Base
     return globalKey;
   }
 
-  // Assigning keys to the global slots to exchange between consumer and producer sides of this edge
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerSizesBufferKey = 0;
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerPayloadBufferKey = 1;
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerCoordinationBufferforSizesKey = 2;
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _consumerCoordinationBufferforPayloadKey = 3;
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _producerCoordinationBufferforSizesKey = 4;
-  static constexpr HiCR::GlobalMemorySlot::globalKey_t _producerCoordinationBufferforPayloadKey = 5;
-
+  // Edge configuration and identification variables
   const configuration::Edge _edgeConfig;
   const edgeType_t _edgeType;
   const configuration::Edge::edgeIndex_t _edgeIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
 
+  // Assigning keys to the global slots to exchange between consumer and producer sides of this edge
+
+  // For the data channel
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelConsumerSizesBufferKey = 0;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelConsumerPayloadBufferKey = 1;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelConsumerCoordinationBufferforSizesKey = 2;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelConsumerCoordinationBufferforPayloadKey = 3;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelProducerCoordinationBufferforSizesKey = 4;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _dataChannelProducerCoordinationBufferforPayloadKey = 5;
+
+  // For the metadata channel
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _metadataChannelConsumerPayloadBufferKey = 6;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _metadataChannelConsumerCoordinationBufferKey = 7;
+  static constexpr HiCR::GlobalMemorySlot::globalKey_t _metadataChannelProducerCoordinationBufferKey = 8;
+
+  ////// Data Channel Memory Slots
+
   // Here we declare the local coordination buffer memory slots we need to allocate
-  std::shared_ptr<HiCR::LocalMemorySlot> _localCoordinationBufferForSizes;
-  std::shared_ptr<HiCR::LocalMemorySlot> _localCoordinationBufferForPayloads;
+  std::shared_ptr<HiCR::LocalMemorySlot> _dataChannelLocalCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::LocalMemorySlot> _dataChannelLocalCoordinationBufferForPayloads;
 
   // Here we declare the global memory slots we need to exchange to build a variable sized SPSC channel in HICR
-  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerSizesBuffer;
-  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerPayloadBuffer;
-  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerCoordinationBufferForSizes;
-  std::shared_ptr<HiCR::GlobalMemorySlot> _consumerCoordinationBufferForPayloads;
-  std::shared_ptr<HiCR::GlobalMemorySlot> _producerCoordinationBufferForSizes;
-  std::shared_ptr<HiCR::GlobalMemorySlot> _producerCoordinationBufferForPayloads;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelConsumerSizesBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelConsumerPayloadBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelconsumerCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelConsumerCoordinationBufferForPayloads;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelProducerCoordinationBufferForSizes;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _dataChannelProducerCoordinationBufferForPayloads;
+
+  ////// Metadata Channel Memory Slots
+
+  // Here we declare the local coordination buffer memory slots we need to allocate
+  std::shared_ptr<HiCR::LocalMemorySlot> _metadataChannelLocalCoordinationBuffer;
+
+  // Here we declare the global memory slots we need to exchange to build a fixed sized SPSC channel in HICR
+  std::shared_ptr<HiCR::GlobalMemorySlot> _metadataChannelConsumerPayloadBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _metadataChannelConsumerCoordinationBuffer;
+  std::shared_ptr<HiCR::GlobalMemorySlot> _metadataChannelProducerCoordinationBuffer;
 
 }; // class Base
 
