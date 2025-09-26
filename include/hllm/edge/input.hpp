@@ -62,12 +62,14 @@ class Input final : public Base
   // Function to check for incoming messages in the edge
   __INLINE__ bool hasMessage() const
   { 
+    _metadataChannel->updateDepth();
+    if (_metadataChannel->isEmpty() == false) return false;
+
     // Requesting the re-check of the channel's usage
     _dataChannel->updateDepth();
-    _metadataChannel->updateDepth();
+    if (_dataChannel->isEmpty() == false) return false;
 
-    // Check if both are not empty
-    return _dataChannel->isEmpty() == false && _metadataChannel->isEmpty() == false;
+    return true;
   } 
 
   __INLINE__ Message getMessage() const

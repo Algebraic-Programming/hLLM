@@ -32,7 +32,7 @@ class Message final
 
   const uint8_t* getData() const { return _data; }
   size_t getSize() const { return _size; }
-  metadata_t getMetadata() const { return _metadata; }
+  const metadata_t& getMetadata() const { return _metadata; }
 
   private:
 

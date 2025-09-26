@@ -38,6 +38,35 @@ class Output final : public Base
     memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey),       .memorySlot = _metadataChannelLocalCoordinationBuffer } );
   }
 
+    // Function to check whether the output channels are full
+  __INLINE__ bool isFull() const
+  { 
+    // Requesting the re-check of the channel's usage
+
+    _metadataChannel->updateDepth();
+    if (_metadataChannel->isFull() == true) return true;
+
+    _dataChannel->updateDepth();
+    if (_dataChannel->isFull() == true) return true;
+
+    // Check if both are not empty
+    return false;
+  } 
+
+  __INLINE__ void pushMessage(const Message message) const
+  {
+    if (isFull() == true) HICR_THROW_RUNTIME("Trying to push a message when channel is full. This is a bug in hLLM.");
+
+    auto messagePayloadMemorySlot = _edgeConfig.getPayloadMemoryManager()->registerLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), (void*)message.getData(), message.getSize());
+    _dataChannel->push(messagePayloadMemorySlot);
+
+    auto messageMetadataMemorySlot = _edgeConfig.getCoordinationMemoryManager()->registerLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), (void*)&message.getMetadata(), sizeof(Message::metadata_t));
+    _metadataChannel->push(messageMetadataMemorySlot);
+
+    _edgeConfig.getPayloadMemoryManager()->freeLocalMemorySlot(messagePayloadMemorySlot);
+    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(messageMetadataMemorySlot);
+  }
+
   private:
 
   //// We use a variable size SPSC channel to communicate, where as an output edge we take the producer interface
