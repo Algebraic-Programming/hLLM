@@ -32,7 +32,7 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
 
   // Some assertion
   assert(B == _requestCount && "Atm, the total number of request should match with the batch size");
-  // assert(B == 1 && "For simplicity, the batch size is fixed to one. Batching may come later");
+  assert(B == 1 && "For simplicity, the batch size is fixed to one. Batching may come later");
 
   // initializing the LLM weights (globally)
   torch::manual_seed(42);
@@ -63,10 +63,10 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
     std::cout << "All prompts: \n" << o_Output << "\n";
 
     // Register prompts and KV_cache as output
-    const auto promptsMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, o_Output.data_ptr(), o_Output.nbytes() + 1);
+    const auto promptsMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, o_Output.data_ptr<float>(), o_Output.nbytes());
     task->setOutput("Prompts1", promptsMemSlot);
 
-    const auto KVcacheMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, KV_cache_Output.data_ptr(), KV_cache_Output.nbytes() + 1);
+    const auto KVcacheMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, KV_cache_Output.data_ptr<float>(), KV_cache_Output.nbytes());
     task->setOutput("KV_Cache1", KVcacheMemSlot);
   });
 
@@ -76,20 +76,26 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
 
     // Getting incoming prompts and their respective KV_cache
     const auto &promptsMemSlot = task->getInput("Prompts1");
-    const auto  o        = *(torch::Tensor *)promptsMemSlot->getPointer();
+
+    float*  ptr        = (float *)promptsMemSlot->getPointer();
+    torch::Tensor o = torch::from_blob(ptr, {promptsMemSlot->getSize()}, torch::kFloat);
+
+    // this works (sort of), first be sure of the right float format
+    // Also reshape it back again
+
+    std::cout << "Computing KV Cache for prompt: " << o << "\n";
 
     const auto &KVcacheMemSlot = task->getInput("KV_Cache1");
     auto  KV_cache       = *(torch::Tensor *)KVcacheMemSlot->getPointer();
 
-    std::cout << "Computing KV Cache for prompt: " << o << "\n";
 
     // Computing the KV cache
-    for(size_t b = 0; b < B; ++b){
-        for(size_t i = 0; i < p_size; ++i){
-            KV_cache[b][0][i] = torch::matmul(Wk, o[b][i]);
-            KV_cache[b][1][i] = torch::matmul(Wv, o[b][i]);
-        }
-    }
+    // for(size_t b = 0; b < B; ++b){
+    //     for(size_t i = 0; i < p_size; ++i){
+    //         KV_cache[b][0][i] = torch::matmul(Wk, o[b][i]);
+    //         KV_cache[b][1][i] = torch::matmul(Wv, o[b][i]);
+    //     }
+    // }
 
     // Register prompts and KV_cache as output
     const auto promptsMemSlot2 = memoryManager->registerLocalMemorySlot(memorySpace, o_Output.data_ptr(), o_Output.nbytes() + 1);

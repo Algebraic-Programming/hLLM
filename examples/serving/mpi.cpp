@@ -145,7 +145,7 @@ int main(int argc, char *argv[])
                       
   // Instantiating request server (emulates live users)
   size_t requestCount   = 1;
-  size_t requestDelayMs = 100;
+  size_t requestDelayMs = 10;
   initializeRequestServer(&engine, requestCount);
   
   // Create hLLM tasks for the application
