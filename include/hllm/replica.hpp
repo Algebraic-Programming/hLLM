@@ -30,9 +30,6 @@ class Replica final
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
 
-    // Get my replica configuration
-    const auto& replicaConfiguration = partitionConfiguration->getReplicas()[_replicaIdx];
-
     // Get my partition name
     const auto& partitionName = partitionConfiguration->getName();
 
@@ -59,11 +56,22 @@ class Replica final
         _coordinatorOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _replicaIdx));
       } 
     }
-
-    printf("Deploying Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorInputs.size(), _coordinatorOutputs.size());
   }
 
   ~Replica() = default;
+
+  /// This function initializes the workload of the partition coordinator role
+  __INLINE__ void initialize()
+  {
+    // Get my partition configuration
+    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
+
+    // Get my replica configuration
+    const auto& replicaConfiguration = partitionConfiguration->getReplicas()[_replicaIdx];
+
+    // Printing debug message
+    printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorInputs.size(), _coordinatorOutputs.size());
+  }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)

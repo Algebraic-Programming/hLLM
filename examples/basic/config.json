@@ -18,16 +18,15 @@
       ]
     },
     {
-      "Name": "Decoder Partition",
+      "Name": "Processor Partition",
       "Tasks": [
         {
-          "Function Name": "Decode Request",
+          "Function Name": "Process Request",
           "Inputs": [
             "Request"
           ],
           "Outputs": [
-            "Decoded Request 1",
-            "Decoded Request 2"
+            "Processed Request"
           ]
         }
       ],
@@ -37,61 +36,12 @@
       ]
     },
     {
-      "Id": 2,
-      "Name": "Transformer Partition 1",
-      "Tasks": [
-        {
-          "Function Name": "Transform Request 1",
-          "Inputs": [
-            "Decoded Request 1"
-          ],
-          "Outputs": [
-            "Transformed Request 1"
-          ]
-        }
-      ],
-      "Replicas":
-      [
-        { "Name": "Replica 0" }
-      ]
-    },
-    {
-      "Id": 3,
-      "Name": "Transformer Partition 2",
-      "Tasks": [
-        {
-          "Function Name": "Pre-Transform Request",
-          "Inputs": [
-            "Decoded Request 2"
-          ],
-          "Outputs": [
-            "Pre-Transform Request Output"
-          ]
-        },
-        {
-          "Function Name": "Transform Request 2",
-          "Inputs": [
-            "Pre-Transform Request Output"
-          ],
-          "Outputs": [
-            "Transformed Request 2"
-          ]
-        }
-      ],
-      "Replicas":
-      [
-        { "Name": "Replica 0" }
-      ]
-    },
-    {
-      "Id": 4,
-      "Name": "Joiner Partition",
+      "Name": "Result Partition",
       "Tasks": [
         {
           "Function Name": "Return Result",
           "Inputs": [
-            "Transformed Request 1",
-            "Transformed Request 2"
+            "Processed Request"
           ],
           "Outputs": []
         }
@@ -106,48 +56,16 @@
     {
       "Name": "Request",
       "Producer": "Entry Partition",
-      "Consumer": "Decoder Partition",
+      "Consumer": "Processor Partition",
       "Buffer Capacity": 2,
       "Buffer Size": 4096,
       "Mode": "Copy"
       
     },
     {
-      "Name": "Decoded Request 1",
-      "Producer": "Decoder Partition",
-      "Consumer": "Transformer Partition 1",
-      "Buffer Capacity": 2,
-      "Buffer Size": 16777216,
-      "Mode": "Copy"
-    },
-    {
-      "Name": "Decoded Request 2",
-      "Producer": "Decoder Partition",
-      "Consumer": "Transformer Partition 2",
-      "Buffer Capacity": 2,
-      "Buffer Size": 16777216,
-      "Mode": "Copy"
-    },
-    {
-      "Name": "Pre-Transform Request Output",
-      "Producer": "Transformer Partition 2",
-      "Consumer": "Transformer Partition 2",
-      "Buffer Capacity": 1,
-      "Buffer Size": 0,
-      "Mode": "Reference"
-    },
-    {
-      "Name": "Transformed Request 1",
-      "Producer": "Transformer Partition 1",
-      "Consumer": "Joiner Partition",
-      "Buffer Capacity": 2,
-      "Buffer Size": 16777216,
-      "Mode": "Copy"
-    },
-    {
-      "Name": "Transformed Request 2",
-      "Producer": "Transformer Partition 2",
-      "Consumer": "Joiner Partition",
+      "Name": "Processed Request",
+      "Producer": "Processor Partition",
+      "Consumer": "Result Partition",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,
       "Mode": "Copy"

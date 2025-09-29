@@ -62,8 +62,6 @@ class Coordinator final
           _replicaInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, replicaIdx));
       } 
     }
-
-    printf("Deploying Partition Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionInputs.size(), _partitionOutputs.size());
   }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
@@ -76,6 +74,18 @@ class Coordinator final
   }
 
   ~Coordinator() = default;
+
+  /// This function initializes the workload of the partition coordinator role
+  __INLINE__ void initialize()
+  {
+    // Get my partition configuration
+    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
+
+    // Get my partition name
+    const auto& partitionName = partitionConfiguration->getName();
+
+    printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionInputs.size(), _partitionOutputs.size());
+  }
 
   __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
   {

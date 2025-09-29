@@ -124,6 +124,9 @@ class Engine final
     // If I am not the deployer instance await for the deployment launcher to request us to start
     if (_instanceId != _deployerInstanceId) { _rpcEngine->listen(); return; } 
 
+    // Sanity checks on the deployment object
+    deployment.verify();
+
     // Considering whether the deployment launcher is actually part of the deployment
     bool isLauncherInDeployment = false;
 
@@ -354,6 +357,10 @@ class Engine final
     // After the exchange, we can now initialize the edges
     if (isPartitionCoordinator == true) coordinator->initializeEdges(_exchangeTag);
     if (isPartitionReplica == true) replica->initializeEdges(_exchangeTag);
+
+    // Initializing coordinator and replica roles, whichever applies (or both)
+    if (isPartitionCoordinator == true) coordinator->initialize();
+    if (isPartitionReplica == true) replica->initialize();
   }
 
     // // Starting a new deployment

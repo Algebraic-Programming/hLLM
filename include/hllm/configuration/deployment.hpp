@@ -60,6 +60,32 @@ class Deployment final
     for (const auto& e : edges) _edges.push_back(std::make_shared<Edge>(e));
   }
   
+  // Includes all kinds of sanity checks relevant to a deployment
+  __INLINE__ void verify() const
+  {
+    // Getting all partition's edges in a set
+    std::set<std::string> partitionNameSet;
+    for (const auto& partition : _partitions) partitionNameSet.insert(partition->getName());
+
+    // Used edges name set, also checking whether they are used as input or output
+    std::set<std::string> inputEdgeNameSet;
+    std::set<std::string> outputEdgeNameSet;
+    for (const auto& partition : _partitions)
+      for (const auto& task : partition->getTasks())
+      {
+        for (const auto& edge : task->getInputs())  inputEdgeNameSet.insert(edge);
+        for (const auto& edge : task->getOutputs()) outputEdgeNameSet.insert(edge);
+      }
+
+    // Check whether all edges have consumer+producer partitions that do exist
+    for (const auto& edge : _edges)
+    {
+      if (partitionNameSet.contains(edge->getConsumer()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' with consumer '%s', but the latter is not defined\n", edge->getName().c_str(), edge->getConsumer().c_str());
+      if (partitionNameSet.contains(edge->getProducer()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' with producer '%s', but the latter is not defined\n", edge->getName().c_str(), edge->getProducer().c_str());
+      if (inputEdgeNameSet.contains(edge->getName()) == false || outputEdgeNameSet.contains(edge->getName()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as producer or consumer (or neither)\n", edge->getName().c_str());
+    }
+  }
+
   private:
 
   std::string _name;
