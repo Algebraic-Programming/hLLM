@@ -294,7 +294,7 @@ class Engine final
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex);
+      coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex, _taskr);
 
       // Get memory slots to exchange for the partition coordinator
       printf("Registering Coordinator Memory Slots...\n");
@@ -306,7 +306,7 @@ class Engine final
     if (isPartitionReplica == true)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex);
+      replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr);
 
       // Get memory slots to exchange for the replica
       printf("Registering Replica Memory Slots...\n");
@@ -379,16 +379,15 @@ class Engine final
     if (isPartitionCoordinator == true) coordinator->initializeEdges(_exchangeTag);
     if (isPartitionReplica == true) replica->initializeEdges(_exchangeTag);
 
-    // Initializing coordinator and replica roles, whichever applies (or both)
+    // Starting a new deployment
+    _continueRunning = true;
+
+    // Initializing TaskR
+    _taskr->initialize();
+
+    // Initializing coordinator and replica roles, whichever applies (or both), so that they add their initial functions to taskR
     if (isPartitionCoordinator == true) coordinator->initialize();
     if (isPartitionReplica == true) replica->initialize();
-  }
-
-    // // Starting a new deployment
-    // _continueRunning = true;
-
-    // // Initializing TaskR
-    // _taskr->initialize();
 
     // // Getting relevant information
     // const auto &executionGraph = hicr::json::getArray<nlohmann::json>(partitionConfig, "Execution Graph");
@@ -483,13 +482,13 @@ class Engine final
     // };
     // _taskr->addService(&RPCListeningService);
 
-    // // Running TaskR
-    // _taskr->run();
-    // _taskr->await();
-    // _taskr->finalize();
+    // Running TaskR
+    _taskr->run();
+    _taskr->await();
+    _taskr->finalize();
 
     // printf("[hLLM] Instance '%s' TaskR Stopped\n", _partitionName.c_str());
-  // }
+  }
 
   // For every new partition instance created, we send it the serialized deployment configuration
   __INLINE__ void attendDeploymentConfigurationRequest()

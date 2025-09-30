@@ -21,11 +21,13 @@ class Replica final
   Replica(
     const configuration::Deployment deployment,
     const configuration::Partition::partitionIndex_t  partitionIdx,
-    const configuration::Replica::replicaIndex_t replicaIdx
+    const configuration::Replica::replicaIndex_t replicaIdx,
+    taskr::Runtime* const taskr
   ) :
     _deployment(deployment),
     _partitionIdx(partitionIdx),
-    _replicaIdx(replicaIdx)
+    _replicaIdx(replicaIdx),
+    _taskr(taskr)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -71,8 +73,13 @@ class Replica final
 
   ~Replica() = default;
 
-  /// This function initializes the workload of the partition coordinator role
+  /// This function initializes the workload of the partition replica role
   __INLINE__ void initialize()
+  {
+    _taskr->addTask(&_taskrInitialTask);
+  }
+
+  void initialFunction()
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -82,6 +89,20 @@ class Replica final
 
     // Printing debug message
     printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorDataInputs.size(), _coordinatorDataOutputs.size());
+
+    // Getting initial heartbeat ping from the coordinator
+    while (_coordinatorControlInput->hasMessage() == false);
+    const auto message = _coordinatorControlInput->getMessage();
+    printf("Replica Index P%lu/R%lu - Received heartbeat with message: %s\n", _partitionIdx, _replicaIdx, message.getData());
+    _coordinatorControlInput->popMessage();
+
+    // Sending heartbeat ping message to the coordinator
+    std::string heartbeat = "Heartbeat Pong";
+    _coordinatorControlOutput->pushMessage(edge::Message(
+       (const uint8_t*) heartbeat.data(),
+       heartbeat.length()+1,
+       edge::Message::metadata_t { .type = edge::messageType_t::heartbeatPong_t, .messageId = 0, .sessionId = 0 }
+      ));
   }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
@@ -106,6 +127,7 @@ class Replica final
   const configuration::Deployment _deployment;
   const configuration::Partition::partitionIndex_t _partitionIdx;
   const configuration::Replica::replicaIndex_t _replicaIdx;
+  taskr::Runtime* const _taskr;
 
   // Data Input/Output edges from/to the coordinator
   std::vector<std::shared_ptr<edge::Input>> _coordinatorDataInputs;
@@ -115,6 +137,9 @@ class Replica final
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
 
+  // TaskR functions and tasks belonging to the partition coordinator
+  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
+  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
 
 }; // class Replica
 

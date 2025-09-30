@@ -21,10 +21,12 @@ class Coordinator final
 
   Coordinator(
     const configuration::Deployment deployment,
-    const configuration::Partition::partitionIndex_t partitionIdx
+    const configuration::Partition::partitionIndex_t partitionIdx,
+    taskr::Runtime* const taskr
   ) :
     _deployment(deployment),
-    _partitionIdx(partitionIdx)
+    _partitionIdx(partitionIdx),
+    _taskr(taskr)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -145,7 +147,12 @@ class Coordinator final
   /// This function initializes the workload of the partition coordinator role
   __INLINE__ void initialize()
   {
-    // Get my partition configuration
+    _taskr->addTask(&_taskrInitialTask);
+  }
+
+  void initialFunction()
+  {
+       // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
 
     // Get my partition name
@@ -153,19 +160,35 @@ class Coordinator final
 
     printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
-    // Sending heartbeat messages to all my replicas through all availabl
-    std::string heartbeat = "Heartbeat";
+    // Sending heartbeat ping messages to all my replicas
+    std::string heartbeat = "Heartbeat Ping";
     for (const auto& output : _replicaControlOutputs) output->pushMessage(edge::Message(
        (const uint8_t*) heartbeat.data(),
        heartbeat.length()+1,
        edge::Message::metadata_t { .type = edge::messageType_t::heartbeatPing_t, .messageId = 0, .sessionId = 0 }
       ));
+
+      fflush(stdout);
+
+    // Receiving heartbeat pong from the coordinator
+    configuration::Replica::replicaIndex_t replicaIdx = 0;
+    for (const auto& input : _replicaControlInputs)
+    {
+      while (input->hasMessage() == false);
+      const auto message = input->getMessage();
+      printf("[Coordinator %lu] Received heartbeat pong from replica %lu with message: %s\n", _partitionIdx, replicaIdx, message.getData());
+      input->popMessage();
+      replicaIdx++;
+    } 
   }
+
+  typedef std::function<void(taskr::Task *)> function_t;
 
   private:
 
   const configuration::Deployment _deployment;
   const configuration::Partition::partitionIndex_t _partitionIdx;
+  taskr::Runtime* const _taskr;
 
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
@@ -183,6 +206,9 @@ class Coordinator final
   std::vector<std::shared_ptr<edge::Input>> _replicaControlInputs;
   std::vector<std::shared_ptr<edge::Output>> _replicaControlOutputs;
 
+  // TaskR functions and tasks belonging to the partition coordinator
+  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
+  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
 
 }; // class Coordinator
 

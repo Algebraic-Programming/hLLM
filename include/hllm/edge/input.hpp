@@ -72,11 +72,13 @@ class Input final : public Base
   __INLINE__ bool hasMessage() const
   { 
     _metadataChannel->updateDepth();
-    if (_metadataChannel->isEmpty() == false) return false;
+    // printf("Metadata Depth: %lu\n", _metadataChannel->getDepth());
+    if (_metadataChannel->isEmpty() == true) return false;
 
     // Requesting the re-check of the channel's usage
     _dataChannel->updateDepth();
-    if (_dataChannel->isEmpty() == false) return false;
+    // printf("Data Depth: %lu\n", _metadataChannel->getDepth());
+    if (_dataChannel->isEmpty() == true) return false;
 
     return true;
   } 
@@ -101,7 +103,7 @@ class Input final : public Base
     return Message(dataMessagePtr, dataMessageSize, metadata);
   }
 
-  __INLINE__ Message popMessage()
+  __INLINE__ void popMessage()
   {
     if (hasMessage() == false) HICR_THROW_RUNTIME("Trying to pop message when there is none available. This is a bug in hLLM.");
 
