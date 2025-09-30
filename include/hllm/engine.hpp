@@ -323,6 +323,20 @@ class Engine final
     // This is important for all intervening instances to do the exchange in the same order
     std::set<HiCR::CommunicationManager*> communicationManagerSet;
     std::vector<HiCR::CommunicationManager*> communicationManagerVector;
+
+    // Adding control communication managers
+    for (const auto& partition : _deployment.getPartitions())
+    {
+      const auto controlCommunicationManager = partition->getControlCommunicationManager();
+
+      if (communicationManagerSet.contains(controlCommunicationManager) == false)
+      {
+        communicationManagerSet.insert(controlCommunicationManager);
+        communicationManagerVector.push_back(controlCommunicationManager);
+      }
+    }
+
+    // Adding edge-specific communication managers
     for (const auto& edge : _deployment.getEdges())
     {
       const auto coordinationComunicationManager = edge->getCoordinationCommunicationManager();
@@ -342,14 +356,21 @@ class Engine final
 
     // Now creating a map of memory slots to exchange, mapped by communication manager
     std::map<HiCR::CommunicationManager*, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> exchangeMap;
-    for (const auto& entry : memorySlotsToExchange) exchangeMap[entry.communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
+    for (const auto& entry : memorySlotsToExchange)
+    {
+      // Getting the communication manager used for this memory slot
+      const auto& communicationManager = entry.communicationManager;
+
+      // Sanity check
+      if (communicationManagerSet.contains(communicationManager) == false) HICR_THROW_RUNTIME("Could not find communication manager in the set. This is a bug in hLLM");
+
+      // Adding memory slot to the exchange map
+      exchangeMap[communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
+    } 
 
     // Finally, doing the exchange, one communication manager at a time, in the order given by the edge ordering
-    for (const auto communicationManager : communicationManagerVector)
-    {
-        printf("[Instance %lu] Exchanging...\n", _instanceId);
-        communicationManager->exchangeGlobalMemorySlots(_exchangeTag, exchangeMap[communicationManager]);
-    } 
+    printf("[Instance %lu] Exchanging...\n", _instanceId);
+    for (const auto communicationManager : communicationManagerVector) communicationManager->exchangeGlobalMemorySlots(_exchangeTag, exchangeMap[communicationManager]);
 
     // Waiting for the finalization of the exchange
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);

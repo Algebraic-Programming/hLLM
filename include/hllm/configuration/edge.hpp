@@ -15,7 +15,7 @@ class Edge
   typedef uint64_t edgeIndex_t;
 
   Edge(const nlohmann::json& js) { deserialize(js); } 
-  Edge(const std::string& name, const std::string& producer, std::string& consumer, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
+  Edge(const std::string& name, const std::string& producer, const std::string& consumer, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
    :  _name(name),
       _producer(producer),
       _consumer(consumer),
@@ -68,12 +68,12 @@ class Edge
   __INLINE__ void setCoordinationMemorySpace(const std::shared_ptr<HiCR::MemorySpace> memorySpace) { _coordinationMemorySpace = memorySpace; }
 
     // Functions to set the HiCR elements required for the creation of edge channels
-  __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }
-  __INLINE__ HiCR::MemoryManager*        getPayloadMemoryManager            () const { return _payloadMemoryManager; }
-  __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getPayloadMemorySpace              () const { return _payloadMemorySpace; }
-  __INLINE__ HiCR::CommunicationManager* getCoordinationCommunicationManager() const { return _coordinationCommunicationManager; }
-  __INLINE__ HiCR::MemoryManager*        getCoordinationMemoryManager       () const { return _coordinationMemoryManager; }
-  __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getCoordinationMemorySpace         () const { return _coordinationMemorySpace; }
+  [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }
+  [[nodiscard]] __INLINE__ HiCR::MemoryManager*        getPayloadMemoryManager            () const { return _payloadMemoryManager; }
+  [[nodiscard]] __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getPayloadMemorySpace              () const { return _payloadMemorySpace; }
+  [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getCoordinationCommunicationManager() const { return _coordinationCommunicationManager; }
+  [[nodiscard]] __INLINE__ HiCR::MemoryManager*        getCoordinationMemoryManager       () const { return _coordinationMemoryManager; }
+  [[nodiscard]] __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getCoordinationMemorySpace         () const { return _coordinationMemorySpace; }
 
   private:
 

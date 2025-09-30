@@ -8,14 +8,15 @@
           "Function Name": "Listen Request",
           "Inputs": [],
           "Outputs": [
-            "Request"
           ]
         }
       ],
       "Replicas":
       [
         { "Name": "Replica 0" }
-      ]
+      ],
+      "Control Buffer Capacity": 256,
+      "Control Buffer Size": 65536
     },
     {
       "Name": "Processor Partition",
@@ -23,7 +24,6 @@
         {
           "Function Name": "Process Request",
           "Inputs": [
-            "Request"
           ],
           "Outputs": [
             "Processed Request"
@@ -33,7 +33,9 @@
       "Replicas":
       [
         { "Name": "Replica 0" }
-      ]
+      ],
+      "Control Buffer Capacity": 256,
+      "Control Buffer Size": 65536
     },
     {
       "Name": "Result Partition",
@@ -41,7 +43,6 @@
         {
           "Function Name": "Return Result",
           "Inputs": [
-            "Processed Request"
           ],
           "Outputs": []
         }
@@ -49,26 +50,11 @@
       "Replicas":
       [
         { "Name": "Replica 0" }
-      ]
+      ],
+      "Control Buffer Capacity": 256,
+      "Control Buffer Size": 65536
     }
   ],
   "Edges": [
-    {
-      "Name": "Request",
-      "Producer": "Entry Partition",
-      "Consumer": "Processor Partition",
-      "Buffer Capacity": 2,
-      "Buffer Size": 4096,
-      "Mode": "Copy"
-      
-    },
-    {
-      "Name": "Processed Request",
-      "Producer": "Processor Partition",
-      "Consumer": "Result Partition",
-      "Buffer Capacity": 2,
-      "Buffer Size": 16777216,
-      "Mode": "Copy"
-    }
   ]
 }

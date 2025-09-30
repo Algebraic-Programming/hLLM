@@ -151,6 +151,14 @@ int main(int argc, char *argv[])
     edge->setCoordinationMemorySpace(bufferMemorySpace);
   }
 
+  // Setting managers for partition-wise control messaging
+  for (const auto& partition : hllm.getDeployment().getPartitions())
+  {
+    partition->setControlCommunicationManager(mpiCommunicationManager.get());
+    partition->setControlMemoryManager(mpiMemoryManager.get());
+    partition->setControlMemorySpace(bufferMemorySpace);
+  }
+
   // Declaring the hLLM tasks for the application
   createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
 

@@ -6,6 +6,14 @@
 namespace hLLM::edge
 {
 
+// Enumeration of possible message types
+enum messageType_t : uint8_t
+{
+  heartbeatPing_t = 0,
+  heartbeatPong_t = 1,
+  requestData_t = 2
+};
+
 class Message final
 {
   public:
@@ -16,6 +24,7 @@ class Message final
   #pragma pack(push, 1)
   struct metadata_t
   {
+    messageType_t type;
     messageId_t messageId;
     sessionId_t sessionId;
   };

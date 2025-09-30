@@ -16,8 +16,9 @@ class Output final : public Base
   Output(const configuration::Edge edgeConfig,
         const edgeType_t edgeType,
         const configuration::Edge::edgeIndex_t edgeIndex,
+        const configuration::Partition::partitionIndex_t partitionIndex,
         const configuration::Replica::replicaIndex_t replicaIndex) :
-         Base(edgeConfig, edgeType, edgeIndex, replicaIndex)
+         Base(edgeConfig, edgeType, edgeIndex, partitionIndex, replicaIndex)
   {
     _dataChannelProducerSizeInfoBuffer = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizeof(size_t)); 
   }
@@ -32,10 +33,14 @@ class Output final : public Base
   
   __INLINE__ void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const override
   {
+    printf("Exchanging %lu\n", encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey));
+    printf("Exchanging %lu\n", encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey));
+    printf("Exchanging %lu\n", encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey));
+
     // Getting key / memory slot pairs
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey),   .memorySlot = _dataChannelLocalCoordinationBufferForSizes } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey), .memorySlot = _dataChannelLocalCoordinationBufferForPayloads } );
-    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey),       .memorySlot = _metadataChannelLocalCoordinationBuffer } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey),   .memorySlot = _dataChannelLocalCoordinationBufferForSizes } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey), .memorySlot = _dataChannelLocalCoordinationBufferForPayloads } );
+    memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey),       .memorySlot = _metadataChannelLocalCoordinationBuffer } );
   }
 
     // Function to check whether the output channels are full
@@ -81,7 +86,7 @@ class Output final : public Base
       _dataChannelConsumerSizesBuffer,
       _dataChannelProducerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
       _dataChannelProducerCoordinationBufferForPayloads->getSourceLocalMemorySlot(),
-      _dataChannelconsumerCoordinationBufferForSizes,
+      _dataChannelConsumerCoordinationBufferForSizes,
       _dataChannelConsumerCoordinationBufferForPayloads,
       _edgeConfig.getBufferSize(),
       sizeof(uint8_t),

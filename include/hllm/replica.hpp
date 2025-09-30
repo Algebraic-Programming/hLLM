@@ -46,16 +46,27 @@ class Replica final
       if (edgeConfig->getConsumer() == partitionName)
       {
         // Create the input edges to pass this information to the receiving partition
-        _coordinatorInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _replicaIdx));
+        _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _replicaIdx));
       } 
 
       // If I am a producer in this edge
       if (edgeConfig->getProducer() == partitionName)
       {
         // Create the output edge to pass this information to the receiving partition
-        _coordinatorOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _replicaIdx));
+        _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _replicaIdx));
       } 
     }
+
+    // Create Control edges with my partition coordinator
+    auto replicaControlEdgeConfig = configuration::Edge("Control Edge", partitionName, partitionName, "Copy", partitionConfiguration->getControlBufferCapacity(), partitionConfiguration->getControlBufferSize());
+    replicaControlEdgeConfig.setCoordinationCommunicationManager(partitionConfiguration->getControlCommunicationManager());
+    replicaControlEdgeConfig.setCoordinationMemoryManager(partitionConfiguration->getControlMemoryManager());
+    replicaControlEdgeConfig.setCoordinationMemorySpace(partitionConfiguration->getControlMemorySpace());
+    replicaControlEdgeConfig.setPayloadCommunicationManager(partitionConfiguration->getControlCommunicationManager());
+    replicaControlEdgeConfig.setPayloadMemoryManager(partitionConfiguration->getControlMemoryManager());
+    replicaControlEdgeConfig.setPayloadMemorySpace(partitionConfiguration->getControlMemorySpace());
+    _coordinatorControlInput = std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _replicaIdx);
+    _coordinatorControlOutput = std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _replicaIdx);
   }
 
   ~Replica() = default;
@@ -70,20 +81,24 @@ class Replica final
     const auto& replicaConfiguration = partitionConfiguration->getReplicas()[_replicaIdx];
 
     // Printing debug message
-    printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorInputs.size(), _coordinatorOutputs.size());
+    printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorDataInputs.size(), _coordinatorDataOutputs.size());
   }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
   {
-    for (const auto& edge : _coordinatorInputs)  edge->initialize(tag);
-    for (const auto& edge : _coordinatorOutputs) edge->initialize(tag);
+    for (const auto& edge : _coordinatorDataInputs)  edge->initialize(tag);
+    for (const auto& edge : _coordinatorDataOutputs) edge->initialize(tag);
+    _coordinatorControlInput->initialize(tag);
+    _coordinatorControlOutput->initialize(tag);
   }
 
   __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
   {
-    for (const auto& edge : _coordinatorInputs)  edge->getMemorySlotsToExchange(memorySlots);
-    for (const auto& edge : _coordinatorOutputs) edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _coordinatorDataInputs)  edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _coordinatorDataOutputs) edge->getMemorySlotsToExchange(memorySlots);
+    _coordinatorControlInput->getMemorySlotsToExchange(memorySlots);
+    _coordinatorControlOutput->getMemorySlotsToExchange(memorySlots);
   }
 
   private:
@@ -92,9 +107,14 @@ class Replica final
   const configuration::Partition::partitionIndex_t _partitionIdx;
   const configuration::Replica::replicaIndex_t _replicaIdx;
 
-  // Input/Output edges from/to the coordinator
-  std::vector<std::shared_ptr<edge::Input>> _coordinatorInputs;
-  std::vector<std::shared_ptr<edge::Output>> _coordinatorOutputs;
+  // Data Input/Output edges from/to the coordinator
+  std::vector<std::shared_ptr<edge::Input>> _coordinatorDataInputs;
+  std::vector<std::shared_ptr<edge::Output>> _coordinatorDataOutputs;
+
+  // Control Input/Output edges from/to the coordinator
+  std::shared_ptr<edge::Input> _coordinatorControlInput;
+  std::shared_ptr<edge::Output> _coordinatorControlOutput;
+
 
 }; // class Replica
 
