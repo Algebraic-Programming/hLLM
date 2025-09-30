@@ -8,6 +8,7 @@
           "Function Name": "Listen Request",
           "Inputs": [],
           "Outputs": [
+            "Request"
           ]
         }
       ],
@@ -24,6 +25,7 @@
         {
           "Function Name": "Process Request",
           "Inputs": [
+            "Request"
           ],
           "Outputs": [
             "Processed Request"
@@ -43,6 +45,7 @@
         {
           "Function Name": "Return Result",
           "Inputs": [
+            "Processed Request"
           ],
           "Outputs": []
         }
@@ -56,5 +59,22 @@
     }
   ],
   "Edges": [
+    {
+      "Name": "Request",
+      "Producer": "Entry Partition",
+      "Consumer": "Processor Partition",
+      "Buffer Capacity": 2,
+      "Buffer Size": 4096,
+      "Mode": "Copy"
+      
+    },
+    {
+      "Name": "Processed Request",
+      "Producer": "Processor Partition",
+      "Consumer": "Result Partition",
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Copy"
+    }
   ]
 }

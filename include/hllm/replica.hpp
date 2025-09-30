@@ -46,14 +46,14 @@ class Replica final
       if (edgeConfig->getConsumer() == partitionName)
       {
         // Create the input edges to pass this information to the receiving partition
-        _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _replicaIdx));
+        _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
       } 
 
       // If I am a producer in this edge
       if (edgeConfig->getProducer() == partitionName)
       {
         // Create the output edge to pass this information to the receiving partition
-        _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _replicaIdx));
+        _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
       } 
     }
 
@@ -65,8 +65,8 @@ class Replica final
     replicaControlEdgeConfig.setPayloadCommunicationManager(partitionConfiguration->getControlCommunicationManager());
     replicaControlEdgeConfig.setPayloadMemoryManager(partitionConfiguration->getControlMemoryManager());
     replicaControlEdgeConfig.setPayloadMemorySpace(partitionConfiguration->getControlMemorySpace());
-    _coordinatorControlInput = std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _replicaIdx);
-    _coordinatorControlOutput = std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _replicaIdx);
+    _coordinatorControlInput = std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
+    _coordinatorControlOutput = std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
   }
 
   ~Replica() = default;

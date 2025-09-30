@@ -369,7 +369,7 @@ class Engine final
     } 
 
     // Finally, doing the exchange, one communication manager at a time, in the order given by the edge ordering
-    printf("[Instance %lu] Exchanging...\n", _instanceId);
+    printf("[Instance %lu] Exchanging Memory Slots...\n", _instanceId);
     for (const auto communicationManager : communicationManagerVector) communicationManager->exchangeGlobalMemorySlots(_exchangeTag, exchangeMap[communicationManager]);
 
     // Waiting for the finalization of the exchange

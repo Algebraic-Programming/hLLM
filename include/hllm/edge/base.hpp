@@ -14,10 +14,9 @@ namespace hLLM::edge
 typedef uint8_t edgeTypeDatatype_t;
 enum edgeType_t : edgeTypeDatatype_t
 {
-  coordinatorToCoordinatorInput = 0,
-  coordinatorToCoordinatorOutput = 1,
-  coordinatorToReplica = 2,
-  replicaToCoordinator = 3
+  coordinatorToCoordinator = 0,
+  coordinatorToReplica = 1,
+  replicaToCoordinator = 2
 };
 
 
@@ -38,12 +37,14 @@ class Base
   public:
 
   static constexpr size_t maxEdgeIndexBits = 24;
-  static constexpr size_t maxPartitionIndexBits = 16;
-  static constexpr size_t maxReplicaIndexBits = 16;
+  static constexpr size_t maxProducerPartitionIndexBits = 12;
+  static constexpr size_t maxConsumerPartitionIndexBits = 12;
+  static constexpr size_t maxReplicaIndexBits = 10;
   static constexpr size_t maxEdgeTypeBits = 2;
-  static constexpr size_t maxChannelSpecificKeyBits = 6;
+  static constexpr size_t maxChannelSpecificKeyBits = 4;
   static constexpr configuration::Edge::edgeIndex_t maxEdgeIndex = 1ul << maxEdgeIndexBits;
-  static constexpr configuration::Partition::partitionIndex_t maxPartitionIndex = 1ul << maxPartitionIndexBits;
+  static constexpr configuration::Partition::partitionIndex_t maxProducerPartitionIndex = 1ul << maxProducerPartitionIndexBits;
+  static constexpr configuration::Partition::partitionIndex_t maxConsumerPartitionIndex = 1ul << maxConsumerPartitionIndexBits;
   static constexpr configuration::Replica::replicaIndex_t maxReplicaIndex = 1ul << maxReplicaIndexBits;
   static constexpr edgeTypeDatatype_t maxEdgeType = 1u << maxEdgeTypeBits;
   static constexpr HiCR::GlobalMemorySlot::globalKey_t maxChannelSpecificKey = 1ul << maxChannelSpecificKeyBits;
@@ -57,12 +58,14 @@ class Base
   Base(const configuration::Edge edgeConfig,
        const edgeType_t edgeType,
        const configuration::Edge::edgeIndex_t edgeIndex,
-       const configuration::Partition::partitionIndex_t partitionIndex,
+       const configuration::Partition::partitionIndex_t producerPartitionIndex,
+       const configuration::Partition::partitionIndex_t consumerPartitionIndex,
        const configuration::Replica::replicaIndex_t replicaIndex) : 
     _edgeConfig(edgeConfig),
     _edgeType(edgeType),
     _edgeIndex(edgeIndex),
-    _partitionIndex(partitionIndex),
+    _producerPartitionIndex(producerPartitionIndex),
+    _consumerPartitionIndex(consumerPartitionIndex),
     _replicaIndex(replicaIndex)
   {
     // Verifying all the required HiCR object have been passed
@@ -97,17 +100,17 @@ class Base
   __INLINE__ void initialize(const HiCR::GlobalMemorySlot::tag_t tag)
   {
     ///// Data Channel common (producer and consumer) global memory slots
-    _dataChannelConsumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerSizesBufferKey));
-    _dataChannelConsumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerPayloadBufferKey));
-    _dataChannelConsumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforSizesKey));
-    _dataChannelConsumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforPayloadKey));
-    _dataChannelProducerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey));
-    _dataChannelProducerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey));
+    _dataChannelConsumerSizesBuffer                   = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerSizesBufferKey));
+    _dataChannelConsumerPayloadBuffer                 = _edgeConfig.getPayloadCommunicationManager()->getGlobalMemorySlot(     tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerPayloadBufferKey));
+    _dataChannelConsumerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforSizesKey));
+    _dataChannelConsumerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelConsumerCoordinationBufferforPayloadKey));
+    _dataChannelProducerCoordinationBufferForSizes    = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforSizesKey));
+    _dataChannelProducerCoordinationBufferForPayloads = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _dataChannelProducerCoordinationBufferforPayloadKey));
 
     ///// Metadata Channel common (producer and consumer) global memory slots
-    _metadataChannelConsumerPayloadBuffer                 = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _metadataChannelConsumerPayloadBufferKey));
-    _metadataChannelConsumerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _metadataChannelConsumerCoordinationBufferKey));
-    _metadataChannelProducerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _partitionIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey));
+    _metadataChannelConsumerPayloadBuffer                 = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _metadataChannelConsumerPayloadBufferKey));
+    _metadataChannelConsumerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _metadataChannelConsumerCoordinationBufferKey));
+    _metadataChannelProducerCoordinationBuffer            = _edgeConfig.getCoordinationCommunicationManager()->getGlobalMemorySlot(tag, encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey));
 
     // Creating channels now
     createChannels();
@@ -119,21 +122,24 @@ class Base
 
   __INLINE__ static HiCR::GlobalMemorySlot::globalKey_t encodeGlobalKey(
     const configuration::Edge::edgeIndex_t edgeIndex,
-    const configuration::Partition::partitionIndex_t partitionIndex,
+    const configuration::Partition::partitionIndex_t producerPartitionIndex,
+    const configuration::Partition::partitionIndex_t consumerPartitionIndex,
     const configuration::Replica::replicaIndex_t replicaIndex,
     const edgeType_t edgeType,
     const HiCR::GlobalMemorySlot::globalKey_t channelKey)
   {
     // Encoding reserves:
     // + 24 bits for edgeIndex (max: 16777216)
-    // + 16 bits for partitionIndex (max: 65536) minus one -- the last one -- which is reserved
-    // + 16 bits for replicaIndex (max: 65536) minus one -- the last one -- which is reserved
+    // + 12 bits for producerPartitionIndex (max: 4096) minus one -- the last one -- which is reserved
+    // + 12 bits for consumerPartitionIndex (max: 4096) minus one -- the last one -- which is reserved
+    // + 10 bits for replicaIndex (max: 1024) minus one -- the last one -- which is reserved
     // + 2 bits for edge type (max: 4)
-    // + 6 bits for channel-specific keys (max: 64)
+    // + 4 bits for channel-specific keys (max: 16)
 
     // Sanity checks
     if (edgeIndex >= maxEdgeIndex) HICR_THROW_LOGIC("Base index %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
-    if (partitionIndex >= maxPartitionIndex) HICR_THROW_LOGIC("Partition index %lu exceeds maximum: %lu\n", partitionIndex, maxPartitionIndex);
+    if (producerPartitionIndex >= maxProducerPartitionIndex) HICR_THROW_LOGIC("Producer partition index %lu exceeds maximum: %lu\n", producerPartitionIndex, maxProducerPartitionIndex);
+    if (consumerPartitionIndex >= maxConsumerPartitionIndex) HICR_THROW_LOGIC("Producer partition index %lu exceeds maximum: %lu\n", consumerPartitionIndex, maxConsumerPartitionIndex);
     if (replicaIndex >= maxReplicaIndex) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", replicaIndex, maxReplicaIndex);
     if (edgeType >= maxEdgeType) HICR_THROW_LOGIC("Edge type value %lu exceeds maximum: %lu (this must be a bug in hLLM)\n", edgeType, maxEdgeType);
     if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
@@ -143,11 +149,12 @@ class Base
 
     // Creating global key
     const auto globalKey = HiCR::GlobalMemorySlot::globalKey_t(
-        edgeIndex      << (maxPartitionIndexBits + maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
-        partitionIndex << (maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
-        replicaIndex   << (maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
-        edgeType       << (maxChannelSpecificKeyBits + initialBit) |
-        channelKey     << (initialBit)
+        edgeIndex              << (maxProducerPartitionIndexBits + maxConsumerPartitionIndexBits + maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        producerPartitionIndex << (maxConsumerPartitionIndexBits + maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        consumerPartitionIndex << (maxReplicaIndexBits + maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        replicaIndex           << (maxChannelSpecificKeyBits + maxEdgeTypeBits + initialBit) |
+        edgeType               << (maxChannelSpecificKeyBits + initialBit) |
+        channelKey             << (initialBit)
     );
 
     // printf("Key: %lu = f(%lu, %lu, %u, %lu)\n", globalKey, edgeIndex, replicaIndex, edgeType, channelKey);
@@ -198,7 +205,8 @@ class Base
   const configuration::Edge _edgeConfig;
   const edgeType_t _edgeType;
   const configuration::Edge::edgeIndex_t _edgeIndex;
-  const configuration::Partition::partitionIndex_t _partitionIndex;
+  const configuration::Partition::partitionIndex_t _producerPartitionIndex;
+  const configuration::Partition::partitionIndex_t _consumerPartitionIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
 
 }; // class Base

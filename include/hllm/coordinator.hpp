@@ -44,23 +44,57 @@ class Coordinator final
       // If I am a consumer in this edge
       if (edgeConfig->getConsumer() == partitionName)
       {
+        // Looking for the index of the producer of the input
+        const auto& producerPartitionName = edgeConfig->getProducer(); 
+        configuration::Partition::partitionIndex_t producerPartitionIdx = 0;
+        bool producerFound = false;
+        for (const auto& partition : _deployment.getPartitions())
+        {
+          if (partition->getName() == producerPartitionName)
+          {
+            producerFound = true;
+            break;
+          } 
+          producerPartitionIdx++;
+        }
+
+        // Sanity check
+        if (producerFound == false) HICR_THROW_RUNTIME("Could not find index of producer '%s' for edge '%s'. This is a bug in hLLM.", producerPartitionName.c_str(), edgeConfig->getName().c_str());
+        
         // Create the input edges to pass this information to the receiving partition
-        _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinatorInput, edgeIdx, _partitionIdx, edge::Base::coordinatorReplicaIndex));
+        _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, _partitionIdx, edge::Base::coordinatorReplicaIndex));
 
         // Create the output edges to pass this distribute the input to any of the replicas
         for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, replicaIdx));
+          _replicaDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
       } 
 
       // If I am a producer in this edge
       if (edgeConfig->getProducer() == partitionName)
       {
+        // Looking for the index of the consumer of the input
+        const auto& consumerPartitionName = edgeConfig->getConsumer(); 
+        configuration::Partition::partitionIndex_t consumerPartitionIdx = 0;
+        bool consumerFound = false;
+        for (const auto& partition : _deployment.getPartitions())
+        {
+          if (partition->getName() == consumerPartitionName)
+          {
+            consumerFound = true;
+            break;
+          } 
+          consumerPartitionIdx++;
+        }
+
+        // Sanity check
+        if (consumerFound == false) HICR_THROW_RUNTIME("Could not find index of consumer '%s' for edge '%s'. This is a bug in hLLM.", consumerPartitionName.c_str(), edgeConfig->getName().c_str());
+
         // Create the output edge to pass this information to the receiving partition
-        _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinatorOutput, edgeIdx, _partitionIdx, edge::Base::coordinatorReplicaIndex));
+        _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, _partitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
         // Create the input edges to receive the output from any of the replicas
         for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, replicaIdx));
+          _replicaDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
       } 
     }
 
@@ -74,8 +108,8 @@ class Coordinator final
     replicaControlEdgeConfig.setPayloadMemorySpace(partitionConfiguration->getControlMemorySpace());
     for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
     {
-      _replicaControlInputs.push_back(std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, replicaIdx));
-      _replicaControlOutputs.push_back(std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, replicaIdx));
+      _replicaControlInputs.push_back(std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, replicaIdx));
+      _replicaControlOutputs.push_back(std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, replicaIdx));
     }
   }
 
