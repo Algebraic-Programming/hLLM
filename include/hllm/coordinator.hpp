@@ -168,8 +168,6 @@ class Coordinator final
        edge::Message::metadata_t { .type = edge::messageType_t::heartbeatPing_t, .messageId = 0, .sessionId = 0 }
       ));
 
-      fflush(stdout);
-
     // Receiving heartbeat pong from the coordinator
     configuration::Replica::replicaIndex_t replicaIdx = 0;
     for (const auto& input : _replicaControlInputs)

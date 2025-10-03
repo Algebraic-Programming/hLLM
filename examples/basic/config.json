@@ -8,6 +8,7 @@
           "Function Name": "Listen Request",
           "Inputs": [],
           "Outputs": [
+            "Request"
           ]
         }
       ],
@@ -24,14 +25,18 @@
         {
           "Function Name": "Process Request",
           "Inputs": [
+            "Request"
           ],
           "Outputs": [
+            "Processed Request"
           ]
         }
       ],
       "Replicas":
       [
-        { "Name": "Replica 0" }
+        { "Name": "Replica 0" },
+        { "Name": "Replica 1" },
+        { "Name": "Replica 2" }
       ],
       "Control Buffer Capacity": 256,
       "Control Buffer Size": 65536
@@ -42,6 +47,7 @@
         {
           "Function Name": "Return Result",
           "Inputs": [
+            "Processed Request"
           ],
           "Outputs": []
         }
@@ -55,5 +61,23 @@
     }
   ],
   "Edges": [
+    {
+      "Name": "Request",
+      "Producer": "Entry Partition",
+      "Consumer": "Processor Partition",
+      "Communication Method": "Host Network",
+      "Buffer Capacity": 2,
+      "Buffer Size": 4096,
+      "Mode": "Copy"
+    },
+    {
+      "Name": "Processed Request",
+      "Producer": "Processor Partition",
+      "Consumer": "Result Partition",
+      "Communication Method": "Ascend NPU Network",
+      "Buffer Capacity": 2,
+      "Buffer Size": 16777216,
+      "Mode": "Copy"
+    }
   ]
 }

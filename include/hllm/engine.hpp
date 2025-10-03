@@ -276,6 +276,7 @@ class Engine final
         if (_instanceId == replicaInstanceId)
         {
           isPartitionReplica = true;
+          myPartitionIndex = pIdx;
           myReplicaIndex = rIdx;
         } 
       }
