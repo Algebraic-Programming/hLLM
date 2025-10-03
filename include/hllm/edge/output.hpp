@@ -82,6 +82,7 @@ class Output final : public Base
     // Creating producer data channel
     _dataChannel = std::make_shared<HiCR::channel::variableSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
+      *_edgeConfig.getPayloadCommunicationManager(),
       _dataChannelProducerSizeInfoBuffer,
       _dataChannelConsumerPayloadBuffer,
       _dataChannelConsumerSizesBuffer,
@@ -97,6 +98,7 @@ class Output final : public Base
     // Creating producer metadata channel
     _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
+      *_edgeConfig.getPayloadCommunicationManager(),
       _metadataChannelConsumerCoordinationBuffer,
       _metadataChannelProducerCoordinationBuffer->getSourceLocalMemorySlot(),
       _metadataChannelConsumerCoordinationBuffer,

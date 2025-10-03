@@ -7,7 +7,6 @@
 #include <hicr/backends/mpi/communicationManager.hpp>
 #include <hicr/backends/mpi/memoryManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
-#include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <hllm/engine.hpp>
@@ -50,7 +49,6 @@ int main(int argc, char *argv[])
   auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
   auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
-  auto pthreadsCommunicationManager = std::make_shared<HiCR::backend::pthreads::CommunicationManager>();
   auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object

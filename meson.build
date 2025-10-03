@@ -25,19 +25,24 @@ engines = get_option('engines')
 additionalHiCRBackends = []
 additionalHiCRFrontends = []
 
+####### Getting MPI dependency (if needed)
+if 'mpi' in engines
+  additionalHiCRBackends += 'mpi'
+endif
+
 ####### Getting CloudR dependency (if needed)
 
 if 'cloudr' in engines
-  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
-  CloudRProject = subproject('CloudR', required: true, default_options: [  ])
+  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required: true)
+  CloudRProject = subproject('CloudR', required: true, default_options: [])
   CloudRBuildDep = CloudRProject.get_variable('CloudRBuildDep')
   hLLMDependencies += CloudRBuildDep
   hLLMBuildCppArgs += '-D_DEPLOYR_DISTRIBUTED_ENGINE_CLOUDR'
-  
+
   CloudRHiCRBackends = CloudRProject.get_variable('CloudRHiCRBackends')
   CloudRHiCRFrontends = CloudRProject.get_variable('CloudRHiCRFrontends')
 
-  additionalHiCRBackends +=  CloudRHiCRBackends
+  additionalHiCRBackends += CloudRHiCRBackends
   additionalHiCRFrontends += CloudRHiCRFrontends
 endif
 
@@ -50,11 +55,14 @@ endif
 
 # Selecting default HiCR Backends
 HiCRBackends = ['hwloc', 'pthreads', 'boost'] + additionalHiCRBackends
-HiCRFrontends = [ ] + additionalHiCRFrontends
+HiCRFrontends = [] + additionalHiCRFrontends
 HiCRProject = subproject(
   'HiCR',
   required: true,
-  default_options: ['backends=' + ','.join(HiCRBackends), 'frontends=' + ','.join(HiCRFrontends)],
+  default_options: [
+    'backends=' + ','.join(HiCRBackends),
+    'frontends=' + ','.join(HiCRFrontends),
+  ],
 )
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
 hLLMDependencies += HiCRBuildDep
