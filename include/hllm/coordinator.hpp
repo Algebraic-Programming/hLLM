@@ -8,6 +8,7 @@
 #include "configuration/deployment.hpp"
 #include "edge/input.hpp"
 #include "edge/output.hpp"
+#include "messages/heartbeatPing.hpp"
 
 namespace hLLM
 {
@@ -165,7 +166,7 @@ class Coordinator final
     for (const auto& output : _replicaControlOutputs) output->pushMessage(edge::Message(
        (const uint8_t*) heartbeat.data(),
        heartbeat.length()+1,
-       edge::Message::metadata_t { .type = edge::messageType_t::heartbeatPing_t, .messageId = 0, .sessionId = 0 }
+       edge::Message::metadata_t { .type = messages::messageTypes::heartbeatPing, .messageId = 0, .sessionId = 0 }
       ));
 
     // Receiving heartbeat pong from the coordinator

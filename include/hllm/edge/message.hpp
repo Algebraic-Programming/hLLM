@@ -6,18 +6,11 @@
 namespace hLLM::edge
 {
 
-// Enumeration of possible message types
-enum messageType_t : uint8_t
-{
-  heartbeatPing_t = 0,
-  heartbeatPong_t = 1,
-  requestData_t = 2
-};
-
 class Message final
 {
   public:
 
+  typedef uint8_t messageType_t;
   typedef uint64_t messageId_t;
   typedef uint64_t sessionId_t;
 

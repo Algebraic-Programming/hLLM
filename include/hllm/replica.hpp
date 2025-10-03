@@ -101,7 +101,7 @@ class Replica final
     _coordinatorControlOutput->pushMessage(edge::Message(
        (const uint8_t*) heartbeat.data(),
        heartbeat.length()+1,
-       edge::Message::metadata_t { .type = edge::messageType_t::heartbeatPong_t, .messageId = 0, .sessionId = 0 }
+       edge::Message::metadata_t { .type = messages::messageTypes::heartbeatPong, .messageId = 0, .sessionId = 0 }
       ));
   }
 
