@@ -498,10 +498,11 @@ class Engine final
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
     // Setting service to listen for incoming administrative messages
-    std::function<void()> RPCListeningService = [this]() {
+    std::function<void()> RPCListeningServiceFc = [this]() {
       if (_rpcEngine->hasPendingRPCs()) _rpcEngine->listen();
     };
-    _taskr->addService(&RPCListeningService);
+    _rpcListeningService = std::make_unique<taskr::Service>(RPCListeningServiceFc, 50);
+    _taskr->addService(_rpcListeningService.get());
 
     // Running TaskR
     _taskr->run();
@@ -626,6 +627,8 @@ class Engine final
   HiCR::Instance::instanceId_t _deployerInstanceId;
 
   std::map<partitionId_t, deployr::Runner::runnerId_t> _partitionRunnerIdMap;
+
+  std::unique_ptr<taskr::Service> _rpcListeningService;
 }; // class Engine
 
 } // namespace hLLM
