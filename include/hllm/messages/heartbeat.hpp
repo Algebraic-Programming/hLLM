@@ -5,25 +5,23 @@
 namespace hLLM::messages
 {
 
-class HeartbeatPing final : public Base
+class Heartbeat final : public Base
 {
   private:
 
-  const edge::Message::messageType_t _type = messageTypes::heartbeatPing;
-  const std::string _signature = "Heartbeat Ping";
+  const edge::Message::messageType_t _type = messageTypes::heartbeat;
+  const std::string _signature = "Heartbeat";
 
   public:
 
-  HeartbeatPing() = delete;
-  HeartbeatPing(const edge::Message& rawMessage) : Base()
+  Heartbeat() = default;
+  Heartbeat(const edge::Message& rawMessage) : Base()
   {
     decode(rawMessage);
   }
-  ~HeartbeatPing() = default;
+  ~Heartbeat() = default;
 
   __INLINE__ edge::Message::messageType_t getType() const override { return _type; }
-
-  private: 
 
   __INLINE__ void decode(const edge::Message& rawMessage) override
   {
@@ -43,7 +41,9 @@ class HeartbeatPing final : public Base
 
     return rawMessage;
   }
+
+  private:
   
-}; // class HeartbeatPing
+}; // class Heartbeat
 
 } // namespace hLLM::messages

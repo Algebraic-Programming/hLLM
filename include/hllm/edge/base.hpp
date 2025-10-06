@@ -96,6 +96,10 @@ class Base
 
   virtual void getMemorySlotsToExchange(std::vector<memorySlotExchangeInfo_t>& memorySlots) const = 0;
   
+  __INLINE__ auto getProducerPartitionIndex() const { return _producerPartitionIndex; }
+  __INLINE__ auto getConsumerPartitionIndex() const { return _consumerPartitionIndex; }
+  __INLINE__ auto getReplicaIndex() const  { return _replicaIndex; }
+  
   // Function to initialize the channels. It must be called only all the memory slots have been exchanged
   __INLINE__ void initialize(const HiCR::GlobalMemorySlot::tag_t tag)
   {

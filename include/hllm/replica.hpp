@@ -8,6 +8,7 @@
 #include "configuration/deployment.hpp"
 #include "edge/input.hpp"
 #include "edge/output.hpp"
+#include "messages/heartbeat.hpp"
 
 namespace hLLM
 {
@@ -79,6 +80,12 @@ class Replica final
     _taskr->addTask(&_taskrInitialTask);
   }
 
+  /////////// Services
+  // These will keep being checked constantly as long as there is a worker free to take them.
+  // But even if there is no such worker, there is a reserve of taskR threads reserved the execute them.
+  // This is to prevent services from starving
+
+  // TaskR functions and tasks belonging to the partition coordinator
   void initialFunction()
   {
     // Get my partition configuration
@@ -90,20 +97,11 @@ class Replica final
     // Printing debug message
     printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorDataInputs.size(), _coordinatorDataOutputs.size());
 
-    // Getting initial heartbeat ping from the coordinator
-    while (_coordinatorControlInput->hasMessage() == false);
-    const auto message = _coordinatorControlInput->getMessage();
-    printf("Replica Index P%lu/R%lu - Received heartbeat with message: %s\n", _partitionIdx, _replicaIdx, message.getData());
-    _coordinatorControlInput->popMessage();
-
     // Sending heartbeat ping message to the coordinator
-    std::string heartbeat = "Heartbeat Pong";
-    _coordinatorControlOutput->pushMessage(edge::Message(
-       (const uint8_t*) heartbeat.data(),
-       heartbeat.length()+1,
-       edge::Message::metadata_t { .type = messages::messageTypes::heartbeatPong, .messageId = 0, .sessionId = 0 }
-      ));
+    _coordinatorControlOutput->pushMessage(messages::Heartbeat().encode());
   }
+  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
+  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
@@ -136,10 +134,6 @@ class Replica final
   // Control Input/Output edges from/to the coordinator
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
-
-  // TaskR functions and tasks belonging to the partition coordinator
-  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
-  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
 
 }; // class Replica
 

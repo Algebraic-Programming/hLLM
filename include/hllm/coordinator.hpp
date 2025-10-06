@@ -8,7 +8,8 @@
 #include "configuration/deployment.hpp"
 #include "edge/input.hpp"
 #include "edge/output.hpp"
-#include "messages/heartbeatPing.hpp"
+#include "messages/base.hpp"
+#include "messages/heartbeat.hpp"
 
 namespace hLLM
 {
@@ -145,15 +146,64 @@ class Coordinator final
     for (const auto& edge : _replicaControlOutputs)   edge->getMemorySlotsToExchange(memorySlots);
   }
 
-  /// This function initializes the workload of the partition coordinator role
+  /// This function adds the services and initial task for the coordinator
   __INLINE__ void initialize()
   {
-    _taskr->addTask(&_taskrInitialTask);
+    // Indicate the coordinator must keep running
+    _continueRunning = true;
+
+    // Adding runtime task -- only to keep the coordinator running until shutdown
+    _taskr->addTask(&_taskrRuntimeTask);
+
+    // Adding service to listen for incoming control messages
+    _taskrControlMessagesListeningService.setInterval(5000);
+    _taskr->addService(&_taskrControlMessagesListeningService);
   }
 
-  void initialFunction()
+  private:
+
+  /////////// Services
+  // These will keep being checked constantly as long as there is a worker free to take them.
+  // But even if there is no such worker, there is a reserve of taskR threads reserved the execute them.
+  // This is to prevent services from starving
+  
+  // Control Message-listening service
+  __INLINE__ void controlMessagesListeningService()
   {
-       // Get my partition configuration
+    printf("[Coordinator %lu] Checking for messages...\n", _partitionIdx);
+
+    // Checking, for all replicas' edges, whether any of them has a pending message
+    for (const auto& input : _replicaControlInputs) if (input->hasMessage())
+    {
+      // Getting message from input edge
+      const auto message = input->getMessage();
+      const auto messageType = message.getMetadata().type;
+
+      // Getting edge metadata
+      const auto replicaIdx = input->getReplicaIndex();
+
+      // Deciding what to do based on message type
+      bool isTypeRecognized = false;
+      if (messageType == hLLM::messages::messageTypes::heartbeat)
+      {
+        printf("[Coordinator %lu] Received heartbeat from replica %lu with message: %s\n", _partitionIdx, replicaIdx, message.getData());
+        isTypeRecognized = true;
+      }
+
+      if (isTypeRecognized == false) HICR_THROW_RUNTIME("[Coordinator %lu] Received unrecognized message type %lu from replica %lu\n", messageType, _partitionIdx, replicaIdx);
+
+      // Immediately disposing (popping) of message out of the edge
+      input->popMessage();
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
+  taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
+
+  // Initial task
+  // It's only function is to keep the coordinator running and finalize when/if deployment is terminated
+  __INLINE__ void runtimeTask(taskr::Task* task)
+  {
+    // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
 
     // Get my partition name
@@ -161,29 +211,12 @@ class Coordinator final
 
     printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
-    // Sending heartbeat ping messages to all my replicas
-    std::string heartbeat = "Heartbeat Ping";
-    for (const auto& output : _replicaControlOutputs) output->pushMessage(edge::Message(
-       (const uint8_t*) heartbeat.data(),
-       heartbeat.length()+1,
-       edge::Message::metadata_t { .type = messages::messageTypes::heartbeatPing, .messageId = 0, .sessionId = 0 }
-      ));
-
-    // Receiving heartbeat pong from the coordinator
-    configuration::Replica::replicaIndex_t replicaIdx = 0;
-    for (const auto& input : _replicaControlInputs)
-    {
-      while (input->hasMessage() == false);
-      const auto message = input->getMessage();
-      printf("[Coordinator %lu] Received heartbeat pong from replica %lu with message: %s\n", _partitionIdx, replicaIdx, message.getData());
-      input->popMessage();
-      replicaIdx++;
-    } 
+    // Now suspend until the deployment is terminated
+    task->addPendingOperation([this](){ return _continueRunning == false; });
+    task->suspend();
   }
-
-  typedef std::function<void(taskr::Task *)> function_t;
-
-  private:
+  taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
+  taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
 
   const configuration::Deployment _deployment;
   const configuration::Partition::partitionIndex_t _partitionIdx;
@@ -205,9 +238,8 @@ class Coordinator final
   std::vector<std::shared_ptr<edge::Input>> _replicaControlInputs;
   std::vector<std::shared_ptr<edge::Output>> _replicaControlOutputs;
 
-  // TaskR functions and tasks belonging to the partition coordinator
-  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
-  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
+  // Flag indicating whether the execution must keep running
+  __volatile__ bool _continueRunning;
 
 }; // class Coordinator
 

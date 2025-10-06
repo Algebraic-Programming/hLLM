@@ -9,8 +9,7 @@ namespace hLLM::messages
 
 enum messageTypes : edge::Message::messageType_t
 {
-  heartbeatPing = 0,
-  heartbeatPong = 0
+  heartbeat = 0,
 };
 
 class Base
