@@ -188,14 +188,14 @@ __INLINE__ void createChannelBuffers(HiCR::MemoryManager                        
 }
 
 void createChannels(HiCR::MemoryManager                                                                         &memoryManager,
-                   HiCR::CommunicationManager                                                                  &communicationManager,
-                   std::shared_ptr<HiCR::MemorySpace>                                                          &memorySpace,
-                   std::map<HiCR::GlobalMemorySlot::tag_t, nlohmann::json>                                     &consumersData,
-                   std::map<HiCR::GlobalMemorySlot::tag_t, nlohmann::json>                                     &producersData,
-                   HiCR::GlobalMemorySlot::tag_t                                                                channelsIds,
-                   std::map<HiCR::GlobalMemorySlot::tag_t, std::string>                                        &channelTagNameMap,
-                   std::unordered_map<std::string, std::unique_ptr<hLLM::channel::channelConsumerInterface_t>> &consumers,
-                   std::unordered_map<std::string, std::unique_ptr<hLLM::channel::channelProducerInterface_t>> &producers)
+                    HiCR::CommunicationManager                                                                  &communicationManager,
+                    std::shared_ptr<HiCR::MemorySpace>                                                          &memorySpace,
+                    std::map<HiCR::GlobalMemorySlot::tag_t, nlohmann::json>                                     &consumersData,
+                    std::map<HiCR::GlobalMemorySlot::tag_t, nlohmann::json>                                     &producersData,
+                    HiCR::GlobalMemorySlot::tag_t                                                                channelsIds,
+                    std::map<HiCR::GlobalMemorySlot::tag_t, std::string>                                        &channelTagNameMap,
+                    std::unordered_map<std::string, std::unique_ptr<hLLM::channel::channelConsumerInterface_t>> &consumers,
+                    std::unordered_map<std::string, std::unique_ptr<hLLM::channel::channelProducerInterface_t>> &producers)
 {
   std::map<HiCR::GlobalMemorySlot::tag_t, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> memorySlotsToExchange;
   std::map<HiCR::GlobalMemorySlot::tag_t, std::shared_ptr<HiCR::LocalMemorySlot>>                             coordinationBufferSizesSlots;
@@ -319,22 +319,22 @@ void Engine::createDependencies()
   }
 
   createChannels(*_unbufferedMemoryManager,
-                *_unbufferedCommunicationManager,
-                _unbufferedMemorySpace,
-                unbufferedConsumers,
-                unbufferedProducers,
-                unbufferedChannelId,
-                unbufferedChannelTagNameMap,
-                _consumers,
-                _producers);
+                 *_unbufferedCommunicationManager,
+                 _unbufferedMemorySpace,
+                 unbufferedConsumers,
+                 unbufferedProducers,
+                 unbufferedChannelId,
+                 unbufferedChannelTagNameMap,
+                 _consumers,
+                 _producers);
   createChannels(*_bufferedMemoryManager,
-                *_bufferedCommunicationManager,
-                _bufferedMemorySpace,
-                bufferedConsumers,
-                bufferedProducers,
-                bufferedChannelId,
-                bufferedChannelTagNameMap,
-                _consumers,
-                _producers);
+                 *_bufferedCommunicationManager,
+                 _bufferedMemorySpace,
+                 bufferedConsumers,
+                 bufferedProducers,
+                 bufferedChannelId,
+                 bufferedChannelTagNameMap,
+                 _consumers,
+                 _producers);
 }
 } // namespace hLLM
