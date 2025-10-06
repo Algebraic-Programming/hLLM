@@ -51,13 +51,13 @@ __INLINE__ std::unordered_map<std::string, nlohmann::json> Engine::parseDependen
       {
         if (dependenciesMap.contains(output) == false)
         {
-          HICR_THROW_RUNTIME("Producer %s defined in partition %s has no consumers defined", output.get<std::string>(), partition["Name"]);
+          HICR_THROW_RUNTIME("Producer %s defined in partition %s has no consumers defined", output.get<std::string>().c_str(), partition["Name"].get<std::string>().c_str());
         }
 
         if (dependenciesMap[output].contains("Producer"))
         {
           HICR_THROW_RUNTIME("Set two producers for buffered dependency %s is not allowed. Producer: %s, tried to add %s",
-                             output,
+                             output.get<std::string>().c_str(),
                              hicr::json::getNumber<partitionId_t>(dependenciesMap[output], "Producer"),
                              hicr::json::getString(partition, "Name").c_str());
         }
