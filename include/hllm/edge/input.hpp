@@ -118,6 +118,7 @@ class Input final : public Base
     // Creating consumer data channel
     _dataChannel = std::make_shared<HiCR::channel::variableSize::SPSC::Consumer>(
         *_edgeConfig.getCoordinationCommunicationManager(),
+        *_edgeConfig.getPayloadCommunicationManager(),
         _dataChannelConsumerPayloadBuffer /*payload buffer */,
         _dataChannelConsumerSizesBuffer,
         _dataChannelConsumerCoordinationBufferForSizes->getSourceLocalMemorySlot(),
@@ -131,6 +132,7 @@ class Input final : public Base
     // Creating consumer data channel
     _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Consumer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
+      *_edgeConfig.getPayloadCommunicationManager(),
       _metadataChannelConsumerPayloadBuffer,
       _metadataChannelConsumerCoordinationBuffer->getSourceLocalMemorySlot(),
       _metadataChannelProducerCoordinationBuffer,

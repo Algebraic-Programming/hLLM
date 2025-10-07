@@ -13,18 +13,13 @@ namespace hLLM::configuration
 
 class Partition final
 {
-  private:
-
-  static constexpr size_t _defaultControlBufferCapacity = 256;
-  static constexpr size_t _defaultControlBufferSize = _defaultControlBufferCapacity * 1024;
-
   public: 
 
   typedef uint64_t partitionIndex_t;
   
   Partition(const nlohmann::json js) { deserialize(js); };
-  Partition(const std::string& name, const HiCR::Instance::instanceId_t instanceId, const size_t controlBufferCapacity = _defaultControlBufferCapacity, const size_t controlBufferSize = _defaultControlBufferSize)
-    : _name(name), _instanceId(instanceId), _controlBufferCapacity(controlBufferCapacity), _controlBufferSize(controlBufferSize)
+  Partition(const std::string& name, const HiCR::Instance::instanceId_t instanceId)
+    : _name(name), _instanceId(instanceId)
      {}
   ~Partition() = default;
 
@@ -32,21 +27,11 @@ class Partition final
   __INLINE__ void setInstanceId(const HiCR::Instance::instanceId_t instanceId) { _instanceId = instanceId; }
   __INLINE__ void addTask(const std::shared_ptr<Task> task) { _tasks.push_back(task); }
   __INLINE__ void addReplica(const std::shared_ptr<Replica> replica) { _replicas.push_back(replica); }
-  __INLINE__ void setControlBufferCapacity(const size_t capacity) { _controlBufferCapacity = capacity; }
-  __INLINE__ void setControlBufferSize(const size_t size) { _controlBufferSize = size; }
-  __INLINE__ void setControlCommunicationManager(HiCR::CommunicationManager* const communicationManager) { _coordinationCommunicationManager = communicationManager; }
-  __INLINE__ void setControlMemoryManager(HiCR::MemoryManager* const memoryManager) { _coordinationMemoryManager = memoryManager; }
-  __INLINE__ void setControlMemorySpace(const std::shared_ptr<HiCR::MemorySpace> memorySpace) { _coordinationMemorySpace = memorySpace; }
 
   [[nodiscard]] __INLINE__ auto getName() const { return _name; }
   [[nodiscard]] __INLINE__ auto getInstanceId() const { return _instanceId; }
   [[nodiscard]] __INLINE__ auto& getTasks() const { return _tasks; }
   [[nodiscard]] __INLINE__ auto& getReplicas() const { return _replicas; }
-  [[nodiscard]] __INLINE__ auto getControlBufferCapacity() const { return _controlBufferCapacity; }
-  [[nodiscard]] __INLINE__ auto getControlBufferSize() const { return _controlBufferSize; }
-  [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getControlCommunicationManager() const { return _coordinationCommunicationManager; }
-  [[nodiscard]] __INLINE__ HiCR::MemoryManager*        getControlMemoryManager       () const { return _coordinationMemoryManager; }
-  [[nodiscard]] __INLINE__ std::shared_ptr<HiCR::MemorySpace>  getControlMemorySpace () const { return _coordinationMemorySpace; }
 
   [[nodiscard]] __INLINE__ nlohmann::json serialize() const 
   {
@@ -62,9 +47,6 @@ class Partition final
     std::vector<nlohmann::json> replicasJs;
     for (const auto& r : _replicas) replicasJs.push_back(r->serialize());
     js["Replicas"] = replicasJs;
-
-    js["Control Buffer Capacity"] = _controlBufferCapacity;
-    js["Control Buffer Size"] = _controlBufferSize;
 
     return js;
   }
@@ -83,25 +65,14 @@ class Partition final
 
     const auto& replicas = hicr::json::getArray<nlohmann::json>(js, "Replicas");
     for (const auto& r : replicas) _replicas.push_back(std::make_shared<Replica>(r));
-
-    _controlBufferCapacity = hicr::json::getNumber<size_t>(js, "Control Buffer Capacity");
-    _controlBufferSize = hicr::json::getNumber<size_t>(js, "Control Buffer Size");
   }
 
   private:
   
-  // HiCR-specific objects to create the coordination buffers. These are to be set at runtime
-  HiCR::CommunicationManager* _coordinationCommunicationManager  = nullptr;
-  HiCR::MemoryManager* _coordinationMemoryManager  = nullptr;
-  std::shared_ptr<HiCR::MemorySpace> _coordinationMemorySpace  = nullptr;
-
   std::string _name;
   HiCR::Instance::instanceId_t _instanceId;  
   std::vector<std::shared_ptr<Task>> _tasks;
   std::vector<std::shared_ptr<Replica>> _replicas;
-
-  size_t _controlBufferCapacity = _defaultControlBufferCapacity;
-  size_t _controlBufferSize = _defaultControlBufferCapacity;
 }; // class Partition
 
 } // namespace hLLM::configuration

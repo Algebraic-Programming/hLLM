@@ -1,5 +1,19 @@
 {
   "Name": "Basic Deployment",
+  "Settings":
+  {
+    "Heartbeat":
+    {
+      "Enabled": true,
+      "Interval": 500,
+      "Tolerance": 1000
+    },
+    "Control Buffer":
+    {
+      "Capacity": 512,
+      "Size": 65536
+    }
+  },
   "Partitions": [
     {
       "Name": "Entry Partition",
@@ -14,10 +28,8 @@
       ],
       "Replicas":
       [
-        { "Name": "Replica 0" }
-      ],
-      "Control Buffer Capacity": 256,
-      "Control Buffer Size": 65536
+        { "Name": "Replica 0/0" }
+      ]
     },
     {
       "Name": "Processor Partition",
@@ -34,12 +46,8 @@
       ],
       "Replicas":
       [
-        { "Name": "Replica 0" },
-        { "Name": "Replica 1" },
-        { "Name": "Replica 2" }
-      ],
-      "Control Buffer Capacity": 256,
-      "Control Buffer Size": 65536
+        { "Name": "Replica 1/0" }
+      ]
     },
     {
       "Name": "Result Partition",
@@ -54,10 +62,8 @@
       ],
       "Replicas":
       [
-        { "Name": "Replica 0" }
-      ],
-      "Control Buffer Capacity": 256,
-      "Control Buffer Size": 65536
+        { "Name": "Replica 2/0" }
+      ]
     }
   ],
   "Edges": [

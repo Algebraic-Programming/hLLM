@@ -61,13 +61,14 @@ class Replica final
     }
 
     // Create Control edges with my partition coordinator
-    auto replicaControlEdgeConfig = configuration::Edge("Control Edge", partitionName, partitionName, "Copy", partitionConfiguration->getControlBufferCapacity(), partitionConfiguration->getControlBufferSize());
-    replicaControlEdgeConfig.setCoordinationCommunicationManager(partitionConfiguration->getControlCommunicationManager());
-    replicaControlEdgeConfig.setCoordinationMemoryManager(partitionConfiguration->getControlMemoryManager());
-    replicaControlEdgeConfig.setCoordinationMemorySpace(partitionConfiguration->getControlMemorySpace());
-    replicaControlEdgeConfig.setPayloadCommunicationManager(partitionConfiguration->getControlCommunicationManager());
-    replicaControlEdgeConfig.setPayloadMemoryManager(partitionConfiguration->getControlMemoryManager());
-    replicaControlEdgeConfig.setPayloadMemorySpace(partitionConfiguration->getControlMemorySpace());
+    const auto& controlBufferConfig = _deployment.getControlBufferConst();
+    auto replicaControlEdgeConfig = configuration::Edge("Control Edge", partitionName, partitionName, "Copy", controlBufferConfig.capacity, controlBufferConfig.size);
+    replicaControlEdgeConfig.setCoordinationCommunicationManager(controlBufferConfig.communicationManager);
+    replicaControlEdgeConfig.setCoordinationMemoryManager(controlBufferConfig.memoryManager);
+    replicaControlEdgeConfig.setCoordinationMemorySpace(controlBufferConfig.memorySpace);
+    replicaControlEdgeConfig.setPayloadCommunicationManager(controlBufferConfig.communicationManager);
+    replicaControlEdgeConfig.setPayloadMemoryManager(controlBufferConfig.memoryManager);
+    replicaControlEdgeConfig.setPayloadMemorySpace(controlBufferConfig.memorySpace);
     _coordinatorControlInput = std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
     _coordinatorControlOutput = std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
   }
@@ -77,7 +78,25 @@ class Replica final
   /// This function initializes the workload of the partition replica role
   __INLINE__ void initialize()
   {
-    _taskr->addTask(&_taskrInitialTask);
+    printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
+
+      // Indicate the coordinator must keep running
+    _continueRunning = true;
+
+    // Adding runtime task -- only to keep the replica running until shutdown
+    _taskr->addTask(&_taskrRuntimeTask);
+
+    // Adding service to listen for incoming control messages
+    _taskr->addService(&_taskrControlMessagesListeningService);
+
+    //////// Adding heartbeat service
+    _taskrHeartbeatService.setInterval(_deployment.getHeartbeat().interval);
+
+    // Disabling service, if not needed for now
+    if (_deployment.getHeartbeat().enabled == false) _taskrHeartbeatService.disable();
+
+    // Adding service to taskr
+    _taskr->addService(&_taskrHeartbeatService);
   }
 
   /////////// Services
@@ -85,8 +104,52 @@ class Replica final
   // But even if there is no such worker, there is a reserve of taskR threads reserved the execute them.
   // This is to prevent services from starving
 
-  // TaskR functions and tasks belonging to the partition coordinator
-  void initialFunction()
+  // Control Message-listening service
+  __INLINE__ void controlMessagesListeningService()
+  {
+    // printf("[Replica %lu/%lu] Checking for messages...\n", _partitionIdx, _replicaIdx);
+
+    // Checking, for all replicas' edges, whether any of them has a pending message
+    if (_coordinatorControlInput->hasMessage())
+    {
+      // Getting message from input edge
+      const auto message = _coordinatorControlInput->getMessage();
+      const auto messageType = message.getMetadata().type;
+
+      // Getting edge metadata
+      const auto replicaIdx = _coordinatorControlInput->getReplicaIndex();
+
+      // Deciding what to do based on message type
+      bool isTypeRecognized = false;
+      if (messageType == hLLM::messages::messageTypes::heartbeat)
+      {
+        printf("[Replica %lu / %lu] Received heartbeat from coordinator with message: %s\n", _partitionIdx, _replicaIdx, message.getData());
+        isTypeRecognized = true;
+      }
+
+      if (isTypeRecognized == false) HICR_THROW_RUNTIME("[Replica %lu / %lu] Received unrecognized message type %lu from coordinator\n", _partitionIdx, replicaIdx, messageType);
+
+      // Immediately disposing (popping) of message out of the edge
+      _coordinatorControlInput->popMessage();
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
+  taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
+
+  // Heartbeat sending message
+  __INLINE__ void heartbeatService()
+  {
+    // Checking, for all replicas' edges, whether any of them has a pending message
+    const auto message = messages::Heartbeat().encode();
+    if (_coordinatorControlOutput->isFull(message.getSize()) == false) _coordinatorControlOutput->pushMessage(message);
+  }
+  taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
+  taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
+
+  /////////// Tasks
+
+  // Initial task. It's only function is to keep the replica running and finalize when/if deployment is terminated
+  __INLINE__ void runtimeTask(taskr::Task* task)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -97,11 +160,12 @@ class Replica final
     // Printing debug message
     printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorDataInputs.size(), _coordinatorDataOutputs.size());
 
-    // Sending heartbeat ping message to the coordinator
-    _coordinatorControlOutput->pushMessage(messages::Heartbeat().encode());
+    // Now suspend until the deployment is terminated
+    task->addPendingOperation([this](){ return _continueRunning == false; });
+    task->suspend();
   }
-  taskr::Function _taskrInitialFc = taskr::Function([this](taskr::Task*){ this->initialFunction(); });
-  taskr::Task _taskrInitialTask = taskr::Task(&_taskrInitialFc);
+  taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
+  taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
@@ -134,6 +198,9 @@ class Replica final
   // Control Input/Output edges from/to the coordinator
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
+
+  // Flag indicating whether the execution must keep running
+  __volatile__ bool _continueRunning;
 
 }; // class Replica
 

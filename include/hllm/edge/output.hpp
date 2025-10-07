@@ -44,8 +44,8 @@ class Output final : public Base
     memorySlots.push_back( memorySlotExchangeInfo_t { .communicationManager = _edgeConfig.getCoordinationCommunicationManager(), .globalKey = encodeGlobalKey(_edgeIndex, _producerPartitionIndex, _consumerPartitionIndex, _replicaIndex, _edgeType, _metadataChannelProducerCoordinationBufferKey),       .memorySlot = _metadataChannelLocalCoordinationBuffer } );
   }
 
-    // Function to check whether the output channels are full
-  __INLINE__ bool isFull() const
+    // Function to check whether the output channels are full, given a message size to be sent
+  __INLINE__ bool isFull(const size_t msgSize) const
   { 
     // Requesting the re-check of the channel's usage
 
@@ -53,6 +53,7 @@ class Output final : public Base
     if (_metadataChannel->isFull() == true) return true;
 
     _dataChannel->updateDepth();
+    if (_dataChannel->hasEnoughPayloadSpace(msgSize) == false) return true;
     if (_dataChannel->isFull() == true) return true;
 
     // Check if both are not empty
@@ -61,7 +62,7 @@ class Output final : public Base
 
   __INLINE__ void pushMessage(const Message message) const
   {
-    if (isFull() == true) HICR_THROW_RUNTIME("Trying to push a message when channel is full. This is a bug in hLLM.");
+    if (isFull(message.getSize()) == true) HICR_THROW_RUNTIME("Trying to push a message when channel is full. This is a bug in hLLM.");
 
     auto messagePayloadMemorySlot = _edgeConfig.getPayloadMemoryManager()->registerLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), (void*)message.getData(), message.getSize());
     _dataChannel->push(messagePayloadMemorySlot);
@@ -82,6 +83,7 @@ class Output final : public Base
     // Creating producer data channel
     _dataChannel = std::make_shared<HiCR::channel::variableSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
+      *_edgeConfig.getPayloadCommunicationManager(),
       _dataChannelProducerSizeInfoBuffer,
       _dataChannelConsumerPayloadBuffer,
       _dataChannelConsumerSizesBuffer,
@@ -97,6 +99,7 @@ class Output final : public Base
     // Creating producer metadata channel
     _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
+      *_edgeConfig.getPayloadCommunicationManager(),
       _metadataChannelConsumerCoordinationBuffer,
       _metadataChannelProducerCoordinationBuffer->getSourceLocalMemorySlot(),
       _metadataChannelConsumerCoordinationBuffer,

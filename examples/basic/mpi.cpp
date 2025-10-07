@@ -50,7 +50,6 @@ int main(int argc, char *argv[])
   auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
   auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
-  auto pthreadsCommunicationManager = std::make_shared<HiCR::backend::pthreads::CommunicationManager>();
   auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object
@@ -152,12 +151,9 @@ int main(int argc, char *argv[])
   }
 
   // Setting managers for partition-wise control messaging
-  for (const auto& partition : hllm.getDeployment().getPartitions())
-  {
-    partition->setControlCommunicationManager(mpiCommunicationManager.get());
-    partition->setControlMemoryManager(mpiMemoryManager.get());
-    partition->setControlMemorySpace(bufferMemorySpace);
-  }
+  hllm.getDeployment().getControlBuffer().communicationManager = mpiCommunicationManager.get();
+  hllm.getDeployment().getControlBuffer().memoryManager = mpiMemoryManager.get();
+  hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
   // Declaring the hLLM tasks for the application
   createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
@@ -170,9 +166,6 @@ int main(int argc, char *argv[])
   // size_t requestDelayMs = 100;
   // initializeRequestServer(&hllm, requestCount);
   // auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
-
-  // // Initializing LLM hllm with deployer id 0
-  // hllm.initialize(0);
 
   // // Deploy all hLLM instances
   // hllm.deploy(hllmConfigJs);

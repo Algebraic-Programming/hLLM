@@ -325,17 +325,10 @@ class Engine final
     std::set<HiCR::CommunicationManager*> communicationManagerSet;
     std::vector<HiCR::CommunicationManager*> communicationManagerVector;
 
-    // Adding control communication managers
-    for (const auto& partition : _deployment.getPartitions())
-    {
-      const auto controlCommunicationManager = partition->getControlCommunicationManager();
-
-      if (communicationManagerSet.contains(controlCommunicationManager) == false)
-      {
-        communicationManagerSet.insert(controlCommunicationManager);
-        communicationManagerVector.push_back(controlCommunicationManager);
-      }
-    }
+    // Adding control communication manager
+    const auto controlCommunicationManager = _deployment.getControlBuffer().communicationManager;
+    communicationManagerSet.insert(controlCommunicationManager);
+    communicationManagerVector.push_back(controlCommunicationManager);
 
     // Adding edge-specific communication managers
     for (const auto& edge : _deployment.getEdges())
