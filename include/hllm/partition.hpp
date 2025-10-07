@@ -7,6 +7,7 @@
 #include <hicr/core/globalMemorySlot.hpp>
 #include <taskr/taskr.hpp>
 #include "edge/base.hpp"
+#include "edge/output.hpp"
 #include "configuration/deployment.hpp"
 
 namespace hLLM
@@ -103,10 +104,20 @@ class Partition
 
   void initialize()
   {
+    //////// Adding heartbeat service
+    _taskrHeartbeatService.setInterval(_deployment.getHeartbeat().interval);
+
+    // Disabling service, if not needed for now
+    if (_deployment.getHeartbeat().enabled == false) _taskrHeartbeatService.disable();
+
+    // Adding service to taskr
+    _taskr->addService(&_taskrHeartbeatService);
+
+    // Running role-specific implementation
+    initializeImpl();
+
     // Set to continue running until the deployment is stopped
     _continueRunning = true;
-
-    initializeImpl();
   }
 
   protected: 
@@ -128,6 +139,36 @@ class Partition
 
   // Flag indicating whether the execution must keep running
   __volatile__ bool _continueRunning;
+
+  // Function to subscribe an edge for the heartbeat service
+  __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
+
+  private:
+
+  ///////////// Heartbeat sending service
+  __INLINE__ void heartbeatService()
+  {
+    // Checking, for all replicas' edges, whether any of them has a pending message
+    const auto message = messages::Heartbeat().encode();
+    for (const auto& edge : _heartbeatOutputEdges)
+    {
+      // Getting edge metadata
+      const auto replicaIdx = edge->getReplicaIndex();
+
+      // If the edge is not full, send a heartbeat
+      if (edge->isFull(message.getSize()) == false)
+      {
+        edge->pushMessage(message);
+      } 
+      else // Otherwise, report it's full
+      {
+        printf("[Warning] Heartbeat buffer for %lu / %lu is full!\n", _partitionIdx, replicaIdx);
+      }
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
+  taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
+  std::vector<std::shared_ptr<edge::Output>> _heartbeatOutputEdges;
 
 }; // class Coordinator
 
