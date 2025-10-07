@@ -37,16 +37,16 @@ class Replica final : public hLLM::Partition
     // Iterating through input edges to create a connection with the coordinator on that edge
     for (const auto& edge : _inputEdges)
     {
-      const auto edgeIdx = edge.first;
-      const auto& edgeConfig = edge.second;
+      const auto edgeIdx = edge.index;
+      const auto& edgeConfig = edge.config;
       _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
     }
     
     // Iterating through output edges to create a connection with the coordinator on that edge
     for (const auto& edge : _outputEdges)
     {
-      const auto edgeIdx = edge.first;
-      const auto& edgeConfig = edge.second;
+      const auto edgeIdx = edge.index;
+      const auto& edgeConfig = edge.config;
       _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
     }
 

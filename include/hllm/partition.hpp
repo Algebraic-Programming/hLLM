@@ -16,6 +16,14 @@ class Partition
 {
   public:
 
+  struct edgeInfo_t
+  {
+    configuration::Edge::edgeIndex_t index;
+    std::shared_ptr<hLLM::configuration::Edge> config;
+    configuration::Partition::partitionIndex_t producerPartitionIndex;
+    configuration::Partition::partitionIndex_t consumerPartitionIndex;
+  };
+
   Partition() = delete;
   ~Partition() = default;
 
@@ -63,7 +71,8 @@ class Partition
         // Sanity check
         if (producerFound == false) HICR_THROW_RUNTIME("Could not find index of producer '%s' for edge '%s'. This is a bug in hLLM.", producerPartitionName.c_str(), edgeConfig->getName().c_str());
 
-        _inputEdges.insert({ edgeIdx, edgeConfig });
+        // Adding new entry
+        _inputEdges.push_back( edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = producerPartitionIdx, .consumerPartitionIndex = _partitionIdx });
       } 
 
       // If I am a producer in this edge
@@ -86,7 +95,8 @@ class Partition
         // Sanity check
         if (consumerFound == false) HICR_THROW_RUNTIME("Could not find index of consumer '%s' for edge '%s'. This is a bug in hLLM.", consumerPartitionName.c_str(), edgeConfig->getName().c_str());
 
-        _outputEdges.insert({ edgeIdx, edgeConfig });
+        // Adding new entry
+        _outputEdges.push_back( edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = _partitionIdx, .consumerPartitionIndex = consumerPartitionIdx });
       } 
     }
   }
@@ -111,10 +121,10 @@ class Partition
   taskr::Runtime* const _taskr;
 
   // Container for input edges for this partition
-  std::map<configuration::Edge::edgeIndex_t, std::shared_ptr<hLLM::configuration::Edge>> _inputEdges;
+  std::vector<edgeInfo_t> _inputEdges;
 
   // Container for output edges for this partition
-  std::map<configuration::Edge::edgeIndex_t, std::shared_ptr<hLLM::configuration::Edge>> _outputEdges;
+  std::vector<edgeInfo_t> _outputEdges;
 
   // Flag indicating whether the execution must keep running
   __volatile__ bool _continueRunning;

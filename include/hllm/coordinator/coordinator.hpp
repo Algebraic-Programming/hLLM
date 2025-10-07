@@ -36,9 +36,6 @@ class Coordinator final : public hLLM::Partition
     // Get my partition name
     const auto& partitionName = partitionConfiguration->getName();
 
-    // Getting list of edges in the deployment
-    const auto& edgeConfigs = _deployment.getEdges();
-
     // Getting list of replicas in the partition
     const auto& replicas = partitionConfiguration->getReplicas();
 
@@ -48,69 +45,37 @@ class Coordinator final : public hLLM::Partition
       auto newReplica = std::make_unique<Replica>(_partitionIdx, replicaIndex);
       _replicas.push_back(std::move(newReplica));
     }
-
-    // Iterating through edges by their index and creating them
-    for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
+    // Iterating through input edges to create a connection with replicas and peer coordinators on that input
+    for (const auto& edge : _inputEdges)
     {
-      // Getting edge object by index
-      const auto edgeConfig = edgeConfigs[edgeIdx];
-
-      // If I am a consumer in this edge
-      if (edgeConfig->getConsumer() == partitionName)
-      {
-        // Looking for the index of the producer of the input
-        const auto& producerPartitionName = edgeConfig->getProducer(); 
-        configuration::Partition::partitionIndex_t producerPartitionIdx = 0;
-        bool producerFound = false;
-        for (const auto& partition : _deployment.getPartitions())
-        {
-          if (partition->getName() == producerPartitionName)
-          {
-            producerFound = true;
-            break;
-          } 
-          producerPartitionIdx++;
-        }
-
-        // Sanity check
-        if (producerFound == false) HICR_THROW_RUNTIME("Could not find index of producer '%s' for edge '%s'. This is a bug in hLLM.", producerPartitionName.c_str(), edgeConfig->getName().c_str());
+      const auto edgeIdx = edge.index;
+      const auto& edgeConfig = edge.config;
+      const auto producerPartitionIdx = edge.producerPartitionIndex;
+      const auto consumerPartitionIdx = edge.consumerPartitionIndex;
         
-        // Create the input edges to pass this information to the receiving partition
-        _partitionDataInputs.push_back(std::make_unique<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, _partitionIdx, edge::Base::coordinatorReplicaIndex));
+      // Create the input edges to pass this information to the receiving partition
+      _partitionDataInputs.push_back(std::make_unique<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-        // Create the output edges to pass this distribute the input to any of the replicas
-        for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaDataOutputs.push_back(std::make_unique<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
-      } 
+      // Create the output edges to pass this distribute the input to any of the replicas
+      for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
+        _replicaDataOutputs.push_back(std::make_unique<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
+    } 
 
-      // If I am a producer in this edge
-      if (edgeConfig->getProducer() == partitionName)
-      {
-        // Looking for the index of the consumer of the input
-        const auto& consumerPartitionName = edgeConfig->getConsumer(); 
-        configuration::Partition::partitionIndex_t consumerPartitionIdx = 0;
-        bool consumerFound = false;
-        for (const auto& partition : _deployment.getPartitions())
-        {
-          if (partition->getName() == consumerPartitionName)
-          {
-            consumerFound = true;
-            break;
-          } 
-          consumerPartitionIdx++;
-        }
+    // Iterating through output edges to create a connection with replicas and peer coordinators on that output
+    for (const auto& edge : _outputEdges)
+    {
+      const auto edgeIdx = edge.index;
+      const auto& edgeConfig = edge.config;
+      const auto producerPartitionIdx = edge.producerPartitionIndex;
+      const auto consumerPartitionIdx = edge.consumerPartitionIndex;
 
-        // Sanity check
-        if (consumerFound == false) HICR_THROW_RUNTIME("Could not find index of consumer '%s' for edge '%s'. This is a bug in hLLM.", consumerPartitionName.c_str(), edgeConfig->getName().c_str());
+      // Create the output edge to pass this information to the receiving partition
+      _partitionDataOutputs.push_back(std::make_unique<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-        // Create the output edge to pass this information to the receiving partition
-        _partitionDataOutputs.push_back(std::make_unique<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, _partitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
-
-        // Create the input edges to receive the output from any of the replicas
-        for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
-          _replicaDataInputs.push_back(std::make_unique<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
-      } 
-    }
+      // Create the input edges to receive the output from any of the replicas
+      for (configuration::Replica::replicaIndex_t replicaIdx = 0; replicaIdx < partitionConfiguration->getReplicas().size(); replicaIdx++)
+        _replicaDataInputs.push_back(std::make_unique<edge::Input>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, replicaIdx));
+    } 
 
     // For each replica, also create a Control edge
     const auto& controlBufferConfig = _deployment.getControlBufferConst();
