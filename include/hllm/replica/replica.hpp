@@ -9,11 +9,12 @@
 #include "../edge/input.hpp"
 #include "../edge/output.hpp"
 #include "../messages/heartbeat.hpp"
+#include "../partition.hpp"
 
 namespace hLLM::replica
 {
 
-class Replica final
+class Replica final : public hLLM::Partition
 {
   public:
 
@@ -24,11 +25,8 @@ class Replica final
     const configuration::Partition::partitionIndex_t  partitionIdx,
     const configuration::Replica::replicaIndex_t replicaIdx,
     taskr::Runtime* const taskr
-  ) :
-    _deployment(deployment),
-    _partitionIdx(partitionIdx),
-    _replicaIdx(replicaIdx),
-    _taskr(taskr)
+  ) : Partition(deployment, partitionIdx, taskr),
+    _replicaIdx(replicaIdx)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -36,28 +34,20 @@ class Replica final
     // Get my partition name
     const auto& partitionName = partitionConfiguration->getName();
 
-    // Getting list of edges in the deployment
-    const auto& edgeConfigs = _deployment.getEdges();
-
-    // Iterating through edges by their index
-    for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
+    // Iterating through input edges to create a connection with the coordinator on that edge
+    for (const auto& edge : _inputEdges)
     {
-      // Getting edge object by index
-      const auto edgeConfig = edgeConfigs[edgeIdx];
-
-      // If I am a consumer in this edge
-      if (edgeConfig->getConsumer() == partitionName)
-      {
-        // Create the input edges to pass this information to the receiving partition
-        _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
-      } 
-
-      // If I am a producer in this edge
-      if (edgeConfig->getProducer() == partitionName)
-      {
-        // Create the output edge to pass this information to the receiving partition
-        _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
-      } 
+      const auto edgeIdx = edge.first;
+      const auto& edgeConfig = edge.second;
+      _coordinatorDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToReplica, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
+    }
+    
+    // Iterating through output edges to create a connection with the coordinator on that edge
+    for (const auto& edge : _outputEdges)
+    {
+      const auto edgeIdx = edge.first;
+      const auto& edgeConfig = edge.second;
+      _coordinatorDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::replicaToCoordinator, edgeIdx, _partitionIdx, _partitionIdx, _replicaIdx));
     }
 
     // Create Control edges with my partition coordinator
@@ -75,8 +65,27 @@ class Replica final
 
   ~Replica() = default;
 
+  /// This function completes the initialization of the edges, after the memory slot exchanges are completed
+  __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
+  {
+    for (const auto& edge : _coordinatorDataInputs)  edge->initialize(tag);
+    for (const auto& edge : _coordinatorDataOutputs) edge->initialize(tag);
+    _coordinatorControlInput->initialize(tag);
+    _coordinatorControlOutput->initialize(tag);
+  }
+
+  __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
+  {
+    for (const auto& edge : _coordinatorDataInputs)  edge->getMemorySlotsToExchange(memorySlots);
+    for (const auto& edge : _coordinatorDataOutputs) edge->getMemorySlotsToExchange(memorySlots);
+    _coordinatorControlInput->getMemorySlotsToExchange(memorySlots);
+    _coordinatorControlOutput->getMemorySlotsToExchange(memorySlots);
+  }
+
+  private: 
+  
   /// This function initializes the workload of the partition replica role
-  __INLINE__ void initialize()
+  __INLINE__ void initializeImpl() override
   {
     printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
@@ -175,29 +184,8 @@ class Replica final
   taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
   taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
 
-  /// This function completes the initialization of the edges, after the memory slot exchanges are completed
-  __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
-  {
-    for (const auto& edge : _coordinatorDataInputs)  edge->initialize(tag);
-    for (const auto& edge : _coordinatorDataOutputs) edge->initialize(tag);
-    _coordinatorControlInput->initialize(tag);
-    _coordinatorControlOutput->initialize(tag);
-  }
-
-  __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
-  {
-    for (const auto& edge : _coordinatorDataInputs)  edge->getMemorySlotsToExchange(memorySlots);
-    for (const auto& edge : _coordinatorDataOutputs) edge->getMemorySlotsToExchange(memorySlots);
-    _coordinatorControlInput->getMemorySlotsToExchange(memorySlots);
-    _coordinatorControlOutput->getMemorySlotsToExchange(memorySlots);
-  }
-
-  private:
-
-  const configuration::Deployment _deployment;
-  const configuration::Partition::partitionIndex_t _partitionIdx;
+  // Identifier for the replica index
   const configuration::Replica::replicaIndex_t _replicaIdx;
-  taskr::Runtime* const _taskr;
 
   // Data Input/Output edges from/to the coordinator
   std::vector<std::shared_ptr<edge::Input>> _coordinatorDataInputs;

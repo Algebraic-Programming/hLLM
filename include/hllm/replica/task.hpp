@@ -16,7 +16,7 @@ namespace hLLM
 class Engine;
 class Task;
 
-using function_t = std::function<void(hLLM::Task *task)>;
+using hLLMfunction_t = std::function<void(hLLM::Task *task)>;
 
 class Task final
 {
@@ -27,7 +27,7 @@ class Task final
   Task() = delete;
 
   Task(const std::string                                 &name,
-       const function_t                                  &function,
+       const hLLMfunction_t                                  &function,
       //  std::unordered_map<std::string, channel::Consumer> consumers,
       //  std::unordered_map<std::string, channel::Producer> producers,
        std::unique_ptr<taskr::Task>                       taskrTask)
@@ -135,7 +135,7 @@ class Task final
 
   private:
 
-  __INLINE__ function_t getFunction() const { return _function; }
+  __INLINE__ hLLMfunction_t getFunction() const { return _function; }
   __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
 
   __INLINE__ std::shared_ptr<HiCR::LocalMemorySlot> getOutput(const std::string &outputName)
@@ -154,7 +154,7 @@ class Task final
   __INLINE__ void clearOutputs() { _outputTokens.clear(); }
 
   const std::string                                  _name;
-  const function_t                                   _function;
+  const hLLMfunction_t                                   _function;
   // std::unordered_map<std::string, channel::Consumer> _consumers;
   // std::unordered_map<std::string, channel::Producer> _producers;
   const std::unique_ptr<taskr::Task>                 _taskrTask;

@@ -4,9 +4,9 @@
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
 #include "configuration/deployment.hpp"
-#include "task.hpp"
 #include "coordinator/coordinator.hpp"
 #include "replica/replica.hpp"
+#include "replica/task.hpp"
 #include "edge/base.hpp"
 
 #define __HLLM_WORKER_ENTRY_POINT_RPC_NAME "[hLLM] Worker Entry Point"
@@ -153,7 +153,7 @@ class Engine final
    * @param[in] fc The actual function to register
    * 
    */
-  __INLINE__ void registerFunction(const std::string &functionName, const function_t fc)
+  __INLINE__ void registerFunction(const std::string &functionName, const hLLMfunction_t fc)
   {
     // Checking if the RPC name was already used
     if (_registeredFunctions.contains(functionName) == true)
@@ -494,59 +494,59 @@ class Engine final
       _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
 
-  __INLINE__ void runTaskRFunction(taskr::Task *task)
-  {
-    const auto &taskId       = task->getTaskId();
-    const auto &taskObject   = _taskLabelMap.at(taskId);
-    const auto &function     = taskObject->getFunction();
-    const auto &functionName = taskObject->getName();
+  // __INLINE__ void runTaskRFunction(taskr::Task *task)
+  // {
+  //   const auto &taskId       = task->getTaskId();
+  //   const auto &taskObject   = _taskLabelMap.at(taskId);
+  //   const auto &function     = taskObject->getFunction();
+  //   const auto &functionName = taskObject->getName();
 
-    // Function to check for pending operations
-    auto pendingOperationsCheck = [&]() {
-      // If execution must stop now, return true to go back to the task and finish it
-      if (_continueRunning == false) return true;
+  //   // Function to check for pending operations
+  //   auto pendingOperationsCheck = [&]() {
+  //     // If execution must stop now, return true to go back to the task and finish it
+  //     if (_continueRunning == false) return true;
 
-      // The task is not ready if any of its inputs are not yet available
-      if (taskObject->checkInputsReadiness() == false) return false;
+  //     // The task is not ready if any of its inputs are not yet available
+  //     if (taskObject->checkInputsReadiness() == false) return false;
 
-      // The task is not ready if any of its output channels are still full
-      if (taskObject->checkOutputsReadiness() == false) return false;
+  //     // The task is not ready if any of its output channels are still full
+  //     if (taskObject->checkOutputsReadiness() == false) return false;
 
-      // All dependencies are satisfied, enable this task for execution
-      return true;
-    };
+  //     // All dependencies are satisfied, enable this task for execution
+  //     return true;
+  //   };
 
-    // Initiate infinite loop
-    while (_continueRunning)
-    {
-      // Adding task dependencies
-      task->addPendingOperation(pendingOperationsCheck);
+  //   // Initiate infinite loop
+  //   while (_continueRunning)
+  //   {
+  //     // Adding task dependencies
+  //     task->addPendingOperation(pendingOperationsCheck);
 
-      // Suspend execution until all dependencies are met
-      task->suspend();
+  //     // Suspend execution until all dependencies are met
+  //     task->suspend();
 
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
+  //     // Another exit point (the more the better)
+  //     if (_continueRunning == false) break;
 
-      // Inputs dependencies must be satisfied by now; getting them values
-      taskObject->setInputs();
+  //     // Inputs dependencies must be satisfied by now; getting them values
+  //     taskObject->setInputs();
 
-      // Actually run the function now
-      function(taskObject.get());
+  //     // Actually run the function now
+  //     function(taskObject.get());
 
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
+  //     // Another exit point (the more the better)
+  //     if (_continueRunning == false) break;
 
-      // Checking input messages were properly consumed and popping the used token
-      taskObject->popInputs();
+  //     // Checking input messages were properly consumed and popping the used token
+  //     taskObject->popInputs();
 
-      // Validating and pushing output messages
-      taskObject->pushOutputs();
+  //     // Validating and pushing output messages
+  //     taskObject->pushOutputs();
 
-      // Clearing output token maps
-      taskObject->clearOutputs();
-    }
-  }
+  //     // Clearing output token maps
+  //     taskObject->clearOutputs();
+  //   }
+  // }
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;
@@ -558,13 +558,13 @@ class Engine final
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   /// A map of registered functions, targets for an partition's initial function
-  std::map<std::string, function_t> _registeredFunctions;
+  std::map<std::string, hLLMfunction_t> _registeredFunctions;
 
   // Copy of the initial deployment configuration
   configuration::Deployment _deployment;
 
   // Map relating task labels to their hLLM task
-  std::map<taskr::taskId_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
+  // std::map<taskr::taskId_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
 
   // The instance manager to use for creating / relinquishing  replicas
   HiCR::InstanceManager *const _instanceManager;
