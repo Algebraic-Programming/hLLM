@@ -5,12 +5,12 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
-#include "configuration/deployment.hpp"
-#include "edge/input.hpp"
-#include "edge/output.hpp"
-#include "messages/heartbeat.hpp"
+#include "../configuration/deployment.hpp"
+#include "../edge/input.hpp"
+#include "../edge/output.hpp"
+#include "../messages/heartbeat.hpp"
 
-namespace hLLM
+namespace hLLM::replica
 {
 
 class Replica final
@@ -87,6 +87,7 @@ class Replica final
     _taskr->addTask(&_taskrRuntimeTask);
 
     // Adding service to listen for incoming control messages
+    _taskrControlMessagesListeningService.setInterval(500);
     _taskr->addService(&_taskrControlMessagesListeningService);
 
     //////// Adding heartbeat service
@@ -141,7 +142,14 @@ class Replica final
   {
     // Checking, for all replicas' edges, whether any of them has a pending message
     const auto message = messages::Heartbeat().encode();
-    if (_coordinatorControlOutput->isFull(message.getSize()) == false) _coordinatorControlOutput->pushMessage(message);
+    if (_coordinatorControlOutput->isFull(message.getSize()) == false)
+    {
+      _coordinatorControlOutput->pushMessage(message);
+    } 
+    else // Otherwise, report it's full
+    {
+      printf("[Replica %lu / %lu] Coordinator heartbeat buffer is full!\n", _partitionIdx, _replicaIdx);
+    }
   }
   taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
   taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
@@ -204,4 +212,4 @@ class Replica final
 
 }; // class Replica
 
-} // namespace hLLM
+} // namespace hLLM::replica

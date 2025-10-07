@@ -72,12 +72,12 @@ class Input final : public Base
   __INLINE__ bool hasMessage() const
   { 
     _metadataChannel->updateDepth();
-    // printf("Metadata Depth: %lu\n", _metadataChannel->getDepth());
+    // printf("Input Metadata Depth: %lu\n", _metadataChannel->getDepth());
     if (_metadataChannel->isEmpty() == true) return false;
 
     // Requesting the re-check of the channel's usage
     _dataChannel->updateDepth();
-    // printf("Data Depth: %lu\n", _metadataChannel->getDepth());
+    // printf("Input Data Depth: %lu\n", _metadataChannel->getDepth());
     if (_dataChannel->isEmpty() == true) return false;
 
     return true;

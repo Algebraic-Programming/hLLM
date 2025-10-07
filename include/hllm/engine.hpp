@@ -5,8 +5,8 @@
 #include <taskr/taskr.hpp>
 #include "configuration/deployment.hpp"
 #include "task.hpp"
-#include "coordinator.hpp"
-#include "replica.hpp"
+#include "coordinator/coordinator.hpp"
+#include "replica/replica.hpp"
 #include "edge/base.hpp"
 
 #define __HLLM_WORKER_ENTRY_POINT_RPC_NAME "[hLLM] Worker Entry Point"
@@ -283,8 +283,8 @@ class Engine final
     }
 
     // Unique pointers for the potential roles for this instance
-    std::unique_ptr<Coordinator> coordinator;
-    std::unique_ptr<Replica> replica;
+    std::unique_ptr<coordinator::Coordinator> coordinator;
+    std::unique_ptr<replica::Replica> replica;
 
     // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
     // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
@@ -295,7 +295,7 @@ class Engine final
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex, _taskr);
+      coordinator = std::make_unique<coordinator::Coordinator>(_deployment, myPartitionIndex, _taskr);
 
       // Get memory slots to exchange for the partition coordinator
       printf("Registering Coordinator Memory Slots...\n");
@@ -307,7 +307,7 @@ class Engine final
     if (isPartitionReplica == true)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr);
+      replica = std::make_unique<replica::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr);
 
       // Get memory slots to exchange for the replica
       printf("Registering Replica Memory Slots...\n");

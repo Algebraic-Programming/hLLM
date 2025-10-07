@@ -5,13 +5,13 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
-#include "configuration/deployment.hpp"
-#include "edge/input.hpp"
-#include "edge/output.hpp"
-#include "messages/base.hpp"
-#include "messages/heartbeat.hpp"
+#include "../configuration/deployment.hpp"
+#include "../edge/input.hpp"
+#include "../edge/output.hpp"
+#include "../messages/base.hpp"
+#include "../messages/heartbeat.hpp"
 
-namespace hLLM
+namespace hLLM::coordinator
 {
 
 class Coordinator final
@@ -160,6 +160,7 @@ class Coordinator final
 
     //////// Adding service to listen for incoming control messages. 
     // Interval is zero because we don't want any delays in listening for incoming messages
+    _taskrControlMessagesListeningService.setInterval(500);
     _taskr->addService(&_taskrControlMessagesListeningService);
 
     //////// Adding heartbeat service
@@ -216,7 +217,21 @@ class Coordinator final
   {
     // Checking, for all replicas' edges, whether any of them has a pending message
     const auto message = messages::Heartbeat().encode();
-    for (const auto& output : _replicaControlOutputs) if (output->isFull(message.getSize()) == false) output->pushMessage(message);
+    for (const auto& output : _replicaControlOutputs)
+    {
+      // Getting edge metadata
+      const auto replicaIdx = output->getReplicaIndex();
+
+      // If the edge is not full, send a heartbeat
+      if (output->isFull(message.getSize()) == false)
+      {
+        output->pushMessage(message);
+      } 
+      else // Otherwise, report it's full
+      {
+        printf("[Coordinator %lu] Replica heartbeat buffer in replica %lu is full!\n", _partitionIdx, replicaIdx);
+      }
+    } 
   }
   taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
   taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
@@ -265,4 +280,4 @@ class Coordinator final
 
 }; // class Coordinator
 
-} // namespace hLLM
+} // namespace hLLM::coordinator
