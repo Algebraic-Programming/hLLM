@@ -126,8 +126,8 @@ class Partition
     // Disabling heartbeat service, if not needed for now
     if (_deployment.getHeartbeat().enabled == false) _taskrHeartbeatService.disable();
 
-    ////////// Adding service to listen for incoming control messages
-    _taskr->addService(&_taskrControlMessagesListeningService);
+    ////////// Adding service to listen for incoming messages
+    _taskr->addService(&_taskrMessagesListeningService);
 
     ////////// Adding runtime task -- only to keep the engine running until shutdown
     _taskr->addTask(&_taskrRuntimeTask);
@@ -162,10 +162,10 @@ class Partition
   // Function to subscribe an edge for the heartbeat service
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
 
-  // Function to subscribe a control message handler
-  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::messages::Base*)> controlMessageHandler_t;
-  __INLINE__ void subscribeControlMessageHandler(const hLLM::edge::Message::messageType_t type, const controlMessageHandler_t handler) { _controlMessageHandlers[type] = handler; }
-  __INLINE__ void subscribeControlMessageEdge(const std::shared_ptr<edge::Input> edge) { _controlInputEdges.push_back(edge); }
+  // Function to subscribe a  message handler
+  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::messages::Base*)> messageHandler_t;
+  __INLINE__ void subscribeMessageHandler(const hLLM::edge::Message::messageType_t type, const messageHandler_t handler) { _messageHandlers[type] = handler; }
+  __INLINE__ void subscribeMessageEdge(const std::shared_ptr<edge::Input> edge) { _inputEdgesForHandler.push_back(edge); }
   
   private:
 
@@ -205,12 +205,11 @@ class Partition
   taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
   std::vector<std::shared_ptr<edge::Output>> _heartbeatOutputEdges;
 
-  /////////// Control Message Hanlding Service
-  // Control Message-listening service
-  __INLINE__ void controlMessagesListeningService()
+  /////////// Message Hanlding Service
+  __INLINE__ void messagesListeningService()
   {
-    // Checking for all control input edges
-    for (const auto& edge : _controlInputEdges)
+    // Checking for all input edges
+    for (const auto& edge : _inputEdgesForHandler)
     if (edge->hasMessage())
     {
       // Getting message from input edge
@@ -219,7 +218,7 @@ class Partition
       const auto replicaIdx = edge->getReplicaIndex();
 
       // Checking whether the message type is subscribed to
-      if (_controlMessageHandlers.contains(messageType) == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received control message type %lu that has no subscribed handler\n", _partitionIdx, replicaIdx, messageType);
+      if (_messageHandlers.contains(messageType) == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received message type %lu that has no subscribed handler\n", _partitionIdx, replicaIdx, messageType);
 
       // Decoding message based on type
       hLLM::messages::Base* decodedMessage;
@@ -232,19 +231,19 @@ class Partition
       }
 
       // Checking whether the message type is even recognized
-      if (isRecognized == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received control message type %lu that is not recognized. This must be a bug in hLLM\n", _partitionIdx, replicaIdx, messageType);
+      if (isRecognized == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received message type %lu that is not recognized. This must be a bug in hLLM\n", _partitionIdx, replicaIdx, messageType);
 
       // Now calling the handler
-      _controlMessageHandlers[messageType](edge, decodedMessage);
+      _messageHandlers[messageType](edge, decodedMessage);
 
       // Immediately disposing (popping) of message out of the edge
       edge->popMessage();
     } 
   }
-  taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
-  taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
-  std::vector<std::shared_ptr<edge::Input>> _controlInputEdges;
-  std::map<hLLM::edge::Message::messageType_t, controlMessageHandler_t> _controlMessageHandlers;
+  taskr::Service::serviceFc_t _taskrMessagesListeningServiceFunction = [this](){ this->messagesListeningService(); };
+  taskr::Service _taskrMessagesListeningService = taskr::Service(_taskrMessagesListeningServiceFunction, 0);
+  std::vector<std::shared_ptr<edge::Input>> _inputEdgesForHandler;
+  std::map<hLLM::edge::Message::messageType_t, messageHandler_t> _messageHandlers;
 
 }; // class Coordinator
 

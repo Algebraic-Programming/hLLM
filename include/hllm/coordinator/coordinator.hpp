@@ -49,7 +49,6 @@ class Coordinator final : public hLLM::Partition
       _replicas.push_back(std::move(newReplica));
     }
 
-
     // Iterating through input edges to create a connection with replicas and peer coordinators on that input
     for (const auto& edge : _inputEdges)
     {
@@ -76,27 +75,24 @@ class Coordinator final : public hLLM::Partition
   }
 
   // Gets the memory slots required by the edges
-    __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
+  __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
   {
     for (const auto& edge : _partitionDataInputs)  edge->getMemorySlotsToExchange(memorySlots);
     for (const auto& edge : _partitionDataOutputs) edge->getMemorySlotsToExchange(memorySlots);
-
     for (const auto& replica : _replicas) replica->getMemorySlotsToExchange(memorySlots);
   }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
   {
-    // Data Edges
     for (const auto& edge : _partitionDataInputs)  edge->initialize(tag);
     for (const auto& edge : _partitionDataOutputs) edge->initialize(tag);
-
     for (const auto& replica : _replicas) replica->initializeEdges(tag);
   }
 
   private:
 
-  /// This function adds the services and initial task for the coordinator
+  /// This function subscribes the handlers and services for the coordinator role
   __INLINE__ void initializeImpl() override
   {
     // Get my partition configuration
@@ -112,10 +108,10 @@ class Coordinator final : public hLLM::Partition
     for (const auto& replica : _replicas) subscribeHeartbeatEdge(replica->getControlOutput());
 
     // Subscribing input edges to the control message service for my replicas
-    for (const auto& replica : _replicas) subscribeControlMessageEdge(replica->getControlInput());
+    for (const auto& replica : _replicas) subscribeMessageEdge(replica->getControlInput());
 
     // Registering a handler for the handshake message 
-    subscribeControlMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
+    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
   }
 
   void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)

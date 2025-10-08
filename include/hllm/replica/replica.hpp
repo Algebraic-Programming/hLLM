@@ -85,8 +85,8 @@ class Replica final : public hLLM::Partition
     subscribeHeartbeatEdge(_coordinatorControlOutput);
 
     // Registering a handler for the handshake message 
-    subscribeControlMessageEdge(_coordinatorControlInput);
-    subscribeControlMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
+    subscribeMessageEdge(_coordinatorControlInput);
+    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
   }
 
   void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)
