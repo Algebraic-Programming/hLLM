@@ -48,7 +48,7 @@ class Partition
 
     // Creating control edge configuration object
     const auto& controlBufferConfig = _deployment.getControlBufferConst();
-    _controlEdgeConfig = std::make_unique<configuration::Edge>("Control Edge", "Control", "Control", "Copy", controlBufferConfig.capacity, controlBufferConfig.size);
+    _controlEdgeConfig = std::make_shared<configuration::Edge>("Control Edge", "Control", "Control", "Copy", controlBufferConfig.capacity, controlBufferConfig.size);
     _controlEdgeConfig->setCoordinationCommunicationManager(controlBufferConfig.communicationManager);
     _controlEdgeConfig->setCoordinationMemoryManager(controlBufferConfig.memoryManager);
     _controlEdgeConfig->setCoordinationMemorySpace(controlBufferConfig.memorySpace);
@@ -157,7 +157,7 @@ class Partition
   __volatile__ bool _continueRunning;
 
   //  Configuration for control buffer edges
-  std::unique_ptr<configuration::Edge> _controlEdgeConfig;
+  std::shared_ptr<configuration::Edge> _controlEdgeConfig;
 
   // Function to subscribe an edge for the heartbeat service
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
