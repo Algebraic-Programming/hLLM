@@ -89,12 +89,6 @@ class Replica final : public hLLM::Partition
   {
     printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
-      // Indicate the coordinator must keep running
-    _continueRunning = true;
-
-    // Adding runtime task -- only to keep the replica running until shutdown
-    _taskr->addTask(&_taskrRuntimeTask);
-
     // Adding service to listen for incoming control messages
     _taskr->addService(&_taskrControlMessagesListeningService);
 
@@ -139,27 +133,6 @@ class Replica final : public hLLM::Partition
   taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
   taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
 
-  /////////// Tasks
-
-  // Initial task. It's only function is to keep the replica running and finalize when/if deployment is terminated
-  __INLINE__ void runtimeTask(taskr::Task* task)
-  {
-    // Get my partition configuration
-    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
-
-    // Get my replica configuration
-    const auto& replicaConfiguration = partitionConfiguration->getReplicas()[_replicaIdx];
-
-    // Printing debug message
-    printf("Initializing Replica Index P%lu/R%lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, _replicaIdx, replicaConfiguration->getName().c_str(), _coordinatorDataInputs.size(), _coordinatorDataOutputs.size());
-
-    // Now suspend until the deployment is terminated
-    task->addPendingOperation([this](){ return _continueRunning == false; });
-    task->suspend();
-  }
-  taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
-  taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
-
   // Identifier for the replica index
   const configuration::Replica::replicaIndex_t _replicaIdx;
 
@@ -170,10 +143,6 @@ class Replica final : public hLLM::Partition
   // Control Input/Output edges from/to the coordinator
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
-
-  // Flag indicating whether the execution must keep running
-  __volatile__ bool _continueRunning;
-
 }; // class Replica
 
 } // namespace hLLM::replica

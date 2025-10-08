@@ -116,6 +116,9 @@ class Partition
     // Running role-specific implementation
     initializeImpl();
 
+    // Adding runtime task -- only to keep the engine running until shutdown
+    _taskr->addTask(&_taskrRuntimeTask);
+
     // Set to continue running until the deployment is stopped
     _continueRunning = true;
   }
@@ -144,6 +147,17 @@ class Partition
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
 
   private:
+
+  ////////// Runtime task
+  // Its only role is to keep the engine running and finalize when/if deployment is terminated
+  __INLINE__ void runtimeTask(taskr::Task* task)
+  {
+    // Now suspend until the deployment is terminated
+    task->addPendingOperation([this](){ return _continueRunning == false; });
+    task->suspend();
+  }
+  taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
+  taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
 
   ///////////// Heartbeat sending service
   __INLINE__ void heartbeatService()

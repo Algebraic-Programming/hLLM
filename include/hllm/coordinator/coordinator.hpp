@@ -123,13 +123,14 @@ class Coordinator final : public hLLM::Partition
   /// This function adds the services and initial task for the coordinator
   __INLINE__ void initializeImpl() override
   {
-    printf("[Coordinator %lu] Initializing...\n", _partitionIdx);
+    // Get my partition configuration
+    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
 
-    // Indicate the coordinator must keep running
-    _continueRunning = true;
+    // Get my partition name
+    const auto& partitionName = partitionConfiguration->getName();
 
-    // Adding runtime task -- only to keep the coordinator running until shutdown
-    _taskr->addTask(&_taskrRuntimeTask);
+    // Welcome message
+    printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
     //////// Adding service to listen for incoming control messages. 
     // Interval is zero because we don't want any delays in listening for incoming messages
@@ -176,25 +177,6 @@ class Coordinator final : public hLLM::Partition
   taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
   taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
 
-  // Initial task
-  // It's only function is to keep the coordinator running and finalize when/if deployment is terminated
-  __INLINE__ void runtimeTask(taskr::Task* task)
-  {
-    // Get my partition configuration
-    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
-
-    // Get my partition name
-    const auto& partitionName = partitionConfiguration->getName();
-
-    printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
-
-    // Now suspend until the deployment is terminated
-    task->addPendingOperation([this](){ return _continueRunning == false; });
-    task->suspend();
-  }
-  taskr::Function _taskrRuntimeTaskFunction = taskr::Function([this](taskr::Task* task){ this->runtimeTask(task); });
-  taskr::Task _taskrRuntimeTask = taskr::Task(&_taskrRuntimeTaskFunction);
-
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;
 
@@ -209,10 +191,6 @@ class Coordinator final : public hLLM::Partition
   // Control Input / Output edges from my partition's replicas
   std::vector<std::shared_ptr<edge::Input>> _replicaControlInputs;
   std::vector<std::shared_ptr<edge::Output>> _replicaControlOutputs;
-
-  // Flag indicating whether the execution must keep running
-  __volatile__ bool _continueRunning;
-
 }; // class Coordinator
 
 } // namespace hLLM::coordinator
