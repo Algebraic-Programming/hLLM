@@ -46,6 +46,16 @@ class Partition
     // Getting list of edges in the deployment
     const auto& edgeConfigs = _deployment.getEdges();
 
+    // Creating control edge configuration object
+    const auto& controlBufferConfig = _deployment.getControlBufferConst();
+    _controlEdgeConfig = std::make_unique<configuration::Edge>("Control Edge", "Control", "Control", "Copy", controlBufferConfig.capacity, controlBufferConfig.size);
+    _controlEdgeConfig->setCoordinationCommunicationManager(controlBufferConfig.communicationManager);
+    _controlEdgeConfig->setCoordinationMemoryManager(controlBufferConfig.memoryManager);
+    _controlEdgeConfig->setCoordinationMemorySpace(controlBufferConfig.memorySpace);
+    _controlEdgeConfig->setPayloadCommunicationManager(controlBufferConfig.communicationManager);
+    _controlEdgeConfig->setPayloadMemoryManager(controlBufferConfig.memoryManager);
+    _controlEdgeConfig->setPayloadMemorySpace(controlBufferConfig.memorySpace);
+
     // Iterating through edges by their index and creating them
     for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
     {
@@ -102,7 +112,7 @@ class Partition
     }
   }
 
-  void initialize()
+  __INLINE__ void initialize()
   {
     // Running role-specific implementation
     initializeImpl();
@@ -145,6 +155,9 @@ class Partition
 
   // Flag indicating whether the execution must keep running
   __volatile__ bool _continueRunning;
+
+  //  Configuration for control buffer edges
+  std::unique_ptr<configuration::Edge> _controlEdgeConfig;
 
   // Function to subscribe an edge for the heartbeat service
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }

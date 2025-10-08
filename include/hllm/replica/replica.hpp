@@ -51,16 +51,8 @@ class Replica final : public hLLM::Partition
     }
 
     // Create Control edges with my partition coordinator
-    const auto& controlBufferConfig = _deployment.getControlBufferConst();
-    auto replicaControlEdgeConfig = configuration::Edge("Control Edge", partitionName, partitionName, "Copy", controlBufferConfig.capacity, controlBufferConfig.size);
-    replicaControlEdgeConfig.setCoordinationCommunicationManager(controlBufferConfig.communicationManager);
-    replicaControlEdgeConfig.setCoordinationMemoryManager(controlBufferConfig.memoryManager);
-    replicaControlEdgeConfig.setCoordinationMemorySpace(controlBufferConfig.memorySpace);
-    replicaControlEdgeConfig.setPayloadCommunicationManager(controlBufferConfig.communicationManager);
-    replicaControlEdgeConfig.setPayloadMemoryManager(controlBufferConfig.memoryManager);
-    replicaControlEdgeConfig.setPayloadMemorySpace(controlBufferConfig.memorySpace);
-    _coordinatorControlInput = std::make_shared<edge::Input>(replicaControlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
-    _coordinatorControlOutput = std::make_shared<edge::Output>(replicaControlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
+    _coordinatorControlInput = std::make_shared<edge::Input>(*_controlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
+    _coordinatorControlOutput = std::make_shared<edge::Output>(*_controlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
   }
 
   ~Replica() = default;
