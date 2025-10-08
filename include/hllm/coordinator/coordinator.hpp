@@ -132,50 +132,21 @@ class Coordinator final : public hLLM::Partition
     // Welcome message
     printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
-    //////// Adding service to listen for incoming control messages. 
-    // Interval is zero because we don't want any delays in listening for incoming messages
-    _taskr->addService(&_taskrControlMessagesListeningService);
-
-    //////// Adding heartbeat service for my replicas
+    // Subscribing to the heartbeat sending service for my replicas
     for (const auto& edge : _replicaControlOutputs) subscribeHeartbeatEdge(edge);
+
+    // Subscribing input edges to the control message service for my replicas
+    for (const auto& edge : _replicaControlInputs) subscribeControlMessageEdge(edge);
+
+    // Registering a handler for the handshake message 
+    subscribeControlMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
   }
 
-  /////////// Services
-  // These will keep being checked constantly as long as there is a worker free to take them.
-  // But even if there is no such worker, there is a reserve of taskR threads reserved the execute them.
-  // This is to prevent services from starving
-  
-  // Control Message-listening service
-  __INLINE__ void controlMessagesListeningService()
+  void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)
   {
-    // printf("[Coordinator %lu] Checking for messages...\n", _partitionIdx);
-
-    // Checking, for all replicas' edges, whether any of them has a pending message
-    for (const auto& input : _replicaControlInputs) if (input->hasMessage())
-    {
-      // Getting message from input edge
-      const auto message = input->getMessage();
-      const auto messageType = message.getMetadata().type;
-
-      // Getting edge metadata
-      const auto replicaIdx = input->getReplicaIndex();
-
-      // Deciding what to do based on message type
-      bool isTypeRecognized = false;
-      if (messageType == hLLM::messages::messageTypes::heartbeat)
-      {
-        printf("[Coordinator %lu] Received heartbeat from replica %lu with message: %s\n", _partitionIdx, replicaIdx, message.getData());
-        isTypeRecognized = true;
-      }
-
-      if (isTypeRecognized == false) HICR_THROW_RUNTIME("[Coordinator %lu] Received unrecognized message type %lu from replica %lu\n", _partitionIdx, messageType, replicaIdx);
-
-      // Immediately disposing (popping) of message out of the edge
-      input->popMessage();
-    } 
+    const auto replicaIdx = edge->getReplicaIndex();
+    printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
-  taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
-  taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
 
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;

@@ -89,49 +89,18 @@ class Replica final : public hLLM::Partition
   {
     printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
-    // Adding service to listen for incoming control messages
-    _taskr->addService(&_taskrControlMessagesListeningService);
-
     //////// Adding heartbeat service for my coordinator's control edge
     subscribeHeartbeatEdge(_coordinatorControlOutput);
+
+    // Registering a handler for the handshake message 
+    subscribeControlMessageEdge(_coordinatorControlInput);
+    subscribeControlMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
   }
 
-  /////////// Services
-  // These will keep being checked constantly as long as there is a worker free to take them.
-  // But even if there is no such worker, there is a reserve of taskR threads reserved the execute them.
-  // This is to prevent services from starving
-
-  // Control Message-listening service
-  __INLINE__ void controlMessagesListeningService()
+  void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)
   {
-    // printf("[Replica %lu/%lu] Checking for messages...\n", _partitionIdx, _replicaIdx);
-
-    // Checking, for all replicas' edges, whether any of them has a pending message
-    if (_coordinatorControlInput->hasMessage())
-    {
-      // Getting message from input edge
-      const auto message = _coordinatorControlInput->getMessage();
-      const auto messageType = message.getMetadata().type;
-
-      // Getting edge metadata
-      const auto replicaIdx = _coordinatorControlInput->getReplicaIndex();
-
-      // Deciding what to do based on message type
-      bool isTypeRecognized = false;
-      if (messageType == hLLM::messages::messageTypes::heartbeat)
-      {
-        printf("[Replica %lu / %lu] Received heartbeat from coordinator with message: %s\n", _partitionIdx, _replicaIdx, message.getData());
-        isTypeRecognized = true;
-      }
-
-      if (isTypeRecognized == false) HICR_THROW_RUNTIME("[Replica %lu / %lu] Received unrecognized message type %lu from coordinator\n", _partitionIdx, replicaIdx, messageType);
-
-      // Immediately disposing (popping) of message out of the edge
-      _coordinatorControlInput->popMessage();
-    } 
+    printf("[Replica %lu / %lu] Received heartbeat from coordinator.\n", _partitionIdx, _replicaIdx);
   }
-  taskr::Service::serviceFc_t _taskrControlMessagesListeningServiceFunction = [this](){ this->controlMessagesListeningService(); };
-  taskr::Service _taskrControlMessagesListeningService = taskr::Service(_taskrControlMessagesListeningServiceFunction, 0);
 
   // Identifier for the replica index
   const configuration::Replica::replicaIndex_t _replicaIdx;
