@@ -10,6 +10,7 @@
 #include "../edge/output.hpp"
 #include "../messages/heartbeat.hpp"
 #include "../partition.hpp"
+#include "../task.hpp"
 
 namespace hLLM::replica
 {
@@ -24,9 +25,11 @@ class Replica final : public hLLM::Partition
     const configuration::Deployment deployment,
     const configuration::Partition::partitionIndex_t  partitionIdx,
     const configuration::Replica::replicaIndex_t replicaIdx,
-    taskr::Runtime* const taskr
+    taskr::Runtime* const taskr,
+    const std::map<std::string, Task::taskFunction_t>& registeredFunctions
   ) : Partition(deployment, partitionIdx, taskr),
-    _replicaIdx(replicaIdx)
+    _replicaIdx(replicaIdx),
+    _registeredFunctions(registeredFunctions)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
@@ -53,6 +56,99 @@ class Replica final : public hLLM::Partition
     // Create Control edges with my partition coordinator
     _coordinatorControlInput = std::make_shared<edge::Input>(*_controlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
     _coordinatorControlOutput = std::make_shared<edge::Output>(*_controlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
+
+    ////// Building execution graph
+    const auto &tasks = partitionConfiguration->getTasks();
+
+    // Creating general TaskR function for all execution graph tasks
+    _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
+
+    // // Checking the execution graph functions have been registered
+    // taskr::taskId_t taskrLabelCounter = 0;
+    // for (const auto &functionJs : executionGraph)
+    // {
+    //   const auto &fcName = hicr::json::getString(functionJs, "Name");
+
+    //   // Checking the requested function was registered
+    //   if (_registeredFunctions.contains(fcName) == false)
+    //   {
+    //     fprintf(stderr, "The requested function name '%s' is not registered. Please register it before running the hLLM.\n", fcName.c_str());
+    //     abort();
+    //   }
+
+    //   // Getting inputs and outputs
+    //   std::unordered_map<std::string, channel::Producer> producers;
+    //   std::unordered_map<std::string, channel::Consumer> consumers;
+
+    //   const auto &dependencies = hicr::json::getObject(_config, "Dependencies");
+
+    //   const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
+    //   for (const auto &inputJs : inputsJs)
+    //   {
+    //     const auto &inputName            = hicr::json::getString(inputJs, "Name");
+    //     const auto &dependency           = hicr::json::getObject(dependencies, inputName);
+    //     const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
+
+    //     // Determine the dependency type
+    //     auto                               dependencyType = channel::dependencyType::buffered;
+    //     HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
+    //     std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
+    //     if (dependencyTypeString == "Unbuffered")
+    //     {
+    //       dependencyType = channel::dependencyType::unbuffered;
+    //       memoryManager  = _unbufferedMemoryManager;
+    //       memorySpace    = _unbufferedMemorySpace;
+    //     }
+
+    //     consumers.try_emplace(inputName, inputName, memoryManager, memorySpace, dependencyType, moveConsumer(inputName));
+    //   }
+
+    //   const auto &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
+    //   for (const auto &outputName : outputsJs)
+    //   {
+    //     const auto &dependency           = hicr::json::getObject(dependencies, outputName);
+    //     const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
+
+    //     // Determine the dependency type
+    //     auto                               dependencyType = channel::dependencyType::buffered;
+    //     HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
+    //     std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
+    //     if (dependencyTypeString == "Unbuffered")
+    //     {
+    //       dependencyType = channel::dependencyType::unbuffered;
+    //       memoryManager  = _unbufferedMemoryManager;
+    //       memorySpace    = _unbufferedMemorySpace;
+    //     }
+    //     producers.try_emplace(outputName, outputName, memoryManager, memorySpace, dependencyType, moveProducer(outputName));
+    //   }
+
+    //   // Getting label for taskr function
+    //   const auto taskId = taskrLabelCounter++;
+
+    //   // Creating taskr Task corresponding to the LLM engine task
+    //   auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
+
+    //   // Getting function pointer
+    //   const auto &fc = _registeredFunctions[fcName];
+
+    //   // Creating Engine Task object
+    //   auto newTask = std::make_shared<hLLM::Task>(fcName, fc, std::move(consumers), std::move(producers), std::move(taskrTask));
+
+    //   // Adding task to the label->Task map
+    //   _taskLabelMap.insert({taskId, newTask});
+
+    //   // Adding task to TaskR itself
+    //   _taskr->addTask(newTask->getTaskRTask());
+    // }
+
+    // // Instruct TaskR to re-add suspended tasks
+    // _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
+
+    // // Setting service to listen for incoming administrative messages
+    // std::function<void()> RPCListeningService = [this]() {
+    //   if (_rpcEngine->hasPendingRPCs()) _rpcEngine->listen();
+    // };
+    // _taskr->addService(&RPCListeningService);
   }
 
   ~Replica() = default;
@@ -76,6 +172,60 @@ class Replica final : public hLLM::Partition
 
   private: 
   
+  __INLINE__ void runTaskRFunction(taskr::Task *task)
+  {
+    const auto &taskId       = task->getTaskId();
+    const auto &taskObject   = _taskLabelMap.at(taskId);
+    const auto &function     = taskObject->getFunction();
+    const auto &functionName = taskObject->getName();
+
+    // Function to check for pending operations
+    auto pendingOperationsCheck = [&]() {
+      // If execution must stop now, return true to go back to the task and finish it
+      if (_continueRunning == false) return true;
+
+      // The task is not ready if any of its inputs are not yet available
+      if (taskObject->checkInputsReadiness() == false) return false;
+
+      // The task is not ready if any of its output channels are still full
+      if (taskObject->checkOutputsReadiness() == false) return false;
+
+      // All dependencies are satisfied, enable this task for execution
+      return true;
+    };
+
+    // Initiate infinite loop
+    while (_continueRunning)
+    {
+      // Adding task dependencies
+      task->addPendingOperation(pendingOperationsCheck);
+
+      // Suspend execution until all dependencies are met
+      task->suspend();
+
+      // Another exit point (the more the better)
+      if (_continueRunning == false) break;
+
+      // Inputs dependencies must be satisfied by now; getting them values
+      taskObject->setInputs();
+
+      // Actually run the function now
+      function(taskObject.get());
+
+      // Another exit point (the more the better)
+      if (_continueRunning == false) break;
+
+      // Checking input messages were properly consumed and popping the used token
+      taskObject->popInputs();
+
+      // Validating and pushing output messages
+      taskObject->pushOutputs();
+
+      // Clearing output token maps
+      taskObject->clearOutputs();
+    }
+  }
+
   /// This function initializes the workload of the partition replica role
   __INLINE__ void initializeImpl() override
   {
@@ -104,6 +254,17 @@ class Replica final : public hLLM::Partition
   // Control Input/Output edges from/to the coordinator
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
+
+  // Map relating task labels to their hLLM task
+  std::map<taskr::taskId_t, std::shared_ptr<Task>> _taskLabelMap;
+
+  // The set of registered functions to use as targets for tasks
+  const std::map<std::string, Task::taskFunction_t> _registeredFunctions;
+
+  // The main driver for running tasks
+  std::unique_ptr<taskr::Function> _taskrFunction;
+
+
 }; // class Replica
 
 } // namespace hLLM::replica

@@ -145,22 +145,36 @@ class Deployment final
     std::set<std::string> partitionNameSet;
     for (const auto& partition : _partitions) partitionNameSet.insert(partition->getName());
 
-    // Used edges name set, also checking whether they are used as input or output
-    std::set<std::string> inputEdgeNameSet;
-    std::set<std::string> outputEdgeNameSet;
+    // For each edge, remember which partition is the consumer and which is the producer
+    std::map<std::string, std::string> edgeConsumerPartitionMap;
+    std::map<std::string, std::string> edgeProducerPartitionMap;
     for (const auto& partition : _partitions)
       for (const auto& task : partition->getTasks())
       {
-        for (const auto& edge : task->getInputs())  inputEdgeNameSet.insert(edge);
-        for (const auto& edge : task->getOutputs()) outputEdgeNameSet.insert(edge);
+        for (const auto& edge : task->getInputs())
+        {
+          // Check that the edge is not used as input more than once. All edges must be 1-to-1
+          if (edgeConsumerPartitionMap.contains(edge)) HICR_THROW_LOGIC("Deployment specifies edge '%s' used as input more than once\n", edge.c_str());
+          edgeConsumerPartitionMap[edge] = partition->getName();
+        } 
+
+        for (const auto& edge : task->getOutputs())
+        {
+          // Check that the edge is not used as input more than once. All edges must be 1-to-1
+          if (edgeProducerPartitionMap.contains(edge)) HICR_THROW_LOGIC("Deployment specifies edge '%s' used as output more than once\n", edge.c_str());
+          edgeProducerPartitionMap[edge] = partition->getName();
+        } 
       }
 
     // Check whether all edges have consumer+producer partitions that do exist
     for (const auto& edge : _edges)
     {
-      if (partitionNameSet.contains(edge->getConsumer()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' with consumer '%s', but the latter is not defined\n", edge->getName().c_str(), edge->getConsumer().c_str());
-      if (partitionNameSet.contains(edge->getProducer()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' with producer '%s', but the latter is not defined\n", edge->getName().c_str(), edge->getProducer().c_str());
-      if (inputEdgeNameSet.contains(edge->getName()) == false || outputEdgeNameSet.contains(edge->getName()) == false) HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as producer or consumer (or neither)\n", edge->getName().c_str());
+      if (edgeConsumerPartitionMap.contains(edge->getName()) == false || edgeProducerPartitionMap.contains(edge->getName()) == false) 
+        HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as input or output (or neither)\n", edge->getName().c_str());
+
+       // Setting producer and consumer partitions for the edge
+       edge->setProducer(edgeProducerPartitionMap[edge->getName()]);
+       edge->setConsumer(edgeConsumerPartitionMap[edge->getName()]);
     }
   }
 

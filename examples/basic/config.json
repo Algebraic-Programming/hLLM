@@ -69,8 +69,6 @@
   "Edges": [
     {
       "Name": "Request",
-      "Producer": "Entry Partition",
-      "Consumer": "Processor Partition",
       "Communication Method": "Host Network",
       "Buffer Capacity": 2,
       "Buffer Size": 4096,
@@ -78,8 +76,6 @@
     },
     {
       "Name": "Processed Request",
-      "Producer": "Processor Partition",
-      "Consumer": "Result Partition",
       "Communication Method": "Ascend NPU Network",
       "Buffer Capacity": 2,
       "Buffer Size": 16777216,

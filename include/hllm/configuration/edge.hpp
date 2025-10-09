@@ -15,10 +15,8 @@ class Edge
   typedef uint64_t edgeIndex_t;
 
   Edge(const nlohmann::json& js) { deserialize(js); } 
-  Edge(const std::string& name, const std::string& producer, const std::string& consumer, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
+  Edge(const std::string& name, const std::string& mode, const size_t bufferCapacity, const size_t bufferSize = 0)
    :  _name(name),
-      _producer(producer),
-      _consumer(consumer),
       _mode(mode),
      _bufferCapacity(bufferCapacity),
      _bufferSize(bufferSize)
@@ -51,8 +49,8 @@ class Edge
   {
     _name = hicr::json::getString(js, "Name");
     _mode = hicr::json::getString(js, "Mode");
-    _producer = hicr::json::getString(js, "Producer");
-    _consumer = hicr::json::getString(js, "Consumer");
+    if (js.contains("Producer")) _producer = hicr::json::getString(js, "Producer");
+    if (js.contains("Consumer")) _consumer = hicr::json::getString(js, "Consumer");
     _bufferCapacity = hicr::json::getNumber<size_t>(js, "Buffer Capacity");
     _bufferSize = hicr::json::getNumber<size_t>(js, "Buffer Size");
 
@@ -66,6 +64,9 @@ class Edge
   __INLINE__ void setCoordinationCommunicationManager(HiCR::CommunicationManager* const communicationManager) { _coordinationCommunicationManager = communicationManager; }
   __INLINE__ void setCoordinationMemoryManager(HiCR::MemoryManager* const memoryManager) { _coordinationMemoryManager = memoryManager; }
   __INLINE__ void setCoordinationMemorySpace(const std::shared_ptr<HiCR::MemorySpace> memorySpace) { _coordinationMemorySpace = memorySpace; }
+
+  __INLINE__ void setProducer(const std::string& partition) { _producer = partition; }
+  __INLINE__ void setConsumer(const std::string& partition) { _consumer = partition; }
 
     // Functions to set the HiCR elements required for the creation of edge channels
   [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }

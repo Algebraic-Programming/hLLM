@@ -4,37 +4,28 @@
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
-// #include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
-// #include <hicr/frontends/channel/variableSize/mpsc/locking/producer.hpp>
 #include <taskr/taskr.hpp>
-// #include "channels/consumer.hpp"
-// #include "channels/producer.hpp"
 
 namespace hLLM
 {
 
-class Engine;
-class Task;
-
-using hLLMfunction_t = std::function<void(hLLM::Task *task)>;
+namespace replica { class Replica; }
 
 class Task final
 {
-  friend class Engine;
+  friend class replica::Replica;
 
   public:
+
+  using taskFunction_t = std::function<void(Task *task)>;
 
   Task() = delete;
 
   Task(const std::string                                 &name,
-       const hLLMfunction_t                                  &function,
-      //  std::unordered_map<std::string, channel::Consumer> consumers,
-      //  std::unordered_map<std::string, channel::Producer> producers,
-       std::unique_ptr<taskr::Task>                       taskrTask)
+       const taskFunction_t                              &function,
+       std::unique_ptr<taskr::Task>                      taskrTask)
     : _name(name),
       _function(function),
-      // _consumers(std::move(consumers)),
-      // _producers(std::move(producers)),
       _taskrTask(std::move(taskrTask))
   {}
 
@@ -135,7 +126,7 @@ class Task final
 
   private:
 
-  __INLINE__ hLLMfunction_t getFunction() const { return _function; }
+  __INLINE__ taskFunction_t getFunction() const { return _function; }
   __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
 
   __INLINE__ std::shared_ptr<HiCR::LocalMemorySlot> getOutput(const std::string &outputName)
@@ -154,9 +145,7 @@ class Task final
   __INLINE__ void clearOutputs() { _outputTokens.clear(); }
 
   const std::string                                  _name;
-  const hLLMfunction_t                                   _function;
-  // std::unordered_map<std::string, channel::Consumer> _consumers;
-  // std::unordered_map<std::string, channel::Producer> _producers;
+  const taskFunction_t                                   _function;
   const std::unique_ptr<taskr::Task>                 _taskrTask;
 
   std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputTokens;
