@@ -3,6 +3,7 @@
 #include <queue>
 #include <mutex>
 #include "hllm/engine.hpp"
+#include "hllm/request.hpp"
 
 // hLLM Engine object
 hLLM::Engine *_engine;
@@ -13,14 +14,11 @@ size_t _requestCount;
 // Request count finished
 size_t _requestsFinished;
 
-// Type definition for request ids
-typedef size_t requestId_t;
-
 // Buffer for externally produced incoming requests
-std::queue<requestId_t> requests;
+std::queue<hLLM::Request::requestId_t> requests;
 std::mutex              requestMutex;
 
-inline bool listenRequest(requestId_t &requestId)
+inline bool listenRequest(hLLM::Request::requestId_t &requestId)
 {
   bool receivedRequest = false;
 
@@ -47,7 +45,7 @@ inline void startRequestServer(size_t delayMs)
 {
   for (size_t i = 0; i < _requestCount; i++)
   {
-    requestId_t requestId = i + 1;
+    hLLM::Request::requestId_t requestId = i + 1;
     requestMutex.lock();
     requests.push(requestId);
     requestMutex.unlock();

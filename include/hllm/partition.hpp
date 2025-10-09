@@ -17,14 +17,6 @@ class Partition
 {
   public:
 
-  struct edgeInfo_t
-  {
-    configuration::Edge::edgeIndex_t index;
-    std::shared_ptr<hLLM::configuration::Edge> config;
-    configuration::Partition::partitionIndex_t producerPartitionIndex;
-    configuration::Partition::partitionIndex_t consumerPartitionIndex;
-  };
-
   Partition() = delete;
   ~Partition() = default;
 
@@ -57,6 +49,7 @@ class Partition
     _controlEdgeConfig->setPayloadMemorySpace(controlBufferConfig.memorySpace);
 
     // Iterating through edges by their index and creating them
+    size_t inputEdgeVectorPosition = 0;
     for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
     {
       // Getting edge object by index
@@ -83,10 +76,17 @@ class Partition
         if (producerFound == false) HICR_THROW_RUNTIME("Could not find index of producer '%s' for edge '%s'. This is a bug in hLLM.", producerPartitionName.c_str(), edgeConfig->getName().c_str());
 
         // Adding new entry
-        _inputEdges.push_back( edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = producerPartitionIdx, .consumerPartitionIndex = _partitionIdx });
+        _inputEdges.push_back( edge::edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = producerPartitionIdx, .consumerPartitionIndex = _partitionIdx });
+
+        // Adding map entry to link the edge index to its position
+        _edgeIndexToVectorPositionMap[edgeIdx] = inputEdgeVectorPosition;
+
+        // Increasing position
+        inputEdgeVectorPosition++;
       } 
 
       // If I am a producer in this edge
+      size_t outputEdgeVectorPosition = 0;
       if (edgeConfig->getProducer() == partitionName)
       {
         // Looking for the index of the consumer of the input
@@ -107,7 +107,13 @@ class Partition
         if (consumerFound == false) HICR_THROW_RUNTIME("Could not find index of consumer '%s' for edge '%s'. This is a bug in hLLM.", consumerPartitionName.c_str(), edgeConfig->getName().c_str());
 
         // Adding new entry
-        _outputEdges.push_back( edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = _partitionIdx, .consumerPartitionIndex = consumerPartitionIdx });
+        _outputEdges.push_back( edge::edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = _partitionIdx, .consumerPartitionIndex = consumerPartitionIdx });
+
+        // Adding map entry to link the edge index to its position
+        _edgeIndexToVectorPositionMap[edgeIdx] = outputEdgeVectorPosition;
+
+        // Increasing position
+        outputEdgeVectorPosition++;
       } 
     }
   }
@@ -148,10 +154,13 @@ class Partition
   taskr::Runtime* const _taskr;
 
   // Container for input edges for this partition
-  std::vector<edgeInfo_t> _inputEdges;
+  std::vector<edge::edgeInfo_t> _inputEdges;
 
   // Container for output edges for this partition
-  std::vector<edgeInfo_t> _outputEdges;
+  std::vector<edge::edgeInfo_t> _outputEdges;
+
+  // This map links an edge index (as defined in the deployment configuration) to its position in the input/output vectors
+  std::map<hLLM::configuration::Edge::edgeIndex_t, size_t> _edgeIndexToVectorPositionMap;
 
   // Flag indicating whether the execution must keep running
   __volatile__ bool _continueRunning;
@@ -245,6 +254,6 @@ class Partition
   std::vector<std::shared_ptr<edge::Input>> _inputEdgesForHandler;
   std::map<hLLM::edge::Message::messageType_t, messageHandler_t> _messageHandlers;
 
-}; // class Coordinator
+}; // class Partition
 
-} // namespace hLLM::coordinator
+} // namespace hLLM

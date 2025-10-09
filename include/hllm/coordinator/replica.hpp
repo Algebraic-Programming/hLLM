@@ -21,8 +21,8 @@ class Replica final
   Replica(
     const configuration::Partition::partitionIndex_t partitionIndex,
     const configuration::Replica::replicaIndex_t replicaIndex,
-    const std::vector<hLLM::Partition::edgeInfo_t>& coordinatorInputs,
-    const std::vector<hLLM::Partition::edgeInfo_t>& coordinatorOutputs,
+    const std::vector<hLLM::edge::edgeInfo_t>& coordinatorInputs,
+    const std::vector<hLLM::edge::edgeInfo_t>& coordinatorOutputs,
     const std::shared_ptr<hLLM::configuration::Edge> controlEdgeConfig) :
     _partitionIndex(partitionIndex),
     _replicaIndex(replicaIndex)

@@ -20,7 +20,7 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
   engine.registerFunction("Listen Request", [=](hLLM::Task *task) {
     // Listening to incoming requests (emulates an http service)
     printf("Listening to incoming requests...\n");
-    requestId_t requestId = 0;
+    hLLM::Request::requestId_t requestId = 0;
     task->waitFor([&]() { return listenRequest(requestId); });
     printf("Request %lu received.\n", requestId);
 

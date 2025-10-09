@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include "../request.hpp"
+#include "../session.hpp"
 
 namespace hLLM::edge
 {
@@ -11,15 +13,13 @@ class Message final
   public:
 
   typedef uint8_t messageType_t;
-  typedef uint64_t messageId_t;
-  typedef uint64_t sessionId_t;
 
   #pragma pack(push, 1)
   struct metadata_t
   {
     messageType_t type;
-    messageId_t messageId;
-    sessionId_t sessionId;
+    hLLM::Request::requestId_t requestId;
+    hLLM::Session::sessionId_t sessionId;
   };
   #pragma pack(pop)
 
