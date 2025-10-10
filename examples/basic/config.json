@@ -12,6 +12,11 @@
     {
       "Capacity": 512,
       "Size": 65536
+    },
+    "User Interface":
+    {
+      "Input": "Prompt",
+      "Output": "Response"
     }
   },
   "Partitions": [
@@ -20,9 +25,11 @@
       "Tasks": [
         {
           "Function Name": "Listen Request",
-          "Inputs": [],
+          "Inputs": [
+            "Prompt"
+          ],
           "Outputs": [
-            "Request"
+            "Formatted Request"
           ]
         }
       ],
@@ -37,7 +44,7 @@
         {
           "Function Name": "Process Request",
           "Inputs": [
-            "Request"
+            "Formatted Request"
           ],
           "Outputs": [
             "Processed Request"
@@ -57,7 +64,9 @@
           "Inputs": [
             "Processed Request"
           ],
-          "Outputs": []
+          "Outputs": [
+            "Response"
+          ]
         }
       ],
       "Replicas":
@@ -68,18 +77,12 @@
   ],
   "Edges": [
     {
-      "Name": "Request",
-      "Communication Method": "Host Network",
-      "Buffer Capacity": 2,
-      "Buffer Size": 4096,
-      "Mode": "Copy"
+      "Name": "Formatted Request",
+      "Buffer Size": 16384
     },
     {
       "Name": "Processed Request",
-      "Communication Method": "Ascend NPU Network",
-      "Buffer Capacity": 2,
-      "Buffer Size": 16777216,
-      "Mode": "Copy"
+      "Buffer Size": 16384
     }
   ]
 }

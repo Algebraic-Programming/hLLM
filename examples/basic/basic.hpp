@@ -18,13 +18,8 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
 {
   // Listen request function -- it expects an outside input and creates a request
   engine.registerFunction("Listen Request", [=](hLLM::Task *task) {
-    // Listening to incoming requests (emulates an http service)
-    printf("Listening to incoming requests...\n");
-    hLLM::Request::requestId_t requestId = 0;
-    task->waitFor([&]() { return listenRequest(requestId); });
-    printf("Request %lu received.\n", requestId);
-
     // Create and register request as output
+    auto requestId = 1;
     requestOutput             = std::string("This is request ") + std::to_string(requestId);
     const auto requestMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, requestOutput.data(), requestOutput.size() + 1);
     task->setOutput("Request", requestMemSlot);

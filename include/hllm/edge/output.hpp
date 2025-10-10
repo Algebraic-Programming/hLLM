@@ -63,7 +63,7 @@ class Output final : public Base
     return false;
   } 
 
-  __INLINE__ void pushMessage(const hLLM::edge::Message message) const
+  __INLINE__ void pushMessage(const Message message) const
   {
     if (isFull(message.getSize()) == true) HICR_THROW_RUNTIME("Trying to push a message when channel is full. This is a bug in hLLM.");
 

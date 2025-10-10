@@ -383,6 +383,9 @@ class Engine final
     if (isPartitionCoordinator == true) coordinator->initialize();
     if (isPartitionReplica == true) replica->initialize();
 
+    // // Instruct TaskR to re-add suspended tasks
+    _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
+
     // Running TaskR
     _taskr->run();
     _taskr->await();

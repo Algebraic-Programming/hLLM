@@ -54,10 +54,23 @@ class Deployment final
     std::shared_ptr<HiCR::MemorySpace> memorySpace  = nullptr;
   };
 
+   /**
+   * User interface relates to how the user connects to hLLM, feeds a prompt and gets a response
+   */ 
+  struct userInterface_t
+  {
+    // Indicates which input in the execution graph is fed by the user
+    std::string input;
+
+    // Indicates which output in the execution graph is fed to the user
+    std::string output;
+  };
+
   struct settings_t
   {
     heartbeat_t heartbeat;
     controlBuffer_t controlBuffer;
+    userInterface_t userInterface;
   };
 
   Deployment(const std::string& name) : _name(name) {};
@@ -106,6 +119,12 @@ class Deployment final
     controlBuffer["Size"] = _settings.controlBuffer.size;
     settings["Control Buffer"] = controlBuffer;
 
+    // User Interface
+    auto userInterface = std::map<std::string, nlohmann::json>();
+    userInterface["Input"] = _settings.userInterface.input;
+    userInterface["Output"] = _settings.userInterface.output;
+    settings["User Interface"] = userInterface;
+
     js["Settings"] = settings;
 
     return js;
@@ -136,6 +155,10 @@ class Deployment final
     nlohmann::json controlBufferJs = hicr::json::getObject(settingsJs, "Control Buffer");
     _settings.controlBuffer.capacity = hicr::json::getNumber<size_t>(controlBufferJs, "Capacity");
     _settings.controlBuffer.size = hicr::json::getNumber<size_t>(controlBufferJs, "Size");
+
+    nlohmann::json userInterfaceJs = hicr::json::getObject(settingsJs, "User Interface");
+    _settings.userInterface.input = hicr::json::getString(userInterfaceJs, "Input");
+    _settings.userInterface.output = hicr::json::getString(userInterfaceJs, "Output");
   }
   
   // Includes all kinds of sanity checks relevant to a deployment
@@ -145,36 +168,57 @@ class Deployment final
     std::set<std::string> partitionNameSet;
     for (const auto& partition : _partitions) partitionNameSet.insert(partition->getName());
 
-    // For each edge, remember which partition is the consumer and which is the producer
-    std::map<std::string, std::string> edgeConsumerPartitionMap;
-    std::map<std::string, std::string> edgeProducerPartitionMap;
+    // Getting a list of all edges to check the tasks specifying inputs/outputs actually refer to one of these, or user interface
+    std::set<std::string> edgeNameSet;
+    
+    // First, the user interface input/outputs are counted as edges for the purposes of this check
+    edgeNameSet.insert(_settings.userInterface.input);
+    edgeNameSet.insert(_settings.userInterface.output);
+    for (const auto& edge : _edges)
+    {
+      const auto& edgeName = edge->getName();
+      if (edgeNameSet.contains(edgeName)) HICR_THROW_LOGIC("Deployment specifies repeated edge or user input '%s'\n", edgeName.c_str());
+      edgeNameSet.insert(edgeName);
+    }
+
+    // For each input / output, remember which partition is its consumer / producer
+    std::map<std::string, std::string> inputPartitionMap;
+    std::map<std::string, std::string> outputPartitionMap;
     for (const auto& partition : _partitions)
       for (const auto& task : partition->getTasks())
       {
-        for (const auto& edge : task->getInputs())
+        // Make sure all tasks have at least one input
+        if (task->getInputs().size() == 0) HICR_THROW_LOGIC("Deployment specifies task in partition '%s' with function name '%s' without any inputs\n", partition->getName().c_str(), task->getFunctionName().c_str());
+
+        // Check that the edge is not used as input more than once. All edges must be 1-to-1
+        for (const auto& input : task->getInputs())
         {
-          // Check that the edge is not used as input more than once. All edges must be 1-to-1
-          if (edgeConsumerPartitionMap.contains(edge)) HICR_THROW_LOGIC("Deployment specifies edge '%s' used as input more than once\n", edge.c_str());
-          edgeConsumerPartitionMap[edge] = partition->getName();
+          if (inputPartitionMap.contains(input)) HICR_THROW_LOGIC("Deployment specifies input '%s' used more than once\n", input.c_str());
+          if (edgeNameSet.contains(input) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined input '%s'\n", task->getFunctionName(), input.c_str());
+          inputPartitionMap[input] = partition->getName();
         } 
 
-        for (const auto& edge : task->getOutputs())
+        // Make sure all tasks have at least one output
+        if (task->getOutputs().size() == 0) HICR_THROW_LOGIC("Deployment specifies task in partition '%'' with function name '%s' without any outputs\n", partition->getName().c_str(), task->getFunctionName().c_str());
+
+        // Check that the output is not used as input more than once. All edges must be 1-to-1
+        for (const auto& output : task->getOutputs())
         {
-          // Check that the edge is not used as input more than once. All edges must be 1-to-1
-          if (edgeProducerPartitionMap.contains(edge)) HICR_THROW_LOGIC("Deployment specifies edge '%s' used as output more than once\n", edge.c_str());
-          edgeProducerPartitionMap[edge] = partition->getName();
+          if (outputPartitionMap.contains(output)) HICR_THROW_LOGIC("Deployment specifies output '%s' used more than once\n", output.c_str());
+          if (edgeNameSet.contains(output) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined output '%s'\n", task->getFunctionName(), output.c_str());
+          outputPartitionMap[output] = partition->getName();
         } 
       }
 
     // Check whether all edges have consumer+producer partitions that do exist
     for (const auto& edge : _edges)
     {
-      if (edgeConsumerPartitionMap.contains(edge->getName()) == false || edgeProducerPartitionMap.contains(edge->getName()) == false) 
+      if (inputPartitionMap.contains(edge->getName()) == false || outputPartitionMap.contains(edge->getName()) == false) 
         HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as input or output (or neither)\n", edge->getName().c_str());
 
        // Setting producer and consumer partitions for the edge
-       edge->setProducer(edgeProducerPartitionMap[edge->getName()]);
-       edge->setConsumer(edgeConsumerPartitionMap[edge->getName()]);
+       edge->setProducer(outputPartitionMap[edge->getName()]);
+       edge->setConsumer(inputPartitionMap[edge->getName()]);
     }
   }
 

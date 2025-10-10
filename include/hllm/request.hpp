@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "edge/base.hpp"
+#include "session.hpp"
 
 namespace hLLM
 {
@@ -22,9 +23,12 @@ class Request
   Request() = delete;
   ~Request() = default;
 
-  Request(const requestId_t requestId,
+  Request(const Session::sessionId_t sessionId,
+          const requestId_t requestId,
           const std::vector<hLLM::edge::edgeInfo_t>& inputEdges,
-          const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) 
+          const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) :
+          _sessionId(sessionId),
+          _requestId(requestId)
   {
     // Store data and allocate buffers for input edges
     for (const auto& edgeInfo : inputEdges)  _inputs.push_back(  edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
@@ -39,19 +43,22 @@ class Request
   // Now we make a copy of the data to store in this request object until is is needed for sending out
   __INLINE__ void satisfyOutput(const size_t edgeVectorPosition, const std::shared_ptr<HiCR::LocalMemorySlot> data) { satisfyEdge(_outputs[edgeVectorPosition], data); }
 
-  // Indicates whether the request is ready for execution (or to be sent to a replica)
-  // For this, we need to check that all inputs have been satisfied
+  // Indicates whether the request is ready for local execution (or to be sent to a replica)
+  // For this, we need to check that all inputs coming from external sources have been satisfied
   __INLINE__ bool isReadyToExecute()
   {
-    for (const auto& input : _inputs) if (input.isSatisfied == false) return false;
+    for (const auto& input : _inputs) 
+      if (input.edgeInfo.consumerPartitionIndex != input.edgeInfo.producerPartitionIndex)
+        if (input.isSatisfied == false) return false;
     return true;
   }
 
-  // Indicates whether the request's outputs are ready for forwarding to the next partition
-  // For this, we need to check that all outputs have been satisfied
+  // Indicates whether the request's outputs destined to other partitions are ready for forwarding to the next partition
   __INLINE__ bool isReadyToForward()
   {
-    for (const auto& output : _outputs) if (output.isSatisfied == false) return false;
+    for (const auto& output : _outputs)
+     if (output.edgeInfo.consumerPartitionIndex != output.edgeInfo.producerPartitionIndex)
+      if (output.isSatisfied == false) return false;
     return true;
   }
 
@@ -77,6 +84,8 @@ class Request
     edge.isSatisfied = true;
   }
 
+  const Session::sessionId_t _sessionId;
+  const requestId_t _requestId;
   std::vector<edgeData_t> _inputs;
   std::vector<edgeData_t> _outputs;
 
