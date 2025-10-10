@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include "edge/base.hpp"
-#include "session.hpp"
 
 namespace hLLM
 {
@@ -10,8 +9,6 @@ namespace hLLM
 class Request
 {
   public:
-
-  typedef uint64_t requestId_t;
 
   struct edgeData_t
   {
@@ -23,7 +20,7 @@ class Request
   Request() = delete;
   ~Request() = default;
 
-  Request(const Session::sessionId_t sessionId,
+  Request(const sessionId_t sessionId,
           const requestId_t requestId,
           const std::vector<hLLM::edge::edgeInfo_t>& inputEdges,
           const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) :
@@ -84,7 +81,7 @@ class Request
     edge.isSatisfied = true;
   }
 
-  const Session::sessionId_t _sessionId;
+  const sessionId_t _sessionId;
   const requestId_t _requestId;
   std::vector<edgeData_t> _inputs;
   std::vector<edgeData_t> _outputs;

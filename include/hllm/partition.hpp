@@ -17,6 +17,8 @@ class Partition
 {
   public:
 
+  #define __HLLM_PARTITION_DEFAULT_DATA_BUFFER_CAPACITY 1
+
   Partition() = delete;
   ~Partition() = default;
 

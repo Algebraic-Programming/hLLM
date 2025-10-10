@@ -8,6 +8,7 @@
 #include "replica.hpp"
 #include "edge/base.hpp"
 #include "task.hpp"
+#include "session.hpp"
 
 #define __HLLM_WORKER_ENTRY_POINT_RPC_NAME "[hLLM] Worker Entry Point"
 #define __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME "[hLLM] Request Deployment Configuration"
@@ -184,6 +185,21 @@ class Engine final
 
   [[nodiscard]] __INLINE__ auto& getDeployment() { return _deployment; }
   [[nodiscard]] __INLINE__ size_t getPartitionIdx() const { return _partitionIdx; }
+
+  [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
+  {
+    // Creating new session
+    auto session = std::make_shared<Session>(_currentSessionId);
+
+    // Registering session
+    _activeSessionMap.insert({session->getSessionId(), session});
+
+    // Increasing the global session id 
+    _currentSessionId++;
+
+    // Returning session
+    return session;
+  }
 
   private:
 
@@ -383,7 +399,10 @@ class Engine final
     if (isPartitionCoordinator == true) coordinator->initialize();
     if (isPartitionReplica == true) replica->initialize();
 
-    // // Instruct TaskR to re-add suspended tasks
+    // Adding session management service
+    _taskr->addService(&_taskrSessionManagementService);
+
+    // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
     // Running TaskR
@@ -403,6 +422,36 @@ class Engine final
       // Returning serialized topology
       _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
+
+  
+  ///////////// Session management service (no concurrent access active service map)
+  __INLINE__ void sessionManagementServiceFunction()
+  {
+    for (const auto& entry : _activeSessionMap)
+    {
+      const auto& sessionId = entry.first;
+      const auto& session = entry.second;
+
+      // Getting next message from the session
+      const auto message = session->getMessage();
+
+      // If no messages are available, continue onto the next session
+      if (message == nullptr) continue;
+
+      // Decoding message according to type
+
+      // User-Input message
+      if (message->getType() == hLLM::messages::messageTypes::userInput)
+      {
+        const auto& userInput = std::static_pointer_cast<hLLM::messages::UserInput>(message);
+        const auto input = userInput->getInput();
+        printf("Received '%s' from session %lu, request: %lu\n", input.c_str(), sessionId, userInput->getRequestId());
+      }
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
+  taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
+
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;
@@ -436,6 +485,13 @@ class Engine final
 
   // For the deployer instance, this holds the ids of all the initially deployed instances
   std::set<HiCR::Instance::instanceId_t> _instanceSet;
+
+  // Global counter for session ids
+  sessionId_t _currentSessionId = 0;
+
+  // Active session map
+  std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
+
 }; // class Engine
 
 } // namespace hLLM

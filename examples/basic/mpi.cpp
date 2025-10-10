@@ -158,9 +158,27 @@ int main(int argc, char *argv[])
   // Declaring the hLLM tasks for the application
   createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
 
+  // If I am the root, create a session to send prompt inputs
+  std::unique_ptr<std::thread> promptThread;
+  if (isRoot)
+  {
+    promptThread = std::make_unique<std::thread>([&]()
+    {
+      auto session = hllm.createSession();
+
+      // Send a test message
+      sleep(20);
+      session->sendInput("Hello, World!");
+      sleep(20);
+      session->sendInput("Hello, World!2");
+      sleep(20);
+      session->sendInput("Hello, World!3");
+    });
+  }
+
   // Deploying hLLM
   hllm.deploy(deployment);
-    
+
   // // Instantiating request server (emulates live users)
   // size_t requestCount   = 32;
   // size_t requestDelayMs = 100;
@@ -180,5 +198,9 @@ int main(int argc, char *argv[])
 
   // printf("[basic.cpp] Finalizing Instance Manager...\n");
   // Finalize Instance Manager
+  
+  // Waiting for prompt thread to finish
+  if (isRoot) promptThread->join();
+
   instanceManager->finalize();
 }

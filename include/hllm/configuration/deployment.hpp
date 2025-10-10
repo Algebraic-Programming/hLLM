@@ -170,7 +170,15 @@ class Deployment final
 
     // Getting a list of all edges to check the tasks specifying inputs/outputs actually refer to one of these, or user interface
     std::set<std::string> edgeNameSet;
+
+    // Getting a list of all the inputs and output names to verify they correspond to each other at least once
+    std::set<std::string> inputSet;
+    std::set<std::string> outputSet;
     
+    // Storage for those partitions with user interface input and output
+    std::shared_ptr<hLLM::configuration::Partition> userInterfaceInputPartition = nullptr;
+    std::shared_ptr<hLLM::configuration::Partition> userInterfaceOutputPartition = nullptr;
+
     // First, the user interface input/outputs are counted as edges for the purposes of this check
     edgeNameSet.insert(_settings.userInterface.input);
     edgeNameSet.insert(_settings.userInterface.output);
@@ -193,9 +201,14 @@ class Deployment final
         // Check that the edge is not used as input more than once. All edges must be 1-to-1
         for (const auto& input : task->getInputs())
         {
-          if (inputPartitionMap.contains(input)) HICR_THROW_LOGIC("Deployment specifies input '%s' used more than once\n", input.c_str());
+          if (inputSet.contains(input)) HICR_THROW_LOGIC("Deployment specifies input '%s' used more than once\n", input.c_str());
           if (edgeNameSet.contains(input) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined input '%s'\n", task->getFunctionName(), input.c_str());
           inputPartitionMap[input] = partition->getName();
+          inputSet.insert(input);
+
+          // Check the task that contains the user interface input does not receive any other inputs
+          if (input == _settings.userInterface.input) userInterfaceInputPartition = partition;
+          if (input == _settings.userInterface.input && task->getInputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is not the only input of that task\n", task->getFunctionName(), input.c_str());
         } 
 
         // Make sure all tasks have at least one output
@@ -204,9 +217,14 @@ class Deployment final
         // Check that the output is not used as input more than once. All edges must be 1-to-1
         for (const auto& output : task->getOutputs())
         {
-          if (outputPartitionMap.contains(output)) HICR_THROW_LOGIC("Deployment specifies output '%s' used more than once\n", output.c_str());
+          if (outputSet.contains(output)) HICR_THROW_LOGIC("Deployment specifies output '%s' used more than once\n", output.c_str());
           if (edgeNameSet.contains(output) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined output '%s'\n", task->getFunctionName(), output.c_str());
           outputPartitionMap[output] = partition->getName();
+          outputSet.insert(output);
+
+          // Check the task that contains the user interface input does not receive any other inputs
+          if (output == _settings.userInterface.output) userInterfaceOutputPartition = partition;
+          if (output == _settings.userInterface.output && task->getOutputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is not the only output of task\n", task->getFunctionName(), output.c_str());
         } 
       }
 
@@ -220,6 +238,28 @@ class Deployment final
        edge->setProducer(outputPartitionMap[edge->getName()]);
        edge->setConsumer(inputPartitionMap[edge->getName()]);
     }
+
+    // Make sure all inputs are also used as outputs, as long as it is not the user interface input
+    for (const auto& input : inputSet) if (input != _settings.userInterface.input) if (outputSet.contains(input) == false) HICR_THROW_LOGIC("Deployment input '%s' is not associated to any output\n", input.c_str());
+    for (const auto& output : outputSet) if (output != _settings.userInterface.output) if (inputSet.contains(output) == false) HICR_THROW_LOGIC("Deployment output '%s' is not associated to any input\n", output.c_str());
+
+    // Check the user interface input/output are being used
+    if (userInterfaceInputPartition == nullptr) HICR_THROW_LOGIC("User interface input '%s' is not associated to any partition\n", _settings.userInterface.input.c_str());
+    if (userInterfaceOutputPartition == nullptr) HICR_THROW_LOGIC("User interface output '%s' is not associated to any partition\n", _settings.userInterface.output.c_str());
+
+    // Make sure the partition which contains the user interface input does not contain any cross-partition inputs
+    for (const auto& task : userInterfaceInputPartition->getTasks())
+      for (const auto& input : task->getInputs())
+        if (input != _settings.userInterface.input)
+         if (outputPartitionMap.at(input) != userInterfaceInputPartition->getName())
+           HICR_THROW_LOGIC("Partition %s consumes the user interface input '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceInputPartition->getName().c_str(), _settings.userInterface.input.c_str(), input.c_str());
+      
+    // Make sure the partition which contains the user interface output does not contain any cross-partition outputs
+    for (const auto& task : userInterfaceOutputPartition->getTasks())
+      for (const auto& output : task->getOutputs())
+        if (output != _settings.userInterface.output)
+          if (inputPartitionMap.at(output) != userInterfaceOutputPartition->getName())
+            HICR_THROW_LOGIC("Partition %s produces the user interface output '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceOutputPartition->getName().c_str(), _settings.userInterface.output.c_str(), output.c_str());
   }
 
   private:

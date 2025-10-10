@@ -2,46 +2,50 @@
 
 #include <cstdint>
 #include <cstdlib>
-#include "../request.hpp"
-#include "../session.hpp"
 
-namespace hLLM::edge
+namespace hLLM
 {
+  typedef uint64_t requestId_t;
+  typedef uint64_t sessionId_t;
 
-class Message final
-{
-  public:
-
-  typedef uint8_t messageType_t;
-
-  #pragma pack(push, 1)
-  struct metadata_t
+  namespace edge
   {
-    messageType_t type;
-    hLLM::Request::requestId_t requestId;
-    hLLM::Session::sessionId_t sessionId;
-  };
-  #pragma pack(pop)
 
-  Message() = delete;
-  Message(const uint8_t* const data, const size_t size, const metadata_t metadata) :
-   _data(data),
-   _size(size),
-   _metadata(metadata)
-  { }
+  class Message final
+  {
+    public:
 
-  virtual ~Message() = default;
+    typedef uint8_t messageType_t;
 
-  const uint8_t* getData() const { return _data; }
-  size_t getSize() const { return _size; }
-  const metadata_t& getMetadata() const { return _metadata; }
+    #pragma pack(push, 1)
+    struct metadata_t
+    {
+      messageType_t type;
+      requestId_t requestId;
+      sessionId_t sessionId;
+    };
+    #pragma pack(pop)
 
-  private:
+    Message() = delete;
+    Message(const uint8_t* const data, const size_t size, const metadata_t metadata) :
+    _data(data),
+    _size(size),
+    _metadata(metadata)
+    { }
 
-  const uint8_t* const _data;
-  const size_t _size;
-  const metadata_t _metadata;
-  
-}; // class Message
+    virtual ~Message() = default;
 
-} // namespace hLLM::edge
+    const uint8_t* getData() const { return _data; }
+    size_t getSize() const { return _size; }
+    const metadata_t& getMetadata() const { return _metadata; }
+
+    private:
+
+    const uint8_t* const _data;
+    const size_t _size;
+    const metadata_t _metadata;
+    
+  }; // class Message
+
+  } // namespace edge
+} // namespace hLLM

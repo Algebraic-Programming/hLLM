@@ -10,20 +10,21 @@ namespace hLLM::messages
 enum messageTypes : edge::Message::messageType_t
 {
   heartbeat = 0,
+  userInput = 1
 };
 
 class Base
 {
   public:
 
-  protected:
-
-  Base() = default;
-  virtual ~Base() = default;
   virtual void decode(const edge::Message& rawMessage) = 0;
   virtual edge::Message encode() const = 0;
   virtual edge::Message::messageType_t getType() const = 0;
 
+  protected:
+
+  Base() = default;
+  virtual ~Base() = default;
 }; // class Base
 
 } // namespace hLLM
