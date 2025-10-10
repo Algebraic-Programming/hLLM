@@ -6,15 +6,15 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
-#include "../configuration/deployment.hpp"
-#include "../edge/input.hpp"
-#include "../edge/output.hpp"
-#include "../messages/heartbeat.hpp"
-#include "../partition.hpp"
-#include "../task.hpp"
-#include "../request.hpp"
+#include "configuration/deployment.hpp"
+#include "edge/input.hpp"
+#include "edge/output.hpp"
+#include "messages/heartbeat.hpp"
+#include "partition.hpp"
+#include "task.hpp"
+#include "request.hpp"
 
-namespace hLLM::replica
+namespace hLLM
 {
 
 class Replica final : public hLLM::Partition

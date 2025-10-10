@@ -9,11 +9,11 @@
 namespace hLLM
 {
 
-namespace replica { class Replica; }
+class Replica;
 
 class Task final
 {
-  friend class replica::Replica;
+  friend class Replica;
 
   public:
 
