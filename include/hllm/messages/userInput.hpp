@@ -18,11 +18,11 @@ class UserInput final : public Base
   {
     decode(rawMessage);
   }
-  UserInput(const std::string& input, sessionId_t sessionId, requestId_t requestId) : 
+  UserInput(const std::string& input, sessionId_t sessionId, messageId_t messageId) : 
     Base(),
     _input(input),
     _sessionId(sessionId),
-    _requestId(requestId) { }
+    _messageId(messageId) { }
   ~UserInput() = default;
 
   __INLINE__ edge::Message::messageType_t getType() const override { return _type; }
@@ -35,20 +35,20 @@ class UserInput final : public Base
 
   __INLINE__ edge::Message encode() const override
   { 
-    edge::Message rawMessage((uint8_t*)_input.data(), _input.size()+1, edge::Message::metadata_t( { .type = getType(), .requestId = _requestId, .sessionId = _sessionId }));
+    edge::Message rawMessage((uint8_t*)_input.data(), _input.size()+1, edge::Message::metadata_t( { .type = getType(), .messageId = _messageId, .sessionId = _sessionId }));
 
     return rawMessage;
   }
 
   __INLINE__ const std::string& getInput() const { return _input; }
   __INLINE__ const sessionId_t getSessionId() const { return _sessionId; }
-  __INLINE__ const requestId_t getRequestId() const { return _requestId; }
+  __INLINE__ const messageId_t getMessageId() const { return _messageId; }
 
   private:
   
   std::string _input;
   sessionId_t _sessionId;
-  requestId_t _requestId;
+  messageId_t _messageId;
 
 }; // class UserInput
 

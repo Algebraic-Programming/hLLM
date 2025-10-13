@@ -5,7 +5,7 @@
 
 namespace hLLM
 {
-  typedef uint64_t requestId_t;
+  typedef uint64_t messageId_t;
   typedef uint64_t sessionId_t;
 
   namespace edge
@@ -21,7 +21,7 @@ namespace hLLM
     struct metadata_t
     {
       messageType_t type;
-      requestId_t requestId;
+      messageId_t messageId;
       sessionId_t sessionId;
     };
     #pragma pack(pop)

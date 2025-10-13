@@ -188,17 +188,33 @@ class Engine final
 
   [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
   {
+    // Getting unique session id, atomically increasing its value in the process
+    const auto sessionId = _currentSessionId.fetch_add(1);
+
     // Creating new session
-    auto session = std::make_shared<Session>(_currentSessionId);
+    auto session = std::make_shared<Session>(sessionId);
 
     // Registering session
-    _activeSessionMap.insert({session->getSessionId(), session});
+    _sessionManagementMutex.lock();
+    _pendingSessionConnectionsQueue.push(session);
+    _sessionManagementMutex.unlock();
 
-    // Increasing the global session id 
-    _currentSessionId++;
+    // Wait until session is connected
+    while(session->isConnected() == false);
 
     // Returning session
     return session;
+  }
+
+  __INLINE__ void disconnectSession(std::shared_ptr<Session> session)
+  {
+    // Registering session
+    _sessionManagementMutex.lock();
+    _pendingSessionDisconnectionsQueue.push(session);
+    _sessionManagementMutex.unlock();
+
+    // Wait until session is connected
+    while(session->isConnected() == true);
   }
 
   private:
@@ -298,10 +314,6 @@ class Engine final
       }
     }
 
-    // Unique pointers for the potential roles for this instance
-    std::unique_ptr<Coordinator> coordinator;
-    std::unique_ptr<Replica> replica;
-
     // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
     // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
     // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
@@ -311,11 +323,11 @@ class Engine final
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex, _taskr);
+      _coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex, _taskr);
 
       // Get memory slots to exchange for the partition coordinator
       printf("Registering Coordinator Memory Slots...\n");
-      coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
+      _coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // If I am a replica, construct the replica object:
@@ -323,11 +335,11 @@ class Engine final
     if (isPartitionReplica == true)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
+      _replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
 
       // Get memory slots to exchange for the replica
       printf("Registering Replica Memory Slots...\n");
-      replica->getMemorySlotsToExchange(memorySlotsToExchange);
+      _replica->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // Sanity check
@@ -386,8 +398,8 @@ class Engine final
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
 
     // After the exchange, we can now initialize the edges
-    if (isPartitionCoordinator == true) coordinator->initializeEdges(_exchangeTag);
-    if (isPartitionReplica == true) replica->initializeEdges(_exchangeTag);
+    if (isPartitionCoordinator == true) _coordinator->initializeEdges(_exchangeTag);
+    if (isPartitionReplica == true) _replica->initializeEdges(_exchangeTag);
 
     // Starting a new deployment
     _continueRunning = true;
@@ -396,8 +408,8 @@ class Engine final
     _taskr->initialize();
 
     // Initializing coordinator and replica roles, whichever applies (or both), so that they add their initial functions to taskR
-    if (isPartitionCoordinator == true) coordinator->initialize();
-    if (isPartitionReplica == true) replica->initialize();
+    if (isPartitionCoordinator == true) _coordinator->initialize();
+    if (isPartitionReplica == true) _replica->initialize();
 
     // Adding session management service
     _taskr->addService(&_taskrSessionManagementService);
@@ -423,13 +435,56 @@ class Engine final
       _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
 
+  ///////////// Message management
+  __INLINE__ void processUserInputMessage(std::shared_ptr<hLLM::messages::UserInput> message)
+  {
+    const auto input = message->getInput();
+    printf("Received user input '%s' from session %lu, message: %lu\n", input.c_str(), message->getSessionId(), message->getMessageId());
+  }
   
   ///////////// Session management service (no concurrent access active service map)
   __INLINE__ void sessionManagementServiceFunction()
   {
+    _sessionManagementMutex.lock();
+
+    // Accepting incoming session connection requests
+    while(_pendingSessionConnectionsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      auto session = _pendingSessionConnectionsQueue.front();
+      
+      // Registering session
+      _activeSessionMap.insert({session->getSessionId(), session});
+
+      // Setting session as connected
+      session->connect();
+
+      // Freeing entry in the pending session connection queue
+      _pendingSessionConnectionsQueue.pop();
+    }
+
+    // Accepting incoming session disconnection requests
+    while(_pendingSessionDisconnectionsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      auto session = _pendingSessionDisconnectionsQueue.front();
+      
+      // Registering session
+      _activeSessionMap.erase(session->getSessionId());
+
+      // Setting session as connected
+      session->disconnect();
+
+      // Freeing entry in the pending session connection queue
+      _pendingSessionDisconnectionsQueue.pop();
+    }
+
+    _sessionManagementMutex.unlock();
+
+    // Iterating over the active sessions in search for the next message to parse
     for (const auto& entry : _activeSessionMap)
     {
-      const auto& sessionId = entry.first;
+      // Getting session
       const auto& session = entry.second;
 
       // Getting next message from the session
@@ -439,19 +494,23 @@ class Engine final
       if (message == nullptr) continue;
 
       // Decoding message according to type
-
-      // User-Input message
-      if (message->getType() == hLLM::messages::messageTypes::userInput)
+      const auto type = message->getType();
+      switch(type)
       {
-        const auto& userInput = std::static_pointer_cast<hLLM::messages::UserInput>(message);
-        const auto input = userInput->getInput();
-        printf("Received '%s' from session %lu, request: %lu\n", input.c_str(), sessionId, userInput->getRequestId());
+        case hLLM::messages::messageTypes::userInput: processUserInputMessage(std::static_pointer_cast<hLLM::messages::UserInput>(message)); break;
+        default: HICR_THROW_RUNTIME("[Engine] Message type %lu unrecognized. This must be a bug in hLLM\n", type);
       }
     } 
   }
   taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
   taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
 
+
+  // Pointer to the instance's coordinator role, if defined
+  std::unique_ptr<Coordinator> _coordinator = nullptr;
+
+  // Pointer to the instance's replica role, if defined
+  std::unique_ptr<Replica> _replica = nullptr;
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;
@@ -487,10 +546,20 @@ class Engine final
   std::set<HiCR::Instance::instanceId_t> _instanceSet;
 
   // Global counter for session ids
-  sessionId_t _currentSessionId = 0;
+  std::atomic<sessionId_t> _currentSessionId = 0;
+
+  // Session management mutex
+  std::mutex _sessionManagementMutex;
+
+  // Queue of pending sessions for connection
+  std::queue<std::shared_ptr<Session>> _pendingSessionConnectionsQueue;
+
+  // Queue of pending sessions for connection
+  std::queue<std::shared_ptr<Session>> _pendingSessionDisconnectionsQueue;
 
   // Active session map
   std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
+
 
 }; // class Engine
 

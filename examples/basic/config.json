@@ -5,6 +5,7 @@
     "Heartbeat":
     {
       "Enabled": true,
+      "Visible": false,
       "Interval": 500,
       "Tolerance": 1000
     },

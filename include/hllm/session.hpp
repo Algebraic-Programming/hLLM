@@ -22,7 +22,7 @@ class Session
   Session(const sessionId_t sessionId) :
   _sessionId(sessionId)
   {
-    _currentRequestId = 0;
+    _currentMessageId = 0;
   }
 
   __INLINE__ const sessionId_t getSessionId() const { return _sessionId; }
@@ -38,7 +38,12 @@ class Session
     _rawMessageQueueLock.unlock();
   }
 
+  __INLINE__ bool isConnected() const { return _isConnected; }
+
   private:
+
+  __INLINE__ void connect() { _isConnected = true; }
+  __INLINE__ void disconnect() { _isConnected = false; }
 
   __INLINE__ const std::shared_ptr<messages::Base> getMessage()
   {
@@ -56,8 +61,8 @@ class Session
     // Returning nullptr, if the queue was empty
     if (rawMessage == nullptr) return nullptr;
 
-    // Getting and increasing request id
-    const auto requestId = _currentRequestId++;
+    // Getting and increasing message id
+    const auto messageId = _currentMessageId++;
 
     // Getting message type
     const auto type = hicr::json::getString(*rawMessage, "Type");
@@ -70,7 +75,7 @@ class Session
     if (type == "User Input")
     {
       const auto input = hicr::json::getString(*rawMessage, "Input");
-      message = std::make_shared<messages::UserInput>(input, _sessionId, requestId);
+      message = std::make_shared<messages::UserInput>(input, _sessionId, messageId);
       isRecognized = true;
     }
 
@@ -81,10 +86,11 @@ class Session
     return message;
   }
 
+  bool _isConnected = false;
   const sessionId_t _sessionId;
   std::mutex _rawMessageQueueLock;
   std::queue<std::shared_ptr<nlohmann::json>> _rawMessageQueue;
-  requestId_t _currentRequestId;
+  messageId_t _currentMessageId;
 
 }; // class Session
 

@@ -167,12 +167,11 @@ int main(int argc, char *argv[])
       auto session = hllm.createSession();
 
       // Send a test message
-      sleep(20);
-      session->sendInput("Hello, World!");
-      sleep(20);
-      session->sendInput("Hello, World!2");
-      sleep(20);
-      session->sendInput("Hello, World!3");
+      while(true)
+      {
+        sleep(5);
+        session->sendInput("Hello, World!");
+      }
     });
   }
 

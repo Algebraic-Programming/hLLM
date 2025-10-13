@@ -10,6 +10,12 @@ class Request
 {
   public:
 
+  struct requestId_t
+  {
+    sessionId_t sessionId;
+    messageId_t messageId;
+  };
+
   struct edgeData_t
   {
     hLLM::edge::edgeInfo_t edgeInfo;
@@ -20,11 +26,9 @@ class Request
   Request() = delete;
   ~Request() = default;
 
-  Request(const sessionId_t sessionId,
-          const requestId_t requestId,
+  Request(const requestId_t requestId,
           const std::vector<hLLM::edge::edgeInfo_t>& inputEdges,
           const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) :
-          _sessionId(sessionId),
           _requestId(requestId)
   {
     // Store data and allocate buffers for input edges
@@ -81,7 +85,6 @@ class Request
     edge.isSatisfied = true;
   }
 
-  const sessionId_t _sessionId;
   const requestId_t _requestId;
   std::vector<edgeData_t> _inputs;
   std::vector<edgeData_t> _outputs;

@@ -26,6 +26,9 @@ class Deployment final
     // Whether to enable the heartbeat service or not
     bool enabled;
 
+    // Whether to print the hearbeat arriving on screen
+    bool visible;
+
     // Heartbeat interval (every how many ms do we send a heartbeat message to replicas and neighboring coordinators)
     size_t interval;
 
@@ -109,6 +112,7 @@ class Deployment final
     // Heartbeat
     auto heartbeat = std::map<std::string, nlohmann::json>();
     heartbeat["Enabled"] = _settings.heartbeat.enabled;
+    heartbeat["Visible"] = _settings.heartbeat.visible;
     heartbeat["Interval"] = _settings.heartbeat.interval;
     heartbeat["Tolerance"] = _settings.heartbeat.tolerance;
     settings["Heartbeat"] = heartbeat;
@@ -149,6 +153,7 @@ class Deployment final
 
     nlohmann::json heartbeatJs = hicr::json::getObject(settingsJs, "Heartbeat");
     _settings.heartbeat.enabled = hicr::json::getBoolean(heartbeatJs, "Enabled");
+    _settings.heartbeat.visible = hicr::json::getBoolean(heartbeatJs, "Visible");
     _settings.heartbeat.interval = hicr::json::getNumber<size_t>(heartbeatJs, "Interval");
     _settings.heartbeat.tolerance = hicr::json::getNumber<size_t>(heartbeatJs, "Tolerance");
 

@@ -204,7 +204,7 @@ class Coordinator final : public hLLM::Partition
   void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)
   {
     const auto replicaIdx = edge->getReplicaIndex();
-    printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
+    if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
 
   // Container for partition replica objects
