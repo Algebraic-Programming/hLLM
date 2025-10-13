@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <mutex>
 #include <queue>
-#include "messages/userInput.hpp"
+#include "messages/prompt.hpp"
 
 namespace hLLM
 {
@@ -27,15 +27,22 @@ class Session
 
   __INLINE__ const sessionId_t getSessionId() const { return _sessionId; }
   
-  __INLINE__ void sendInput(const std::string& input)
+  __INLINE__ messageId_t sendPrompt(const std::string& prompt)
   {
-    auto message = std::make_shared<nlohmann::json>();
-    message.operator*()["Type"] = "User Input";
-    message.operator*()["Input"] = input;
+    // Getting and increasing message id
+    const auto messageId = _currentMessageId++;
 
+    auto message = std::make_shared<nlohmann::json>();
+    message.operator*()["Type"] = "Prompt";
+    message.operator*()["Message Id"] = messageId;
+    message.operator*()["Prompt"] = prompt;
+
+    // Emulates online connection
     _rawMessageQueueLock.lock();
     _rawMessageQueue.push(message);
     _rawMessageQueueLock.unlock();
+
+    return messageId;
   }
 
   __INLINE__ bool isConnected() const { return _isConnected; }
@@ -61,21 +68,19 @@ class Session
     // Returning nullptr, if the queue was empty
     if (rawMessage == nullptr) return nullptr;
 
-    // Getting and increasing message id
-    const auto messageId = _currentMessageId++;
-
     // Getting message type
     const auto type = hicr::json::getString(*rawMessage, "Type");
+    const auto messageId = hicr::json::getNumber<messageId_t>(*rawMessage, "Message Id");
 
     // Holder for the new message to return
     std::shared_ptr<messages::Base> message = nullptr;
 
     // Decoding message according to type
     bool isRecognized = false;
-    if (type == "User Input")
+    if (type == "Prompt")
     {
-      const auto input = hicr::json::getString(*rawMessage, "Input");
-      message = std::make_shared<messages::UserInput>(input, _sessionId, messageId);
+      const auto prompt = hicr::json::getString(*rawMessage, "Prompt");
+      message = std::make_shared<messages::Prompt>(prompt, _sessionId, messageId);
       isRecognized = true;
     }
 

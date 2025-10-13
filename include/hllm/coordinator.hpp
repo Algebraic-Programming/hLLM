@@ -126,6 +126,13 @@ class Coordinator final : public hLLM::Partition
     // Getting list of replicas in the partition
     const auto& replicas = partitionConfiguration->getReplicas();
 
+    // Determining whether I am a prompt coordinator
+    _isPromptCoordinator = false;
+    for (const auto& task : partitionConfiguration->getTasks())
+     for (const auto& input : task->getInputs())
+      if (input == _deployment.getUserInterface().input)
+        _isPromptCoordinator = true;
+
     // Filling replica set
     for (configuration::Replica::replicaIndex_t replicaIndex = 0; replicaIndex < replicas.size(); replicaIndex++)
     {
@@ -177,6 +184,16 @@ class Coordinator final : public hLLM::Partition
     for (const auto& replica : _replicas) replica->initializeEdges(tag);
   }
 
+  // Indicates whether the coordinator is capable of receiving prompts directly
+  [[nodiscard]] __INLINE__ bool isPromptCoordinator() const { return _isPromptCoordinator; }
+  __INLINE__ void acceptPrompt(const std::shared_ptr<hLLM::messages::Prompt> promptMessage)
+  {
+    // Sanity check
+    if (_coordinator->isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator. This must be a bug in hLLM", _partitionIdx);
+
+    // Creating new prompt object
+  }
+
   private:
 
   /// This function subscribes the handlers and services for the coordinator role
@@ -213,6 +230,9 @@ class Coordinator final : public hLLM::Partition
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionDataOutputs;
+
+  // If this is a prompt coordinator, it can receive prompts directly from the user and direct them to the rest of the graph
+  bool _isPromptCoordinator = false;
 }; // class Coordinator
 
 } // namespace hLLM::coordinator

@@ -5,25 +5,25 @@
 namespace hLLM::messages
 {
 
-class UserInput final : public Base
+class Prompt final : public Base
 {
   private:
 
-  const edge::Message::messageType_t _type = messageTypes::userInput;
+  const edge::Message::messageType_t _type = messageTypes::prompt;
 
   public:
 
-  UserInput() = default;
-  UserInput(const edge::Message& rawMessage) : Base()
+  Prompt() = default;
+  Prompt(const edge::Message& rawMessage) : Base()
   {
     decode(rawMessage);
   }
-  UserInput(const std::string& input, sessionId_t sessionId, messageId_t messageId) : 
+  Prompt(const std::string& input, sessionId_t sessionId, messageId_t messageId) : 
     Base(),
     _input(input),
     _sessionId(sessionId),
     _messageId(messageId) { }
-  ~UserInput() = default;
+  ~Prompt() = default;
 
   __INLINE__ edge::Message::messageType_t getType() const override { return _type; }
 
@@ -50,6 +50,6 @@ class UserInput final : public Base
   sessionId_t _sessionId;
   messageId_t _messageId;
 
-}; // class UserInput
+}; // class Prompt
 
 } // namespace hLLM::messages

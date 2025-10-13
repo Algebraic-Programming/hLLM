@@ -170,7 +170,8 @@ int main(int argc, char *argv[])
       while(true)
       {
         sleep(5);
-        session->sendInput("Hello, World!");
+        const auto messageId = session->sendPrompt("Hello, World!");
+        printf("[User] Send message Id: %lu\n", messageId);
       }
     });
   }

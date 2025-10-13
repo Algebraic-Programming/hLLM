@@ -10,7 +10,7 @@ namespace hLLM::messages
 enum messageTypes : edge::Message::messageType_t
 {
   heartbeat = 0,
-  userInput = 1
+  prompt = 1
 };
 
 class Base

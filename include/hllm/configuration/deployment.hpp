@@ -91,6 +91,7 @@ class Deployment final
   [[nodiscard]] __INLINE__ auto& getHeartbeat() const { return _settings.heartbeat; }
   [[nodiscard]] __INLINE__ auto& getControlBuffer() { return _settings.controlBuffer; }
   [[nodiscard]] __INLINE__ const auto& getControlBufferConst() const { return _settings.controlBuffer; }
+  [[nodiscard]] __INLINE__ const auto& getUserInterface() const { return _settings.userInterface; }
 
   [[nodiscard]] __INLINE__ nlohmann::json serialize() const 
   {

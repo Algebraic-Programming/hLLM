@@ -436,10 +436,19 @@ class Engine final
   }
 
   ///////////// Message management
-  __INLINE__ void processUserInputMessage(std::shared_ptr<hLLM::messages::UserInput> message)
+  __INLINE__ void processPromptMessage(const std::shared_ptr<hLLM::messages::Prompt> prompt)
   {
-    const auto input = message->getInput();
-    printf("Received user input '%s' from session %lu, message: %lu\n", input.c_str(), message->getSessionId(), message->getMessageId());
+    const auto input = prompt->getInput();
+    printf("Received prompt '%s' from session %lu, message: %lu\n", prompt.c_str(), prompt->getSessionId(), prompt->getMessageId());
+
+    // Check if there is a coordinator defined to receive the prompt
+    if (_coordinator == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu (partition %lu), but no coordinator is defined in it", _instanceId, _partitionIdx);
+
+    // Check if the coordinator receives prompts
+    if (_coordinator->isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator", _partitionIdx);
+
+    // Send prompt to the coordinator
+    _coordinator->acceptPrompt(prompt);
   }
   
   ///////////// Session management service (no concurrent access active service map)
@@ -497,7 +506,7 @@ class Engine final
       const auto type = message->getType();
       switch(type)
       {
-        case hLLM::messages::messageTypes::userInput: processUserInputMessage(std::static_pointer_cast<hLLM::messages::UserInput>(message)); break;
+        case hLLM::messages::messageTypes::prompt: processPromptMessage(std::static_pointer_cast<hLLM::messages::Prompt>(message)); break;
         default: HICR_THROW_RUNTIME("[Engine] Message type %lu unrecognized. This must be a bug in hLLM\n", type);
       }
     } 
