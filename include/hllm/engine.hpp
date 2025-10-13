@@ -438,9 +438,6 @@ class Engine final
   ///////////// Message management
   __INLINE__ void processPromptMessage(const std::shared_ptr<hLLM::messages::Prompt> prompt)
   {
-    const auto input = prompt->getInput();
-    printf("Received prompt '%s' from session %lu, message: %lu\n", prompt.c_str(), prompt->getSessionId(), prompt->getMessageId());
-
     // Check if there is a coordinator defined to receive the prompt
     if (_coordinator == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu (partition %lu), but no coordinator is defined in it", _instanceId, _partitionIdx);
 

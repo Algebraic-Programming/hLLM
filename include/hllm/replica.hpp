@@ -12,7 +12,7 @@
 #include "messages/heartbeat.hpp"
 #include "partition.hpp"
 #include "task.hpp"
-#include "request.hpp"
+#include "prompt.hpp"
 
 namespace hLLM
 {
@@ -158,8 +158,8 @@ class Replica final : public hLLM::Partition
   {
     printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
-    // Indicate we have no current active request being processed
-    _activeRequest = nullptr;
+    // Indicate we have no current active prompt being processed
+    _activePrompt = nullptr;
 
     //////// Adding heartbeat service for my coordinator's control edge
     subscribeHeartbeatEdge(_coordinatorControlOutput);
@@ -194,8 +194,8 @@ class Replica final : public hLLM::Partition
   // The main driver for running tasks
   std::unique_ptr<taskr::Function> _taskrFunction;
 
-  // Pointer for the current active request being processed
-  std::atomic<std::shared_ptr<Request>> _activeRequest;
+  // Pointer for the current active prompt being processed
+  std::atomic<std::shared_ptr<Prompt>> _activePrompt;
 
 }; // class Replica
 

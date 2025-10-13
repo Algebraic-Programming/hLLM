@@ -3,7 +3,6 @@
 #include <queue>
 #include <mutex>
 #include "hllm/engine.hpp"
-#include "hllm/request.hpp"
 
 // Request id definition
 typedef uint64_t reqId_t;

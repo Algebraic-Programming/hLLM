@@ -10,6 +10,8 @@
 #include "edge/output.hpp"
 #include "messages/base.hpp"
 #include "messages/heartbeat.hpp"
+#include "messages/prompt.hpp"
+#include "prompt.hpp"
 #include "partition.hpp"
 
 namespace hLLM
@@ -189,9 +191,14 @@ class Coordinator final : public hLLM::Partition
   __INLINE__ void acceptPrompt(const std::shared_ptr<hLLM::messages::Prompt> promptMessage)
   {
     // Sanity check
-    if (_coordinator->isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator. This must be a bug in hLLM", _partitionIdx);
+    if (isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator. This must be a bug in hLLM", _partitionIdx);
 
     // Creating new prompt object
+    const auto input = promptMessage->getInput();
+    const auto sessionId = promptMessage->getSessionId();
+    const auto messageId = promptMessage->getMessageId();
+    const auto promptId = Prompt::promptId_t({.sessionid = sessionId, .messageId = messageId});
+    printf("[Coordinator %lu] Received prompt '%s' from session %lu, message: %lu\n", _partitionIdx, input.c_str(), sessionId, messageId);
   }
 
   private:
@@ -233,6 +240,15 @@ class Coordinator final : public hLLM::Partition
 
   // If this is a prompt coordinator, it can receive prompts directly from the user and direct them to the rest of the graph
   bool _isPromptCoordinator = false;
+
+  // Prompt management mutex
+  std::mutex _promptManagementMutex;
+
+  // Queue of pending new prompts
+  std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
+
+  // Active session map
+  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
 }; // class Coordinator
 
 } // namespace hLLM::coordinator
