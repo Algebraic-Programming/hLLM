@@ -6,18 +6,18 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
-#include "configuration/deployment.hpp"
-#include "edge/input.hpp"
-#include "edge/output.hpp"
-#include "messages/heartbeat.hpp"
-#include "partition.hpp"
-#include "task.hpp"
-#include "prompt.hpp"
+#include "../../configuration/deployment.hpp"
+#include "../../edge/input.hpp"
+#include "../../edge/output.hpp"
+#include "../../messages/heartbeat.hpp"
+#include "../../task.hpp"
+#include "../../prompt.hpp"
+#include "base.hpp"
 
-namespace hLLM
+namespace hLLM::roles::partition
 {
 
-class Replica final : public hLLM::Partition
+class Replica final : public Base
 {
   public:
 
@@ -29,7 +29,7 @@ class Replica final : public hLLM::Partition
     const configuration::Replica::replicaIndex_t replicaIdx,
     taskr::Runtime* const taskr,
     const std::map<std::string, Task::taskFunction_t>& registeredFunctions
-  ) : Partition(deployment, partitionIdx, taskr),
+  ) : Base(deployment, partitionIdx, taskr),
     _replicaIdx(replicaIdx),
     _registeredFunctions(registeredFunctions)
   {

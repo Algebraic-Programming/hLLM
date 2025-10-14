@@ -5,19 +5,19 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
-#include "configuration/deployment.hpp"
-#include "edge/input.hpp"
-#include "edge/output.hpp"
-#include "messages/base.hpp"
-#include "messages/heartbeat.hpp"
-#include "messages/prompt.hpp"
-#include "prompt.hpp"
-#include "partition.hpp"
+#include "../../configuration/deployment.hpp"
+#include "../../edge/input.hpp"
+#include "../../edge/output.hpp"
+#include "../../messages/base.hpp"
+#include "../../messages/heartbeat.hpp"
+#include "../../messages/prompt.hpp"
+#include "../../prompt.hpp"
+#include "base.hpp"
 
-namespace hLLM
+namespace hLLM::roles::partition
 {
 
-class Coordinator final : public hLLM::Partition
+class Coordinator final : public Base
 {
   private:
 
@@ -117,7 +117,7 @@ class Coordinator final : public hLLM::Partition
     const configuration::Partition::partitionIndex_t partitionIdx,
     taskr::Runtime* const taskr
   ) :
-    Partition(deployment, partitionIdx, taskr)
+    Base(deployment, partitionIdx, taskr)
   {
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];

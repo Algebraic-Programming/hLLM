@@ -6,23 +6,23 @@
 #include <hicr/core/definitions.hpp>
 #include <hicr/core/globalMemorySlot.hpp>
 #include <taskr/taskr.hpp>
-#include "edge/base.hpp"
-#include "edge/output.hpp"
-#include "configuration/deployment.hpp"
+#include "../../edge/base.hpp"
+#include "../../edge/output.hpp"
+#include "../../configuration/deployment.hpp"
 
-namespace hLLM
+namespace hLLM::roles::partition
 {
 
-class Partition
+class Base
 {
   public:
 
   #define __HLLM_PARTITION_DEFAULT_DATA_BUFFER_CAPACITY 1
 
-  Partition() = delete;
-  ~Partition() = default;
+  Base() = delete;
+  ~Base() = default;
 
-  Partition(
+  Base(
     const configuration::Deployment deployment,
     const configuration::Partition::partitionIndex_t partitionIdx,
     taskr::Runtime* const taskr
@@ -256,6 +256,6 @@ class Partition
   std::vector<std::shared_ptr<edge::Input>> _inputEdgesForHandler;
   std::map<hLLM::edge::Message::messageType_t, messageHandler_t> _messageHandlers;
 
-}; // class Partition
+}; // class Base
 
 } // namespace hLLM

@@ -4,8 +4,8 @@
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
 #include "configuration/deployment.hpp"
-#include "coordinator.hpp"
-#include "replica.hpp"
+#include "roles/partition/coordinator.hpp"
+#include "roles/partition/replica.hpp"
 #include "edge/base.hpp"
 #include "task.hpp"
 #include "session.hpp"
@@ -323,7 +323,7 @@ class Engine final
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      _coordinator = std::make_unique<Coordinator>(_deployment, myPartitionIndex, _taskr);
+      _coordinator = std::make_unique<roles::partition::Coordinator>(_deployment, myPartitionIndex, _taskr);
 
       // Get memory slots to exchange for the partition coordinator
       printf("Registering Coordinator Memory Slots...\n");
@@ -335,7 +335,7 @@ class Engine final
     if (isPartitionReplica == true)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      _replica = std::make_unique<Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
+      _replica = std::make_unique<roles::partition::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
 
       // Get memory slots to exchange for the replica
       printf("Registering Replica Memory Slots...\n");
@@ -513,10 +513,10 @@ class Engine final
 
 
   // Pointer to the instance's coordinator role, if defined
-  std::unique_ptr<Coordinator> _coordinator = nullptr;
+  std::unique_ptr<roles::partition::Coordinator> _coordinator = nullptr;
 
   // Pointer to the instance's replica role, if defined
-  std::unique_ptr<Replica> _replica = nullptr;
+  std::unique_ptr<roles::partition::Replica> _replica = nullptr;
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;
