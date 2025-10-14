@@ -9,13 +9,7 @@ class Prompt
 {
   public:
 
-  #pragma pack(push, 1)
-  struct promptId_t
-  {
-    sessionId_t sessionId;
-    messageId_t messageId;
-  };
-  #pragma pack(pop)
+  typedef std::pair<sessionId_t, messageId_t>  promptId_t;
 
   Prompt() = delete;
   ~Prompt() = default;
@@ -27,6 +21,7 @@ class Prompt
   }
 
   __INLINE__ void setResponse(const std::string& response) { _response = response; }
+  __INLINE__ promptId_t getPromptId() const { return _promptId; }
 
   private:
 

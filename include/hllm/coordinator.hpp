@@ -224,6 +224,9 @@ class Coordinator final : public hLLM::Partition
 
     // Registering a handler for the prompt message 
     subscribeMessageHandler(hLLM::messages::messageTypes::prompt, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ promptMessageHandler(edge, std::make_shared<hLLM::messages::Prompt>(message)); });
+
+    // If this is the prompt management partition, then set up a service for its handling
+    if (isPromptPartition())  _taskr->addService(&_taskrPromptHandlingService);
   }
 
   __INLINE__ void promptMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Prompt> message)
@@ -235,9 +238,16 @@ class Coordinator final : public hLLM::Partition
     const auto input = message->getInput();
     const auto sessionId = message->getSessionId();
     const auto messageId = message->getMessageId();
-    const auto promptId = Prompt::promptId_t({.sessionId = sessionId, .messageId = messageId});
+    const auto promptId = Prompt::promptId_t(sessionId, messageId);
     printf("[Coordinator %lu] Received prompt '%s' from session %lu, message: %lu\n", _partitionIdx, input.c_str(), sessionId, messageId);
+
+    // Creating new prompt
     auto prompt = std::make_shared<Prompt>(promptId, input);
+
+    // Adding prompt to new prompt queue
+    _promptManagementMutex.lock();
+    _pendingNewPromptsQueue.push(prompt);
+    _promptManagementMutex.unlock();
   }
   
   __INLINE__ void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
@@ -246,6 +256,32 @@ class Coordinator final : public hLLM::Partition
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
 
+  ///////////// Prompt handling service
+  __INLINE__ void promptHandlingService()
+  {
+    // Checking for new prompts to be added to the list
+    _promptManagementMutex.lock();
+
+    // Accepting incoming session connection requests
+    while(_pendingNewPromptsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      const auto prompt = _pendingNewPromptsQueue.front();
+      const auto promptId = prompt->getPromptId();
+      
+      // Registering session
+      _activePromptMap.insert({promptId, prompt});
+      printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
+
+      // Freeing entry in the pending session connection queue
+      _pendingNewPromptsQueue.pop();
+    }
+
+    _promptManagementMutex.unlock();
+  }
+  taskr::Service::serviceFc_t _promptHandlingServiceFunction = [this](){ this->promptHandlingService(); };
+  taskr::Service _taskrPromptHandlingService = taskr::Service(_promptHandlingServiceFunction);
+
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;
 
@@ -253,7 +289,14 @@ class Coordinator final : public hLLM::Partition
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionDataOutputs;
 
-  
+  // Prompt management mutex
+  std::mutex _promptManagementMutex;
+
+  // Queue of pending new prompts
+  std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
+
+  // Active prompt map
+  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
 
 }; // class Coordinator
 
