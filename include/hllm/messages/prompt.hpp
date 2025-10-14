@@ -31,6 +31,10 @@ class Prompt final : public Base
   {
     const auto messageType = rawMessage.getMetadata().type;
     if (messageType != getType()) HICR_THROW_RUNTIME("Message type %lu being decoded by class of type %lu. This is a bug in hLLM", messageType, getType());
+
+    _sessionId = rawMessage.getMetadata().sessionId;
+    _messageId = rawMessage.getMetadata().messageId;
+    _input = std::string((const char*)rawMessage.getData(), rawMessage.getSize());
   }
 
   __INLINE__ edge::Message encode() const override

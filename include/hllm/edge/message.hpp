@@ -15,7 +15,7 @@ namespace hLLM
   {
     public:
 
-    typedef uint8_t messageType_t;
+    typedef uint64_t messageType_t;
 
     #pragma pack(push, 1)
     struct metadata_t

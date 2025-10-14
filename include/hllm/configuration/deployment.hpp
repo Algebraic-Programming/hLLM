@@ -186,8 +186,6 @@ class Deployment final
     std::shared_ptr<hLLM::configuration::Partition> userInterfaceOutputPartition = nullptr;
 
     // First, the user interface input/outputs are counted as edges for the purposes of this check
-    edgeNameSet.insert(_settings.userInterface.input);
-    edgeNameSet.insert(_settings.userInterface.output);
     for (const auto& edge : _edges)
     {
       const auto& edgeName = edge->getName();
@@ -214,6 +212,7 @@ class Deployment final
 
           // Check the task that contains the user interface input does not receive any other inputs
           if (input == _settings.userInterface.input) userInterfaceInputPartition = partition;
+          if (input == _settings.userInterface.output) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is being used as input\n", task->getFunctionName(), input.c_str());
           if (input == _settings.userInterface.input && task->getInputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is not the only input of that task\n", task->getFunctionName(), input.c_str());
         } 
 
@@ -230,6 +229,7 @@ class Deployment final
 
           // Check the task that contains the user interface input does not receive any other inputs
           if (output == _settings.userInterface.output) userInterfaceOutputPartition = partition;
+          if (output == _settings.userInterface.input) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is being used as output\n", task->getFunctionName(), output.c_str());
           if (output == _settings.userInterface.output && task->getOutputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is not the only output of task\n", task->getFunctionName(), output.c_str());
         } 
       }
@@ -237,7 +237,10 @@ class Deployment final
     // Check whether all edges have consumer+producer partitions that do exist
     for (const auto& edge : _edges)
     {
-      if (inputPartitionMap.contains(edge->getName()) == false || outputPartitionMap.contains(edge->getName()) == false) 
+      const auto& edgeName = edge->getName();
+      if (edgeName != _settings.userInterface.input)
+      if (edgeName != _settings.userInterface.output)
+      if (inputPartitionMap.contains(edgeName) == false || outputPartitionMap.contains(edgeName) == false) 
         HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as input or output (or neither)\n", edge->getName().c_str());
 
        // Setting producer and consumer partitions for the edge
@@ -266,6 +269,24 @@ class Deployment final
         if (output != _settings.userInterface.output)
           if (inputPartitionMap.at(output) != userInterfaceOutputPartition->getName())
             HICR_THROW_LOGIC("Partition %s produces the user interface output '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceOutputPartition->getName().c_str(), _settings.userInterface.output.c_str(), output.c_str());
+
+    // Setting producer partition for user interface input to be the same as the consumer        
+    for (const auto& edge : _edges)
+    {
+      const auto& edgeName = edge->getName();
+
+      if (edgeName == _settings.userInterface.input)
+      {
+       edge->setProducer(userInterfaceInputPartition->getName());
+       edge->setConsumer(userInterfaceInputPartition->getName());
+      }
+
+      if (edgeName == _settings.userInterface.output)
+      {
+       edge->setProducer(userInterfaceOutputPartition->getName());
+       edge->setConsumer(userInterfaceOutputPartition->getName());
+      }
+    }
   }
 
   private:

@@ -169,9 +169,9 @@ int main(int argc, char *argv[])
       // Send a test message
       while(true)
       {
-        sleep(5);
         const auto messageId = session->sendPrompt("Hello, World!");
-        printf("[User] Send message Id: %lu\n", messageId);
+        printf("[User] Sent message Id: %lu\n", messageId);
+        sleep(1);
       }
     });
   }

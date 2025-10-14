@@ -7,10 +7,12 @@
 namespace hLLM::messages
 {
 
+// Do not use zero, as it might be confused with a blank (erroneous) message, producing a false positive
+#define __HLLM__BASE_MESSAGE_ID__ 128
 enum messageTypes : edge::Message::messageType_t
 {
-  heartbeat = 0,
-  prompt = 1
+  heartbeat = __HLLM__BASE_MESSAGE_ID__ + 0,
+  prompt = __HLLM__BASE_MESSAGE_ID__ + 1
 };
 
 class Base

@@ -128,13 +128,6 @@ class Coordinator final : public hLLM::Partition
     // Getting list of replicas in the partition
     const auto& replicas = partitionConfiguration->getReplicas();
 
-    // Determining whether I am a prompt coordinator
-    _isPromptCoordinator = false;
-    for (const auto& task : partitionConfiguration->getTasks())
-     for (const auto& input : task->getInputs())
-      if (input == _deployment.getUserInterface().input)
-        _isPromptCoordinator = true;
-
     // Filling replica set
     for (configuration::Replica::replicaIndex_t replicaIndex = 0; replicaIndex < replicas.size(); replicaIndex++)
     {
@@ -186,19 +179,21 @@ class Coordinator final : public hLLM::Partition
     for (const auto& replica : _replicas) replica->initializeEdges(tag);
   }
 
-  // Indicates whether the coordinator is capable of receiving prompts directly
-  [[nodiscard]] __INLINE__ bool isPromptCoordinator() const { return _isPromptCoordinator; }
-  __INLINE__ void acceptPrompt(const std::shared_ptr<hLLM::messages::Prompt> promptMessage)
+  __INLINE__ void pushPrompt(const std::shared_ptr<hLLM::messages::Prompt> prompt)
   {
-    // Sanity check
-    if (isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator. This must be a bug in hLLM", _partitionIdx);
+    // Finding the corresponding prompt edge
+    const auto& promptEdge = _partitionDataOutputs[_edgeIndexToVectorPositionMap[_promptEdgeIdx]];
 
-    // Creating new prompt object
-    const auto input = promptMessage->getInput();
-    const auto sessionId = promptMessage->getSessionId();
-    const auto messageId = promptMessage->getMessageId();
-    const auto promptId = Prompt::promptId_t({.sessionid = sessionId, .messageId = messageId});
-    printf("[Coordinator %lu] Received prompt '%s' from session %lu, message: %lu\n", _partitionIdx, input.c_str(), sessionId, messageId);
+    // Encoding raw message
+    const auto rawMessage = prompt->encode();
+
+    // printf("Pushing Prompt A\n");
+    // Waiting until it is freed
+    while (promptEdge->isFull(rawMessage.getSize()) == true);
+    // printf("Pushing Prompt B\n");
+
+    // Pushing prompt to the corresponding edge
+    promptEdge->pushMessage(rawMessage);
   }
 
   private:
@@ -221,11 +216,31 @@ class Coordinator final : public hLLM::Partition
     // Subscribing input edges to the control message service for my replicas
     for (const auto& replica : _replicas) subscribeMessageEdge(replica->getControlInput());
 
+    // Subscribing input edges to the control message service for the peer coordinators who provide data inputs to us
+    for (const auto& dataEdge : _partitionDataInputs) subscribeMessageEdge(dataEdge);
+
     // Registering a handler for the handshake message 
-    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::messages::Base* message){ heartbeatMessageHandler(edge, static_cast<const hLLM::messages::Heartbeat*>(message)); });
+    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
+
+    // Registering a handler for the prompt message 
+    subscribeMessageHandler(hLLM::messages::messageTypes::prompt, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ promptMessageHandler(edge, std::make_shared<hLLM::messages::Prompt>(message)); });
   }
 
-  void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const hLLM::messages::Heartbeat* message)
+  __INLINE__ void promptMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Prompt> message)
+  {
+    // Sanity check
+    if (isPromptPartition() == false) HICR_THROW_LOGIC("Sent a prompt to the coordinator of partition %lu, but this is not a prompt partition. This must be a bug in hLLM", _partitionIdx);
+
+    // Creating new prompt object
+    const auto input = message->getInput();
+    const auto sessionId = message->getSessionId();
+    const auto messageId = message->getMessageId();
+    const auto promptId = Prompt::promptId_t({.sessionId = sessionId, .messageId = messageId});
+    printf("[Coordinator %lu] Received prompt '%s' from session %lu, message: %lu\n", _partitionIdx, input.c_str(), sessionId, messageId);
+    auto prompt = std::make_shared<Prompt>(promptId, input);
+  }
+  
+  __INLINE__ void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
   {
     const auto replicaIdx = edge->getReplicaIndex();
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
@@ -238,17 +253,8 @@ class Coordinator final : public hLLM::Partition
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionDataOutputs;
 
-  // If this is a prompt coordinator, it can receive prompts directly from the user and direct them to the rest of the graph
-  bool _isPromptCoordinator = false;
+  
 
-  // Prompt management mutex
-  std::mutex _promptManagementMutex;
-
-  // Queue of pending new prompts
-  std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
-
-  // Active session map
-  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
 }; // class Coordinator
 
 } // namespace hLLM::coordinator

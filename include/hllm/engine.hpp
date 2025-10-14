@@ -442,10 +442,10 @@ class Engine final
     if (_coordinator == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu (partition %lu), but no coordinator is defined in it", _instanceId, _partitionIdx);
 
     // Check if the coordinator receives prompts
-    if (_coordinator->isPromptCoordinator() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator", _partitionIdx);
+    if (_coordinator->isPromptPartition() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator", _partitionIdx);
 
     // Send prompt to the coordinator
-    _coordinator->acceptPrompt(prompt);
+    _coordinator->pushPrompt(prompt);
   }
   
   ///////////// Session management service (no concurrent access active service map)

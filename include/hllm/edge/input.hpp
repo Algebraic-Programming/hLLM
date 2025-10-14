@@ -22,10 +22,8 @@ class Input final : public Base
   {
     ///// Allocating additional local buffers required for the consumer data channel
 
-    // Getting required buffer size
-    auto sizesBufferSize = HiCR::channel::variableSize::Base::getTokenBufferSize(sizeof(size_t), _edgeConfig.getBufferCapacity());
-
     // Allocating sizes buffer as a local memory slot
+    auto sizesBufferSize = HiCR::channel::variableSize::Base::getTokenBufferSize(sizeof(size_t), _edgeConfig.getBufferCapacity());
     _dataChannelSizesBuffer   = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizesBufferSize);
 
     // Allocating payload buffer as a local memory slot
@@ -94,11 +92,16 @@ class Input final : public Base
     const auto dataMessagePtr = &dataBufferPtr[dataMessagePos];
     const auto dataMessageSize = dataToken[1];
 
-    const auto metadataBufferPtr  = (uint8_t*) _metadataChannel->getTokenBuffer()->getSourceLocalMemorySlot()->getPointer(); 
+    const auto metadataBufferPtr  = (Message::metadata_t*) _metadataChannel->getTokenBuffer()->getSourceLocalMemorySlot()->getPointer(); 
     const auto metadataToken      = _metadataChannel->peek();
     const auto metadataMessagePos = metadataToken;
-    const auto metadataMessagePtr = (Message::metadata_t*)&metadataBufferPtr[metadataMessagePos];
+    const auto metadataMessagePtr = &metadataBufferPtr[metadataMessagePos];
     const Message::metadata_t metadata = *metadataMessagePtr;
+
+    // printf("Receiving, from Pos: %lu\n", metadataMessagePos);
+    // for(size_t i = 0; i < sizeof(hLLM::edge::Message::metadata_t); i++) printf(" 0x%2X ", ((uint8_t*)&metadata)[i]);
+    // printf("\n");
+    // fflush(stdout);
 
     return Message(dataMessagePtr, dataMessageSize, metadata);
   }
@@ -132,7 +135,7 @@ class Input final : public Base
     // Creating consumer data channel
     _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Consumer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
-      *_edgeConfig.getPayloadCommunicationManager(),
+      *_edgeConfig.getCoordinationCommunicationManager(),
       _metadataChannelConsumerPayloadBuffer,
       _metadataChannelConsumerCoordinationBuffer->getSourceLocalMemorySlot(),
       _metadataChannelProducerCoordinationBuffer,

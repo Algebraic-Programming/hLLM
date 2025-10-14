@@ -70,6 +70,10 @@ class Output final : public Base
     auto messagePayloadMemorySlot = _edgeConfig.getPayloadMemoryManager()->registerLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), (void*)message.getData(), message.getSize());
     _dataChannel->push(messagePayloadMemorySlot);
 
+    // auto metadata = message.getMetadata();
+    // printf("Pushing: \n");
+    // for(size_t i = 0; i < sizeof(hLLM::edge::Message::metadata_t); i++) printf(" 0x%2X ", ((uint8_t*)&metadata)[i]);
+    // printf("\n");
     auto messageMetadataMemorySlot = _edgeConfig.getCoordinationMemoryManager()->registerLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), (void*)&message.getMetadata(), sizeof(Message::metadata_t));
     _metadataChannel->push(messageMetadataMemorySlot);
 
@@ -102,8 +106,8 @@ class Output final : public Base
     // Creating producer metadata channel
     _metadataChannel = std::make_shared<HiCR::channel::fixedSize::SPSC::Producer>(
       *_edgeConfig.getCoordinationCommunicationManager(),
-      *_edgeConfig.getPayloadCommunicationManager(),
-      _metadataChannelConsumerCoordinationBuffer,
+      *_edgeConfig.getCoordinationCommunicationManager(),
+      _metadataChannelConsumerPayloadBuffer,
       _metadataChannelProducerCoordinationBuffer->getSourceLocalMemorySlot(),
       _metadataChannelConsumerCoordinationBuffer,
       sizeof(Message::metadata_t),

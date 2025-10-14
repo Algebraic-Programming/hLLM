@@ -85,6 +85,8 @@ class Base
 
     // Reserving memory for the local coordination buffers
     const auto coordinationBufferSize = HiCR::channel::Base::getCoordinationBufferSize();
+
+    
     _dataChannelLocalCoordinationBufferForSizes    = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
     _dataChannelLocalCoordinationBufferForPayloads = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);
     _metadataChannelLocalCoordinationBuffer        = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), coordinationBufferSize);

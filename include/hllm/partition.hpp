@@ -80,6 +80,13 @@ class Partition
         // Adding new entry
         _inputEdges.push_back( edge::edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = producerPartitionIdx, .consumerPartitionIndex = _partitionIdx });
 
+        // If the edge corresponds to the prompt edge, set it now
+        if (edgeConfig->getName() == _deployment.getUserInterface().input)
+        {
+          _isPromptPartition = true;
+          _promptEdgeIdx = edgeIdx;
+        }
+
         // Adding map entry to link the edge index to its position
         _edgeIndexToVectorPositionMap[edgeIdx] = inputEdgeVectorPosition;
 
@@ -144,6 +151,8 @@ class Partition
     _continueRunning = true;
   }
 
+  [[nodiscard]] __INLINE__ bool isPromptPartition() const { return _isPromptPartition; }
+
   protected: 
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
@@ -167,6 +176,10 @@ class Partition
   // Flag indicating whether the execution must keep running
   __volatile__ bool _continueRunning;
 
+  // If this is a prompt partition, it can receive prompts directly from the user and direct them to the rest of the graph
+  bool _isPromptPartition = false;
+  configuration::Edge::edgeIndex_t _promptEdgeIdx;
+
   //  Configuration for control buffer edges
   std::shared_ptr<configuration::Edge> _controlEdgeConfig;
 
@@ -174,7 +187,7 @@ class Partition
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
 
   // Function to subscribe a  message handler
-  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::messages::Base*)> messageHandler_t;
+  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::edge::Message&)> messageHandler_t;
   __INLINE__ void subscribeMessageHandler(const hLLM::edge::Message::messageType_t type, const messageHandler_t handler) { _messageHandlers[type] = handler; }
   __INLINE__ void subscribeMessageEdge(const std::shared_ptr<edge::Input> edge) { _inputEdgesForHandler.push_back(edge); }
   
@@ -231,21 +244,8 @@ class Partition
       // Checking whether the message type is subscribed to
       if (_messageHandlers.contains(messageType) == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received message type %lu that has no subscribed handler\n", _partitionIdx, replicaIdx, messageType);
 
-      // Decoding message based on type
-      hLLM::messages::Base* decodedMessage;
-      bool isRecognized = false;
-
-      if (messageType == hLLM::messages::messageTypes::heartbeat)
-      {
-        isRecognized = true;
-        decodedMessage = new hLLM::messages::Heartbeat(message);
-      }
-
-      // Checking whether the message type is even recognized
-      if (isRecognized == false) HICR_THROW_RUNTIME("[Partition %lu / %lu] Received message type %lu that is not recognized. This must be a bug in hLLM\n", _partitionIdx, replicaIdx, messageType);
-
       // Now calling the handler
-      _messageHandlers[messageType](edge, decodedMessage);
+      _messageHandlers[messageType](edge, message);
 
       // Immediately disposing (popping) of message out of the edge
       edge->popMessage();

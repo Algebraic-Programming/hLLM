@@ -29,9 +29,8 @@ class Heartbeat final : public Base
     if (messageType != getType()) HICR_THROW_RUNTIME("Message type %lu being decoded by class of type %lu. This is a bug in hLLM", messageType, getType());
 
     const auto signatureSize = rawMessage.getSize();
-    if (signatureSize != _signature.size() + 1) HICR_THROW_RUNTIME("Heartbeat message has signature incorrect size (%lu != %lu). This is a bug in hLLM", signatureSize, _signature.size() + 1);
-
     const std::string signature = std::string((const char*)rawMessage.getData());
+    if (signatureSize != _signature.size() + 1) HICR_THROW_RUNTIME("Heartbeat message has signature incorrect size (%lu != %lu, Recevied: '%s'). This is a bug in hLLM", signatureSize, _signature.size() + 1, signature.c_str());
     if (signature != _signature) HICR_THROW_RUNTIME("Heartbeat message has incorrect signature ('%s' != '%s'). This is a bug in hLLM", signature.c_str(), _signature.c_str());
   }
 
