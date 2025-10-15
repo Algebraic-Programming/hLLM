@@ -12,7 +12,8 @@ namespace hLLM::messages
 enum messageTypes : edge::Message::messageType_t
 {
   heartbeat = __HLLM__BASE_MESSAGE_ID__ + 0,
-  prompt = __HLLM__BASE_MESSAGE_ID__ + 1
+  prompt = __HLLM__BASE_MESSAGE_ID__ + 1,
+  data = __HLLM__BASE_MESSAGE_ID__ + 2
 };
 
 class Base

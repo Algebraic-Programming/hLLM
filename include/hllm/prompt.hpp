@@ -22,6 +22,7 @@ class Prompt
 
   __INLINE__ void setResponse(const std::string& response) { _response = response; }
   __INLINE__ promptId_t getPromptId() const { return _promptId; }
+  __INLINE__ const std::string& getPrompt() const { return _prompt; }
 
   private:
 

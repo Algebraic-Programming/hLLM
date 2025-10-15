@@ -10,6 +10,7 @@
 #include "../edge/base.hpp"
 #include "../edge/output.hpp"
 #include "../configuration/deployment.hpp"
+#include "../messages/data.hpp"
 
 namespace hLLM::roles
 {
@@ -158,10 +159,17 @@ class RequestManager final : public hLLM::Role
       // Getting next pending session to connect
       const auto prompt = _pendingNewPromptsQueue.front();
       const auto promptId = prompt->getPromptId();
+      const auto sessionId = promptId.first;
+      const auto messageId = promptId.second;
+      const auto& promptData = prompt->getPrompt();
       
       // Registering session
       _activePromptMap.insert({promptId, prompt});
       printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
+
+      // Sending data to the partition that takes the prompt as input
+      const auto message = messages::Data((uint8_t*)promptData.data(), promptData.size()+1, promptId.first, promptId.second);
+      _promptOutputEdge->pushMessage(message);
 
       // Freeing entry in the pending session connection queue
       _pendingNewPromptsQueue.pop();
@@ -174,11 +182,9 @@ class RequestManager final : public hLLM::Role
 
 
   // Edge to copy a prompt to a coordinator
-  edge::edgeInfo_t _promputEdgeInfo;
   std::shared_ptr<edge::Output> _promptOutputEdge;
   
   // Edge to receive a result from a coordinator
-  edge::edgeInfo_t _resultEdgeInfo;
   std::shared_ptr<edge::Input> _resultInputEdge;
 
   // Prompt management mutex
