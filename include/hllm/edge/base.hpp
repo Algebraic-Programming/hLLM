@@ -16,7 +16,9 @@ enum edgeType_t : edgeTypeDatatype_t
 {
   coordinatorToCoordinator = 0,
   coordinatorToReplica = 1,
-  replicaToCoordinator = 2
+  replicaToCoordinator = 2,
+  coordinatorToRequestManager = 3,
+  requestManagerToCoordinator = 4
 };
 
 struct edgeInfo_t
@@ -46,8 +48,8 @@ class Base
   static constexpr size_t maxEdgeIndexBits = 24;
   static constexpr size_t maxProducerPartitionIndexBits = 12;
   static constexpr size_t maxConsumerPartitionIndexBits = 12;
-  static constexpr size_t maxReplicaIndexBits = 10;
-  static constexpr size_t maxEdgeTypeBits = 2;
+  static constexpr size_t maxReplicaIndexBits = 9;
+  static constexpr size_t maxEdgeTypeBits = 3;
   static constexpr size_t maxChannelSpecificKeyBits = 4;
   static constexpr configuration::Edge::edgeIndex_t maxEdgeIndex = 1ul << maxEdgeIndexBits;
   static constexpr configuration::Partition::partitionIndex_t maxProducerPartitionIndex = 1ul << maxProducerPartitionIndexBits;
@@ -155,7 +157,7 @@ class Base
     if (consumerPartitionIndex >= maxConsumerPartitionIndex) HICR_THROW_LOGIC("Producer partition index %lu exceeds maximum: %lu\n", consumerPartitionIndex, maxConsumerPartitionIndex);
     if (replicaIndex >= maxReplicaIndex) HICR_THROW_LOGIC("Replica index %lu exceeds maximum: %lu\n", replicaIndex, maxReplicaIndex);
     if (edgeType >= maxEdgeType) HICR_THROW_LOGIC("Edge type value %lu exceeds maximum: %lu (this must be a bug in hLLM)\n", edgeType, maxEdgeType);
-    if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", edgeIndex, maxEdgeIndex);
+    if (channelKey >= maxChannelSpecificKey) HICR_THROW_LOGIC("Channel-specific key %lu exceeds maximum: %lu\n", channelKey, maxChannelSpecificKey);
 
     // Initial bit for encoding
     constexpr uint8_t initialBit = 0;

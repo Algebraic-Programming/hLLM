@@ -5,7 +5,7 @@
     "Heartbeat":
     {
       "Enabled": true,
-      "Visible": true,
+      "Visible": false,
       "Interval": 500,
       "Tolerance": 1000
     },
@@ -30,7 +30,7 @@
             "Prompt"
           ],
           "Outputs": [
-            "Formatted Request"
+            "Response"
           ]
         }
       ],
@@ -38,34 +38,12 @@
       [
         { "Name": "Replica 0/0" }
       ]
-    },
-    {
-      "Name": "Result Partition",
-      "Tasks": [
-        {
-          "Function Name": "Return Result",
-          "Inputs": [
-            "Formatted Request"
-          ],
-          "Outputs": [
-            "Response"
-          ]
-        }
-      ],
-      "Replicas":
-      [
-        { "Name": "Replica 1/0" }
-      ]
     }
   ],
   "Edges": [
     {
       "Name": "Prompt",
       "Buffer Size": 4096
-    },
-    {
-      "Name": "Formatted Request",
-      "Buffer Size": 16384
     },
     {
       "Name": "Response",

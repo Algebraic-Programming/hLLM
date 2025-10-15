@@ -7,6 +7,7 @@
 #include <string>
 #include <nlohmann_json/parser.hpp>
 #include <hicr/core/definitions.hpp>
+#include <hicr/core/instance.hpp>
 
 namespace hLLM::configuration
 {
@@ -67,6 +68,9 @@ class Deployment final
 
     // Indicates which output in the execution graph is fed to the user
     std::string output;
+
+    // Indicates which instance Id to assign to the user interface -- determined at runtime
+    HiCR::Instance::instanceId_t instanceId = 0;
   };
 
   struct settings_t
@@ -128,6 +132,7 @@ class Deployment final
     auto userInterface = std::map<std::string, nlohmann::json>();
     userInterface["Input"] = _settings.userInterface.input;
     userInterface["Output"] = _settings.userInterface.output;
+    userInterface["Instance Id"] = _settings.userInterface.instanceId;
     settings["User Interface"] = userInterface;
 
     js["Settings"] = settings;
@@ -165,6 +170,7 @@ class Deployment final
     nlohmann::json userInterfaceJs = hicr::json::getObject(settingsJs, "User Interface");
     _settings.userInterface.input = hicr::json::getString(userInterfaceJs, "Input");
     _settings.userInterface.output = hicr::json::getString(userInterfaceJs, "Output");
+    if (userInterfaceJs.contains("Instance Id")) _settings.userInterface.instanceId = hicr::json::getNumber<HiCR::Instance::instanceId_t>(userInterfaceJs, "Instance Id");
   }
   
   // Includes all kinds of sanity checks relevant to a deployment

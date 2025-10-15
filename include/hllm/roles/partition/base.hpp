@@ -36,6 +36,10 @@ class Base : public hLLM::Role
     // Get my partition name
     const auto& partitionName = partitionConfiguration->getName();
 
+    // Name of the prompt and response edges
+    const auto& promptInputName = _deployment.getUserInterface().input;
+    const auto& resultOutputName = _deployment.getUserInterface().output;
+
     // Getting list of edges in the deployment
     const auto& edgeConfigs = _deployment.getEdges();
 
@@ -46,8 +50,12 @@ class Base : public hLLM::Role
       // Getting edge object by index
       const auto edgeConfig = edgeConfigs[edgeIdx];
 
-      // If I am a consumer in this edge
-      if (edgeConfig->getConsumer() == partitionName)
+      // Getting edge name
+      const auto& edgeName = edgeConfig->getName();
+
+      //printf("Edge: '%s' - Producer: %s, Consumer: %s\n", edgeConfig->getName().c_str(), edgeConfig->getProducer().c_str(), edgeConfig->getConsumer().c_str());
+      // If I am a consumer in this edge and it is not a request manager output
+      if (edgeConfig->getConsumer() == partitionName && edgeName != resultOutputName)
       {
         // Looking for the index of the producer of the input
         const auto& producerPartitionName = edgeConfig->getProducer(); 
@@ -69,13 +77,6 @@ class Base : public hLLM::Role
         // Adding new entry
         _inputEdges.push_back( edge::edgeInfo_t { .index = edgeIdx, .config = edgeConfig, .producerPartitionIndex = producerPartitionIdx, .consumerPartitionIndex = _partitionIdx });
 
-        // If the edge corresponds to the prompt edge, set it now
-        if (edgeConfig->getName() == _deployment.getUserInterface().input)
-        {
-          _isPromptPartition = true;
-          _promptEdgeIdx = edgeIdx;
-        }
-
         // Adding map entry to link the edge index to its position
         _edgeIndexToVectorPositionMap[edgeIdx] = inputEdgeVectorPosition;
 
@@ -85,7 +86,7 @@ class Base : public hLLM::Role
 
       // If I am a producer in this edge
       size_t outputEdgeVectorPosition = 0;
-      if (edgeConfig->getProducer() == partitionName)
+      if (edgeConfig->getProducer() == partitionName && edgeName != promptInputName)
       {
         // Looking for the index of the consumer of the input
         const auto& consumerPartitionName = edgeConfig->getConsumer(); 
@@ -116,8 +117,6 @@ class Base : public hLLM::Role
     }
   }
 
-  [[nodiscard]] __INLINE__ bool isPromptPartition() const { return _isPromptPartition; }
-
   protected: 
 
   const configuration::Partition::partitionIndex_t _partitionIdx;
@@ -130,11 +129,6 @@ class Base : public hLLM::Role
 
   // This map links an edge index (as defined in the deployment configuration) to its position in the input/output vectors
   std::map<hLLM::configuration::Edge::edgeIndex_t, size_t> _edgeIndexToVectorPositionMap;
-
-  // If this is a prompt partition, it can receive prompts directly from the user and direct them to the rest of the graph
-  bool _isPromptPartition = false;
-  configuration::Edge::edgeIndex_t _promptEdgeIdx;
-
 }; // class Base
 
 } // namespace hLLM

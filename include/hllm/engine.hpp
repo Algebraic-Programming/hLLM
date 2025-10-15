@@ -6,6 +6,7 @@
 #include "configuration/deployment.hpp"
 #include "roles/partition/coordinator.hpp"
 #include "roles/partition/replica.hpp"
+#include "roles/requestManager.hpp"
 #include "edge/base.hpp"
 #include "task.hpp"
 #include "session.hpp"
@@ -278,11 +279,15 @@ class Engine final
     configuration::Replica::replicaIndex_t myReplicaIndex = 0;
     bool isPartitionCoordinator = false;
     bool isPartitionReplica = false;
+    bool isRequestManager = false;
 
     // Sanity checks on the deployment object
     _deployment.verify();
 
-    // Perusing the deployment to see what my role(s) is(are)
+    // Checking if I am the request manager
+    if (_deployment.getUserInterface().instanceId == _instanceId) isRequestManager = true;
+
+    // Perusing the deployment to see what my  partition role(s) is(are), if any
     for (configuration::Partition::partitionIndex_t pIdx = 0; pIdx < _deployment.getPartitions().size(); pIdx++)
     {
       // Getting partition object
@@ -323,11 +328,11 @@ class Engine final
     if (isPartitionCoordinator == true)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      _coordinator = std::make_unique<roles::partition::Coordinator>(_deployment, myPartitionIndex, _taskr);
+      _partitionCoordinatorRole = std::make_unique<roles::partition::Coordinator>(_deployment, myPartitionIndex, _taskr);
 
       // Get memory slots to exchange for the partition coordinator
-      printf("Registering Coordinator Memory Slots...\n");
-      _coordinator->getMemorySlotsToExchange(memorySlotsToExchange);
+      printf("Registering Partition Coordinator Memory Slots...\n");
+      _partitionCoordinatorRole->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // If I am a replica, construct the replica object:
@@ -335,15 +340,28 @@ class Engine final
     if (isPartitionReplica == true)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      _replica = std::make_unique<roles::partition::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
+      _partitionReplicaRole = std::make_unique<roles::partition::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
 
       // Get memory slots to exchange for the replica
-      printf("Registering Replica Memory Slots...\n");
-      _replica->getMemorySlotsToExchange(memorySlotsToExchange);
+      printf("Registering Partition Replica Memory Slots...\n");
+      _partitionReplicaRole->getMemorySlotsToExchange(memorySlotsToExchange);
+    }
+
+    // If I am a Request Manager, construct the role now
+    if (isRequestManager == true)
+    {
+      printf("[Instance %lu] I am the request manager\n", _instanceId);
+      _requestManagerRole = std::make_unique<roles::RequestManager>(_deployment, _taskr);
+
+      // Get memory slots to exchange for the replica
+      printf("Registering Request Manager Memory Slots...\n");
+      _requestManagerRole->getMemorySlotsToExchange(memorySlotsToExchange);
     }
 
     // Sanity check
-    if (isPartitionCoordinator == false && isPartitionReplica == false) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it. This must be a bug in hLLM", _instanceId);
+    if (isPartitionCoordinator == false &&
+       isPartitionReplica == false &&
+       isRequestManager == false) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it. This must be a bug in hLLM", _instanceId);
 
     ////////// Exchange memory slots now
     // printf("[Instance %lu] Memory Slots to exchange: %lu\n", _instanceId, memorySlotsToExchange.size());
@@ -387,6 +405,7 @@ class Engine final
       if (communicationManagerSet.contains(communicationManager) == false) HICR_THROW_RUNTIME("Could not find communication manager in the set. This is a bug in hLLM");
 
       // Adding memory slot to the exchange map
+      // printf("Exchanging Memory Slot with key: %lu\n", entry.globalKey);
       exchangeMap[communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
     } 
 
@@ -398,8 +417,9 @@ class Engine final
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
 
     // After the exchange, we can now initialize the edges
-    if (isPartitionCoordinator == true) _coordinator->initializeEdges(_exchangeTag);
-    if (isPartitionReplica == true) _replica->initializeEdges(_exchangeTag);
+    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initializeEdges(_exchangeTag);
+    if (isPartitionReplica == true) _partitionReplicaRole->initializeEdges(_exchangeTag);
+    if (isRequestManager == true) _requestManagerRole->initializeEdges(_exchangeTag);
 
     // Starting a new deployment
     _continueRunning = true;
@@ -408,8 +428,9 @@ class Engine final
     _taskr->initialize();
 
     // Initializing coordinator and replica roles, whichever applies (or both), so that they add their initial functions to taskR
-    if (isPartitionCoordinator == true) _coordinator->initialize();
-    if (isPartitionReplica == true) _replica->initialize();
+    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initialize();
+    if (isPartitionReplica == true) _partitionReplicaRole->initialize();
+    if (isRequestManager == true) _requestManagerRole->initialize();
 
     // Adding session management service
     _taskr->addService(&_taskrSessionManagementService);
@@ -439,13 +460,10 @@ class Engine final
   __INLINE__ void processPromptMessage(const std::shared_ptr<hLLM::messages::Prompt> prompt)
   {
     // Check if there is a coordinator defined to receive the prompt
-    if (_coordinator == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu (partition %lu), but no coordinator is defined in it", _instanceId, _partitionIdx);
-
-    // Check if the coordinator receives prompts
-    if (_coordinator->isPromptPartition() == false) HICR_THROW_LOGIC("Send a prompt to the coordinator of partition %lu, but this is not a prompt coordinator", _partitionIdx);
+    // if (_requestManagerRole == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu, but no request manager is defined in it", _instanceId);
 
     // Send prompt to the coordinator
-    _coordinator->pushPrompt(prompt);
+    // _requestManagerRole->pushPrompt(prompt);
   }
   
   ///////////// Session management service (no concurrent access active service map)
@@ -512,11 +530,14 @@ class Engine final
   taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
 
 
-  // Pointer to the instance's coordinator role, if defined
-  std::unique_ptr<roles::partition::Coordinator> _coordinator = nullptr;
+  // Pointer to the instance's partition coordinator role, if defined
+  std::unique_ptr<roles::partition::Coordinator> _partitionCoordinatorRole = nullptr;
 
-  // Pointer to the instance's replica role, if defined
-  std::unique_ptr<roles::partition::Replica> _replica = nullptr;
+  // Pointer to the instance's partition replica role, if defined
+  std::unique_ptr<roles::partition::Replica> _partitionReplicaRole = nullptr;
+
+  // Pointer to the instance's request manager role, if defined
+  std::unique_ptr<roles::RequestManager> _requestManagerRole = nullptr;
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;

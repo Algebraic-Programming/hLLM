@@ -138,16 +138,27 @@ class Coordinator final : public Base
       _replicas.push_back(std::move(newReplica));
     }
 
+    // Name of the prompt and response edges
+    const auto& promptInputName = _deployment.getUserInterface().input;
+    const auto& resultOutputName = _deployment.getUserInterface().output;
+
     // Iterating through input edges to create a connection with replicas and peer coordinators on that input
     for (const auto& edge : _inputEdges)
     {
       const auto edgeIdx = edge.index;
       const auto& edgeConfig = edge.config;
+      const auto& edgeName = edgeConfig->getName();
       const auto producerPartitionIdx = edge.producerPartitionIndex;
       const auto consumerPartitionIdx = edge.consumerPartitionIndex;
         
+      // Defining edge type, based on whether we expect this data from another coordinator or from the request manager
+      auto edgeType = edge::edgeType_t::coordinatorToCoordinator;
+      if (edgeName == promptInputName) edgeType = edge::edgeType_t::requestManagerToCoordinator;
+
       // Create the input edges to pass this information to the receiving partition
-      _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
+      _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
+
+      // if (edgeName == promptInputName) printf("[Coordinator] Prompt Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
 
     // Iterating through output edges to create a connection with replicas and peer coordinators on that output
@@ -155,11 +166,18 @@ class Coordinator final : public Base
     {
       const auto edgeIdx = edge.index;
       const auto& edgeConfig = edge.config;
+      const auto& edgeName = edgeConfig->getName();
       const auto producerPartitionIdx = edge.producerPartitionIndex;
       const auto consumerPartitionIdx = edge.consumerPartitionIndex;
 
+        // Defining edge type, based on whether we expect to push this data to another coordinator or to the request manager
+      auto edgeType = edge::edgeType_t::coordinatorToCoordinator;
+      if (edgeName == resultOutputName) edgeType = edge::edgeType_t::coordinatorToRequestManager;
+
       // Create the output edge to pass this information to the receiving partition
-      _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::coordinatorToCoordinator, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
+      _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
+
+      // if (edgeName == resultOutputName) printf("[Coordinator] Result Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
   }
 
@@ -177,23 +195,6 @@ class Coordinator final : public Base
     for (const auto& edge : _partitionDataInputs)  edge->initialize(tag);
     for (const auto& edge : _partitionDataOutputs) edge->initialize(tag);
     for (const auto& replica : _replicas) replica->initializeEdges(tag);
-  }
-
-  __INLINE__ void pushPrompt(const std::shared_ptr<hLLM::messages::Prompt> prompt)
-  {
-    // Finding the corresponding prompt edge
-    const auto& promptEdge = _partitionDataOutputs[_edgeIndexToVectorPositionMap[_promptEdgeIdx]];
-
-    // Encoding raw message
-    const auto rawMessage = prompt->encode();
-
-    // printf("Pushing Prompt A\n");
-    // Waiting until it is freed
-    while (promptEdge->isFull(rawMessage.getSize()) == true);
-    // printf("Pushing Prompt B\n");
-
-    // Pushing prompt to the corresponding edge
-    promptEdge->pushMessage(rawMessage);
   }
 
   private:
@@ -221,66 +222,13 @@ class Coordinator final : public Base
 
     // Registering a handler for the handshake message 
     subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
-
-    // Registering a handler for the prompt message 
-    subscribeMessageHandler(hLLM::messages::messageTypes::prompt, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ promptMessageHandler(edge, std::make_shared<hLLM::messages::Prompt>(message)); });
-
-    // If this is the prompt management partition, then set up a service for its handling
-    if (isPromptPartition())  _taskr->addService(&_taskrPromptHandlingService);
   }
 
-  __INLINE__ void promptMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Prompt> message)
-  {
-    // Sanity check
-    if (isPromptPartition() == false) HICR_THROW_LOGIC("Sent a prompt to the coordinator of partition %lu, but this is not a prompt partition. This must be a bug in hLLM", _partitionIdx);
-
-    // Creating new prompt object
-    const auto input = message->getInput();
-    const auto sessionId = message->getSessionId();
-    const auto messageId = message->getMessageId();
-    const auto promptId = Prompt::promptId_t(sessionId, messageId);
-    printf("[Coordinator %lu] Received prompt '%s' from session %lu, message: %lu\n", _partitionIdx, input.c_str(), sessionId, messageId);
-
-    // Creating new prompt
-    auto prompt = std::make_shared<Prompt>(promptId, input);
-
-    // Adding prompt to new prompt queue
-    _promptManagementMutex.lock();
-    _pendingNewPromptsQueue.push(prompt);
-    _promptManagementMutex.unlock();
-  }
-  
   __INLINE__ void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
   {
     const auto replicaIdx = edge->getReplicaIndex();
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
-
-  ///////////// Prompt handling service
-  __INLINE__ void promptHandlingService()
-  {
-    // Checking for new prompts to be added to the list
-    _promptManagementMutex.lock();
-
-    // Accepting incoming session connection requests
-    while(_pendingNewPromptsQueue.empty() == false)
-    {
-      // Getting next pending session to connect
-      const auto prompt = _pendingNewPromptsQueue.front();
-      const auto promptId = prompt->getPromptId();
-      
-      // Registering session
-      _activePromptMap.insert({promptId, prompt});
-      printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
-
-      // Freeing entry in the pending session connection queue
-      _pendingNewPromptsQueue.pop();
-    }
-
-    _promptManagementMutex.unlock();
-  }
-  taskr::Service::serviceFc_t _promptHandlingServiceFunction = [this](){ this->promptHandlingService(); };
-  taskr::Service _taskrPromptHandlingService = taskr::Service(_promptHandlingServiceFunction);
 
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;
@@ -288,15 +236,6 @@ class Coordinator final : public Base
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionDataOutputs;
-
-  // Prompt management mutex
-  std::mutex _promptManagementMutex;
-
-  // Queue of pending new prompts
-  std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
-
-  // Active prompt map
-  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
 
 }; // class Coordinator
 
