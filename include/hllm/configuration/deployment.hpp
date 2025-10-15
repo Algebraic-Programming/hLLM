@@ -283,14 +283,16 @@ class Deployment final
 
       if (edgeName == _settings.userInterface.input)
       {
-       edge->setProducer(userInterfaceInputPartition->getName());
+       edge->setProducer(userInterfaceInputPartition->getName()); 
        edge->setConsumer(userInterfaceInputPartition->getName());
+       edge->setPromptEdge(true);
       }
 
       if (edgeName == _settings.userInterface.output)
       {
        edge->setProducer(userInterfaceOutputPartition->getName());
        edge->setConsumer(userInterfaceOutputPartition->getName());
+       edge->setResultEdge(true);
       }
     }
   }

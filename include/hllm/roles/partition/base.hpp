@@ -36,10 +36,6 @@ class Base : public hLLM::Role
     // Get my partition name
     const auto& partitionName = partitionConfiguration->getName();
 
-    // Name of the prompt and response edges
-    const auto& promptInputName = _deployment.getUserInterface().input;
-    const auto& resultOutputName = _deployment.getUserInterface().output;
-
     // Getting list of edges in the deployment
     const auto& edgeConfigs = _deployment.getEdges();
 
@@ -55,7 +51,7 @@ class Base : public hLLM::Role
 
       //printf("Edge: '%s' - Producer: %s, Consumer: %s\n", edgeConfig->getName().c_str(), edgeConfig->getProducer().c_str(), edgeConfig->getConsumer().c_str());
       // If I am a consumer in this edge and it is not a request manager output
-      if (edgeConfig->getConsumer() == partitionName && edgeName != resultOutputName)
+      if (edgeConfig->getConsumer() == partitionName && edgeConfig->isResultEdge() == false)
       {
         // Looking for the index of the producer of the input
         const auto& producerPartitionName = edgeConfig->getProducer(); 
@@ -86,7 +82,7 @@ class Base : public hLLM::Role
 
       // If I am a producer in this edge
       size_t outputEdgeVectorPosition = 0;
-      if (edgeConfig->getProducer() == partitionName && edgeName != promptInputName)
+      if (edgeConfig->getProducer() == partitionName  && edgeConfig->isPromptEdge() == false)
       {
         // Looking for the index of the consumer of the input
         const auto& consumerPartitionName = edgeConfig->getConsumer(); 

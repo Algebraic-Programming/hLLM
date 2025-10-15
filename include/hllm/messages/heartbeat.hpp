@@ -36,7 +36,7 @@ class Heartbeat final : public Base
 
   __INLINE__ edge::Message encode() const override
   { 
-    edge::Message rawMessage((uint8_t*)_signature.data(), _signature.size()+1, edge::Message::metadata_t( { .type = getType(), .messageId = 0, .sessionId = 0 }));
+    edge::Message rawMessage((uint8_t*)_signature.data(), _signature.size()+1, edge::Message::metadata_t( { .type = getType(), .sessionId = 0, .messageId = 0 }));
 
     return rawMessage;
   }

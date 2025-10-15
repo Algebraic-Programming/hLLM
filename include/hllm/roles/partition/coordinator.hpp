@@ -10,6 +10,7 @@
 #include "../../edge/output.hpp"
 #include "../../messages/base.hpp"
 #include "../../messages/heartbeat.hpp"
+#include "../../messages/data.hpp"
 #include "../../messages/prompt.hpp"
 #include "../../prompt.hpp"
 #include "base.hpp"
@@ -20,6 +21,96 @@ namespace hLLM::roles::partition
 class Coordinator final : public Base
 {
   private:
+
+  // A job represents the series of tasks and input/output data a given prompt requires to execute in this particular partition
+  class Job
+  {
+    public:
+
+    struct edgeData_t
+    {
+      hLLM::edge::edgeInfo_t edgeInfo;
+      std::shared_ptr<HiCR::LocalMemorySlot> edgeSlot;
+      bool isSatisfied;
+    };
+
+    Job() = delete;
+    ~Job() = default;
+
+    Job(const Prompt::promptId_t promptId,
+            const std::vector<hLLM::edge::edgeInfo_t>& inputEdges,
+            const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) :
+            _promptId(promptId)
+    {
+      // Store data and allocate buffers for input edges
+      for (const auto& edgeInfo : inputEdges)  _inputs.push_back(  edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
+      for (const auto& edgeInfo : outputEdges) _outputs.push_back( edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
+    }
+
+    // Satisfying an input means that the data for that input has arrived from a peer coordinator to another.
+    // Now we make a copy of the data to store in this prompt object until is is needed for execution
+    __INLINE__ void satisfyInput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_inputs[edgeVectorPosition], data, size); }
+
+    // Satisfying an output means that the data for that output has arrived from a replica to a coordinator.
+    // Now we make a copy of the data to store in this prompt object until is is needed for sending out
+    __INLINE__ void satisfyOutput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_outputs[edgeVectorPosition], data, size); }
+
+    // Indicates whether the prompt is ready for local execution (or to be sent to a replica)
+    // For this, we need to check that all inputs coming from external sources have been satisfied
+    [[nodiscard]] __INLINE__ bool isReadyToExecute()
+    {
+      for (const auto& input : _inputs)
+      {
+        // Execution can start as soon as all external edges have arrived. Internal edges are resolved during execution
+        if (input.edgeInfo.consumerPartitionIndex == input.edgeInfo.producerPartitionIndex && input.edgeInfo.config->isPromptEdge() == false) continue; // Ignore internal edges
+        if (input.isSatisfied == false) return false;
+      }
+      return true;
+    }
+
+    // Indicates whether the prompt's outputs destined to other partitions are ready for forwarding to the next partition
+    [[nodiscard]] __INLINE__ bool isReadyToForward()
+    {
+      for (const auto& output : _outputs)
+        if (output.isSatisfied == false) return false;
+      return true;
+    }
+
+    [[nodiscard]] Prompt::promptId_t getPromptId() const { return _promptId; }
+
+    private:
+
+    __INLINE__ void satisfyEdge(edgeData_t& edge, const uint8_t* data, const size_t size)
+    {
+      // Sanity check
+      if (edge.isSatisfied == true) HICR_THROW_RUNTIME("Trying to satisfy edge index %lu ('%s') that was already satisfied. This must be a bug in HiCR\n", edge.edgeInfo.config->getName().c_str(), edge.edgeInfo.index);
+
+      // Getting relevant managers
+      auto edgeMemoryManager = edge.edgeInfo.config->getPayloadMemoryManager();
+      auto edgeMemorySpace = edge.edgeInfo.config->getPayloadMemorySpace();
+      auto edgeCommunicationManager = edge.edgeInfo.config->getPayloadCommunicationManager();
+
+      // Registering memory slot for the incoming data
+      const auto srcSlot = edgeMemoryManager->registerLocalMemorySlot(edgeMemorySpace, (void*)data, size);
+
+      // Creating new buffer for the edge's data
+      edge.edgeSlot = edgeMemoryManager->allocateLocalMemorySlot(edgeMemorySpace, size);
+
+      // Copying the data to the prompt buffer
+      edgeCommunicationManager->memcpy(edge.edgeSlot, 0, srcSlot, 0, size);
+      edgeCommunicationManager->fence(edge.edgeSlot, 0, 1);
+
+      // Deregister memory slot for the incoming data
+      edgeMemoryManager->deregisterLocalMemorySlot(srcSlot);
+
+      // Setting input as satisfied
+      edge.isSatisfied = true;
+    }
+
+    const Prompt::promptId_t _promptId;
+    std::vector<edgeData_t> _inputs;
+    std::vector<edgeData_t> _outputs;
+  }; // class Job
 
   /** 
    * This is the definition of a replica from the standpoint of the coordinator.
@@ -138,10 +229,6 @@ class Coordinator final : public Base
       _replicas.push_back(std::move(newReplica));
     }
 
-    // Name of the prompt and response edges
-    const auto& promptInputName = _deployment.getUserInterface().input;
-    const auto& resultOutputName = _deployment.getUserInterface().output;
-
     // Iterating through input edges to create a connection with replicas and peer coordinators on that input
     for (const auto& edge : _inputEdges)
     {
@@ -152,13 +239,12 @@ class Coordinator final : public Base
       const auto consumerPartitionIdx = edge.consumerPartitionIndex;
         
       // Defining edge type, based on whether we expect this data from another coordinator or from the request manager
-      auto edgeType = edge::edgeType_t::coordinatorToCoordinator;
-      if (edgeName == promptInputName) edgeType = edge::edgeType_t::requestManagerToCoordinator;
+      auto edgeType = edgeConfig->isPromptEdge() ? edge::edgeType_t::requestManagerToCoordinator : edge::edgeType_t::coordinatorToCoordinator;
 
       // Create the input edges to pass this information to the receiving partition
       _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-      // if (edgeName == promptInputName) printf("[Coordinator] Prompt Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      if (edgeConfig->isPromptEdge()) printf("[Coordinator] Prompt Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
 
     // Iterating through output edges to create a connection with replicas and peer coordinators on that output
@@ -171,13 +257,12 @@ class Coordinator final : public Base
       const auto consumerPartitionIdx = edge.consumerPartitionIndex;
 
         // Defining edge type, based on whether we expect to push this data to another coordinator or to the request manager
-      auto edgeType = edge::edgeType_t::coordinatorToCoordinator;
-      if (edgeName == resultOutputName) edgeType = edge::edgeType_t::coordinatorToRequestManager;
+      auto edgeType = edgeConfig->isResultEdge() ?  edge::edgeType_t::coordinatorToRequestManager : edge::edgeType_t::coordinatorToCoordinator;
 
       // Create the output edge to pass this information to the receiving partition
       _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-      // if (edgeName == resultOutputName) printf("[Coordinator] Result Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      if (edgeConfig->isResultEdge()) printf("[Coordinator] Result Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
   }
 
@@ -220,8 +305,14 @@ class Coordinator final : public Base
     // Subscribing input edges to the control message service for the peer coordinators who provide data inputs to us
     for (const auto& dataEdge : _partitionDataInputs) subscribeMessageEdge(dataEdge);
 
-    // Registering a handler for the handshake message 
+    // Registering a handler for 1handshake messages
     subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
+
+    // Registering a handler for data messages 
+    subscribeMessageHandler(hLLM::messages::messageTypes::data, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ dataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); });
+
+    // Registering service for job management
+    _taskr->addService(&_taskrJobManagementService);
   }
 
   __INLINE__ void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
@@ -230,12 +321,76 @@ class Coordinator final : public Base
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
 
+  __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  {
+    // Getting prompt id from data
+    const auto promptId = message->getPromptId();
+    const auto data = message->getData();
+    const auto size = message->getSize();
+    const auto edgeIdx = edge->getEdgeIndex();
+    const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
+    
+    printf("[Coordinator %lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    // Pointer to the job object
+    std::shared_ptr<Job> job;
+
+    // Check if there exists already a job for this incoming data
+    // If it does not exist, create a new one. Otherwise, take it from the map
+    if(_jobMap.contains(promptId) == false)
+    {
+      // Creating new job entry
+      job = std::make_shared<Job>(promptId, _inputEdges, _outputEdges);
+
+      // Also adding to the queue of pending jobs
+      _pendingJobQueueMutex.lock();
+      _pendingJobQueue.push(job);
+      _pendingJobQueueMutex.unlock();
+    } 
+    else job = _jobMap.at(promptId);
+
+    // Satisfying edge for the given job
+    job->satisfyInput(edgePos, data, size);
+  }
+
+  /////////// Job management Service
+  __INLINE__ void jobManagementService()
+  {
+    // Getting a job from the pending job queue
+    std::shared_ptr<Job> job = nullptr;
+    _pendingJobQueueMutex.lock();
+    if (_pendingJobQueue.empty() == false)
+    {
+      job = _pendingJobQueue.front();
+      _pendingJobQueue.pop();
+    } 
+    _pendingJobQueueMutex.unlock();
+
+    // If no jobs were in the queue, simply return
+    if (job == nullptr) return;
+
+    // Getting job info
+    const auto promptId = job->getPromptId();
+
+    // If the job is ready to go, try to send it to one of the replicas
+    if (job->isReadyToExecute()) printf("Job for prompt %lu/%lu is ready to execute\n", promptId.first, promptId.second);
+  }
+  taskr::Service::serviceFc_t _jobManagementServiceFunction = [this](){ this->jobManagementService(); };
+  taskr::Service _taskrJobManagementService = taskr::Service(_jobManagementServiceFunction, 0);
+
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;
 
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
   std::vector<std::shared_ptr<edge::Output>> _partitionDataOutputs;
+
+  // Mutual exclusion mechanism to access the pending job queue
+  std::mutex _pendingJobQueueMutex;
+  std::queue<std::shared_ptr<Job>> _pendingJobQueue;
+
+  // Map of jobs, indexed by prompt id
+  std::map<Prompt::promptId_t, std::shared_ptr<Job>> _jobMap;
 
 }; // class Coordinator
 

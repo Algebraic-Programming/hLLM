@@ -44,7 +44,7 @@ class RequestManager final : public hLLM::Role
       const auto& edgeName = edgeConfig->getName();
         
       // If this is the prompt input, then create the outgoing edge to the corresponding partition
-      if (edgeName == promptInputName)
+      if (edgeConfig->isPromptEdge() == true)
       {
         // Looking for the partition who needs the prompt input
         for (configuration::Partition::partitionIndex_t idx = 0; idx < partitions.size(); idx++)
@@ -57,7 +57,7 @@ class RequestManager final : public hLLM::Role
 
         // Creating the prompt sending edge
         _promptOutputEdge = std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
-        // printf("[Request Manager] Prompt Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        printf("[Request Manager] Prompt Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
     } 
 
@@ -68,7 +68,7 @@ class RequestManager final : public hLLM::Role
       const auto& edgeName = edgeConfig->getName();
         
       // If this is the result output, then create the incoming edge from the corresponding partition
-      if (edgeName == resultOutputName)
+      if (edgeConfig->isResultEdge() == true)
       {
         // Looking for the partition who needs the prompt input
         for (configuration::Partition::partitionIndex_t idx = 0; idx < partitions.size(); idx++)
@@ -81,7 +81,7 @@ class RequestManager final : public hLLM::Role
 
         // Creating the result-receiving edge
         _resultInputEdge = std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
-        // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
     } 
   }
@@ -100,51 +100,31 @@ class RequestManager final : public hLLM::Role
     _resultInputEdge->initialize(tag);
   }
 
+  __INLINE__ void pushPrompt(const std::shared_ptr<hLLM::messages::Prompt> prompt)
+  {
+    // Creating new prompt object
+    const auto input = prompt->getInput();
+    const auto sessionId = prompt->getSessionId();
+    const auto messageId = prompt->getMessageId();
+    const auto promptId = Prompt::promptId_t(sessionId, messageId);
+    printf("[Request Manager] Received prompt '%s' from session %lu, message: %lu\n", input.c_str(), sessionId, messageId);
+
+    // Creating new prompt
+    auto promptObject = std::make_shared<Prompt>(promptId, input);
+
+    // Adding prompt to new prompt queue
+    _promptManagementMutex.lock();
+    _pendingNewPromptsQueue.push(promptObject);
+    _promptManagementMutex.unlock();
+  }
+
   private:
 
   /// This function subscribes the handlers and services for the coordinator role
   __INLINE__ void initializeImpl() override
   {
-    // Registering a handler for the prompt message 
-    subscribeMessageHandler(hLLM::messages::messageTypes::prompt, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ promptMessageHandler(edge, std::make_shared<hLLM::messages::Prompt>(message)); });
-
     // If this is the prompt management partition, then set up a service for its handling
     _taskr->addService(&_taskrPromptHandlingService);
-  }
-
-  __INLINE__ void pushPrompt(const std::shared_ptr<hLLM::messages::Prompt> prompt)
-  {
-    // Finding the corresponding prompt edge
-    // const auto& promptEdge = _partitionDataOutputs[_edgeIndexToVectorPositionMap[_promptEdgeIdx]];
-
-    // Encoding raw message
-    // const auto rawMessage = prompt->encode();
-
-    // printf("Pushing Prompt A\n");
-    // Waiting until it is freed
-    // while (promptEdge->isFull(rawMessage.getSize()) == true);
-    // printf("Pushing Prompt B\n");
-
-    // Pushing prompt to the corresponding edge
-    // promptEdge->pushMessage(rawMessage);
-  }
-
-  __INLINE__ void promptMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Prompt> message)
-  {
-    // Creating new prompt object
-    const auto input = message->getInput();
-    const auto sessionId = message->getSessionId();
-    const auto messageId = message->getMessageId();
-    const auto promptId = Prompt::promptId_t(sessionId, messageId);
-    printf("[Request Manager] Received prompt '%s' from session %lu, message: %lu\n", input.c_str(), sessionId, messageId);
-
-    // Creating new prompt
-    auto prompt = std::make_shared<Prompt>(promptId, input);
-
-    // Adding prompt to new prompt queue
-    _promptManagementMutex.lock();
-    _pendingNewPromptsQueue.push(prompt);
-    _promptManagementMutex.unlock();
   }
 
   ///////////// Prompt handling service
@@ -159,8 +139,6 @@ class RequestManager final : public hLLM::Role
       // Getting next pending session to connect
       const auto prompt = _pendingNewPromptsQueue.front();
       const auto promptId = prompt->getPromptId();
-      const auto sessionId = promptId.first;
-      const auto messageId = promptId.second;
       const auto& promptData = prompt->getPrompt();
       
       // Registering session
@@ -168,8 +146,8 @@ class RequestManager final : public hLLM::Role
       printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Sending data to the partition that takes the prompt as input
-      const auto message = messages::Data((uint8_t*)promptData.data(), promptData.size()+1, promptId.first, promptId.second);
-      _promptOutputEdge->pushMessage(message);
+      const auto message = messages::Data((const uint8_t*)promptData.data(), promptData.size()+1, promptId);
+      _promptOutputEdge->pushMessage(message.encode());
 
       // Freeing entry in the pending session connection queue
       _pendingNewPromptsQueue.pop();

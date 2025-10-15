@@ -39,7 +39,7 @@ class Prompt final : public Base
 
   __INLINE__ edge::Message encode() const override
   { 
-    edge::Message rawMessage((uint8_t*)_input.data(), _input.size()+1, edge::Message::metadata_t( { .type = getType(), .messageId = _messageId, .sessionId = _sessionId }));
+    edge::Message rawMessage((uint8_t*)_input.data(), _input.size()+1, edge::Message::metadata_t( { .type = getType(), .sessionId = _sessionId, .messageId = _messageId }));
 
     return rawMessage;
   }

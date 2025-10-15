@@ -21,8 +21,8 @@ namespace hLLM
     struct metadata_t
     {
       messageType_t type;
-      messageId_t messageId;
       sessionId_t sessionId;
+      messageId_t messageId;
     };
     #pragma pack(pop)
 

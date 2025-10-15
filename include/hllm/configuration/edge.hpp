@@ -62,6 +62,8 @@ class Edge
 
   __INLINE__ void setProducer(const std::string& partition) { _producer = partition; }
   __INLINE__ void setConsumer(const std::string& partition) { _consumer = partition; }
+  __INLINE__ void setPromptEdge(const bool isPromptEdge) { _isPromptEdge = isPromptEdge; }
+  __INLINE__ void setResultEdge(const bool isResultEdge) { _isResultEdge = isResultEdge; }
 
     // Functions to set the HiCR elements required for the creation of edge channels
   [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }
@@ -70,6 +72,8 @@ class Edge
   [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getCoordinationCommunicationManager() const { return _coordinationCommunicationManager; }
   [[nodiscard]] __INLINE__ HiCR::MemoryManager*        getCoordinationMemoryManager       () const { return _coordinationMemoryManager; }
   [[nodiscard]] __INLINE__ std::shared_ptr<HiCR::MemorySpace>          getCoordinationMemorySpace         () const { return _coordinationMemorySpace; }
+  [[nodiscard]] __INLINE__ bool isPromptEdge() const { return _isPromptEdge; }
+  [[nodiscard]] __INLINE__ bool isResultEdge() const { return _isResultEdge; }
 
   private:
 
@@ -78,6 +82,10 @@ class Edge
   std::string _consumer;
   size_t _bufferCapacity = __HLLM_PARTITION_DEFAULT_BUFFER_CAPACITY;
   size_t _bufferSize;
+
+  // This flag serves to indicate whether these are edges that connect to the request manager
+  bool _isPromptEdge = false;
+  bool _isResultEdge = false;
 
   // HiCR-specific objects to create the payload buffers. These are to be set at runtime
   HiCR::CommunicationManager* _payloadCommunicationManager = nullptr;

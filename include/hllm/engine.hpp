@@ -460,10 +460,10 @@ class Engine final
   __INLINE__ void processPromptMessage(const std::shared_ptr<hLLM::messages::Prompt> prompt)
   {
     // Check if there is a coordinator defined to receive the prompt
-    // if (_requestManagerRole == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu, but no request manager is defined in it", _instanceId);
+    if (_requestManagerRole == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu, but no request manager is defined in it", _instanceId);
 
     // Send prompt to the coordinator
-    // _requestManagerRole->pushPrompt(prompt);
+    _requestManagerRole->pushPrompt(prompt);
   }
   
   ///////////// Session management service (no concurrent access active service map)
