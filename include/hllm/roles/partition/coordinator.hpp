@@ -262,13 +262,18 @@ class Coordinator final : public Base
       _pendingJobQueue.push(job);
       _pendingJobQueueMutex.unlock();
     } 
+
+    // Otherwise, it exists so grab it from the job map
     else job = _jobMap.at(promptId);
 
-    // Making a copy of the data into the edge buffer
-    // job->storeEdgeData
+    // Getting the input that is satisfied by this message
+    auto& input = job->getInputEdges()[edgePos];
 
-    // Setting edge as satisfied
-    job->satisfyInput(edgePos, data, size);
+    // // Making a copy of the data into the edge buffer -- we don't do it by referece because we want to free up the input channels immediately to avoid deadlocks
+    input.storeDataByCopy(data, size);
+
+    // // Setting edge as satisfied
+    input.setSatisfied();
   }
 
   /////////// Job management Service
@@ -318,16 +323,19 @@ class Coordinator final : public Base
       printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, readyReplica->getReplicaIdx());
       
       // For each of the edges, push the data through the replica's channels
-      for (size_t edgeIdx = 0; edgeIdx < _partitionDataInputs.size(); edgeIdx++)
+      for (size_t edgePos = 0; edgePos < _partitionDataInputs.size(); edgePos++)
       {
         // Getting corresponding edges
-        const auto& inputEdge = job->getInputEdges()[edgeIdx];
-        const auto& outputEdge = readyReplica->getDataOutputs()[edgeIdx];
+        auto& inputEdge = job->getInputEdges()[edgePos];
+        const auto& outputEdge = readyReplica->getDataOutputs()[edgePos];
 
         // Creating message
-        const auto& memorySlot = inputEdge.edgeSlot;
-        const auto message = messages::Data((const uint8_t*)memorySlot->getPointer(), memorySlot->getSize(), promptId);
+        const auto& dataSlot = inputEdge.getDataSlot();
+        const auto message = messages::Data((const uint8_t*)dataSlot->getPointer(), dataSlot->getSize(), promptId);
         outputEdge->pushMessage(message.encode());
+
+        // Free up edge data copy
+        inputEdge.freeDataSlot();
       }
     }
   }

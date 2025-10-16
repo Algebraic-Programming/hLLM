@@ -29,15 +29,77 @@ class Base : public hLLM::Role
   #define __HLLM_PARTITION_DEFAULT_DATA_BUFFER_CAPACITY 1
 
   // A job represents the series of tasks and input/output data a given prompt requires to execute in this particular partition
-  class Job
+  class Job final
   {
     public:
 
-    struct edgeData_t
+    class Edge final
     {
-      edgeInfo_t edgeInfo;
-      std::shared_ptr<HiCR::LocalMemorySlot> edgeSlot;
-      bool isSatisfied;
+      public: 
+
+      Edge(const edgeInfo_t edgeInfo) : _edgeInfo(edgeInfo) {}
+      ~Edge() = default;
+
+      [[nodiscard]] __INLINE__ const auto& getDataSlot() const { return _dataSlot; }
+      [[nodiscard]] __INLINE__ const auto& getEdgeInfo() const { return _edgeInfo; }
+      [[nodiscard]] __INLINE__ const bool isSatisfied() const { return _isSatisfied; }
+
+      __INLINE__ void setSatisfied(const bool value = true)  { _isSatisfied = value; }
+      __INLINE__ void setDataSlot(const std::shared_ptr<HiCR::LocalMemorySlot> dataSlot) { _dataSlot = dataSlot; }
+
+      __INLINE__ void freeDataSlot()
+      {
+        // Getting relevant managers
+        auto edgeMemoryManager = _edgeInfo.config->getPayloadMemoryManager();
+
+        // Deregister memory slot for the incoming data
+        edgeMemoryManager->freeLocalMemorySlot(_dataSlot);
+      }
+
+      // Make a copy of the data for the provided input edge
+      __INLINE__ void storeDataByCopy(const uint8_t* data, const size_t size)
+      {
+        // Getting relevant managers
+        auto edgeMemoryManager = _edgeInfo.config->getPayloadMemoryManager();
+        auto edgeMemorySpace = _edgeInfo.config->getPayloadMemorySpace();
+        auto edgeCommunicationManager = _edgeInfo.config->getPayloadCommunicationManager();
+
+        // Registering memory slot for the incoming data
+        const auto srcSlot = edgeMemoryManager->registerLocalMemorySlot(edgeMemorySpace, (void*)data, size);
+
+        // Creating new buffer for the edge's data
+        const auto dataSlot = edgeMemoryManager->allocateLocalMemorySlot(edgeMemorySpace, size);
+
+        // Copying the data to the prompt buffer
+        edgeCommunicationManager->memcpy(dataSlot, 0, srcSlot, 0, size);
+        edgeCommunicationManager->fence(dataSlot, 0, 1);
+
+        // Deregister memory slot for the incoming data
+        edgeMemoryManager->deregisterLocalMemorySlot(srcSlot);
+
+        // Setting new data slot
+        setDataSlot(dataSlot);
+      }
+
+      // Store a reference/cpoint to the data for the provided input edge
+      __INLINE__ void storeDataByReference(const uint8_t* data, const size_t size)
+      {
+        // Getting relevant managers
+        auto edgeMemoryManager = _edgeInfo.config->getPayloadMemoryManager();
+        auto edgeMemorySpace = _edgeInfo.config->getPayloadMemorySpace();
+
+        // Creating new buffer for the edge's data
+        const auto dataSlot = edgeMemoryManager->registerLocalMemorySlot(edgeMemorySpace, (void*)data, size);
+
+        // Setting new data slot
+        setDataSlot(dataSlot);
+      }
+
+      private: 
+
+      const edgeInfo_t _edgeInfo;
+      std::shared_ptr<HiCR::LocalMemorySlot> _dataSlot = nullptr;
+      bool _isSatisfied = false;
     };
 
     Job() = delete;
@@ -49,26 +111,19 @@ class Base : public hLLM::Role
             _promptId(promptId)
     {
       // Store data and allocate buffers for input edges
-      for (const auto& edgeInfo : inputEdges)  _inputs.push_back(  edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
-      for (const auto& edgeInfo : outputEdges) _outputs.push_back( edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
+      for (const auto& edgeInfo : inputEdges)  _inputs.push_back(Job::Edge(edgeInfo));
+      for (const auto& edgeInfo : outputEdges) _outputs.push_back(Job::Edge(edgeInfo));
     }
-
-    // Satisfying an input means that the data for that input has arrived from a peer coordinator to another.
-    // Now we make a copy of the data to store in this prompt object until is is needed for execution
-    __INLINE__ void satisfyInput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_inputs[edgeVectorPosition], data, size); }
-
-    // Satisfying an output means that the data for that output has arrived from a replica to a coordinator.
-    // Now we make a copy of the data to store in this prompt object until is is needed for sending out
-    __INLINE__ void satisfyOutput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_outputs[edgeVectorPosition], data, size); }
-
+    
     // Indicates whether the prompt is ready to be sent to a replica
     // For this, we need to check that all inputs coming from external sources have been satisfied
     [[nodiscard]] __INLINE__ bool isReadyToBeSentToReplica()
     {
       for (const auto& input : _inputs)
       {
-        if (input.edgeInfo.consumerPartitionIndex == input.edgeInfo.producerPartitionIndex && input.edgeInfo.config->isPromptEdge() == false) continue; // Ignore internal edges
-        if (input.isSatisfied == false) return false;
+        if (input.getEdgeInfo().consumerPartitionIndex == input.getEdgeInfo().producerPartitionIndex &&
+            input.getEdgeInfo().config->isPromptEdge() == false) continue; // Ignore internal edges
+        if (input.isSatisfied() == false) return false;
       }
       return true;
     }
@@ -78,47 +133,22 @@ class Base : public hLLM::Role
     {
       for (const auto& output : _outputs)
       {
-        if (output.edgeInfo.consumerPartitionIndex == output.edgeInfo.producerPartitionIndex && output.edgeInfo.config->isResultEdge() == false) continue; // Ignore internal edges
-        if (output.isSatisfied == false) return false;
+        if (output.getEdgeInfo().consumerPartitionIndex == output.getEdgeInfo().producerPartitionIndex &&
+            output.getEdgeInfo().config->isResultEdge() == false) continue; // Ignore internal edges
+        if (output.isSatisfied() == false) return false;
       }
       return true;
     }
 
     [[nodiscard]] Prompt::promptId_t getPromptId() const { return _promptId; }
-    [[nodiscard]] const std::vector<edgeData_t>& getInputEdges() const { return _inputs;  }
+    [[nodiscard]] std::vector<Edge>& getInputEdges() { return _inputs;  }
+    [[nodiscard]] std::vector<Edge>& getOutputEdges() { return _outputs;  }
 
     private:
 
-    __INLINE__ void satisfyEdge(edgeData_t& edge, const uint8_t* data, const size_t size)
-    {
-      // Sanity check
-      if (edge.isSatisfied == true) HICR_THROW_RUNTIME("Trying to satisfy edge index %lu ('%s') that was already satisfied. This must be a bug in HiCR\n", edge.edgeInfo.config->getName().c_str(), edge.edgeInfo.index);
-
-      // Getting relevant managers
-      auto edgeMemoryManager = edge.edgeInfo.config->getPayloadMemoryManager();
-      auto edgeMemorySpace = edge.edgeInfo.config->getPayloadMemorySpace();
-      auto edgeCommunicationManager = edge.edgeInfo.config->getPayloadCommunicationManager();
-
-      // Registering memory slot for the incoming data
-      const auto srcSlot = edgeMemoryManager->registerLocalMemorySlot(edgeMemorySpace, (void*)data, size);
-
-      // Creating new buffer for the edge's data
-      edge.edgeSlot = edgeMemoryManager->allocateLocalMemorySlot(edgeMemorySpace, size);
-
-      // Copying the data to the prompt buffer
-      edgeCommunicationManager->memcpy(edge.edgeSlot, 0, srcSlot, 0, size);
-      edgeCommunicationManager->fence(edge.edgeSlot, 0, 1);
-
-      // Deregister memory slot for the incoming data
-      edgeMemoryManager->deregisterLocalMemorySlot(srcSlot);
-
-      // Setting input as satisfied
-      edge.isSatisfied = true;
-    }
-
     const Prompt::promptId_t _promptId;
-    std::vector<edgeData_t> _inputs;
-    std::vector<edgeData_t> _outputs;
+    std::vector<Job::Edge> _inputs;
+    std::vector<Job::Edge> _outputs;
   }; // class Job
 
   Base() = delete;

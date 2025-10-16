@@ -158,8 +158,8 @@ class Replica final : public Base
   {
     printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
-    // Indicate we have no current active prompt being processed
-    _activePrompt = nullptr;
+    // Indicate we have no current active job being processed
+    _activeJob = nullptr;
 
     //////// Adding heartbeat service for my coordinator's control edge
     subscribeHeartbeatEdge(_coordinatorControlOutput);
@@ -186,8 +186,24 @@ class Replica final : public Base
     const auto size = message->getSize();
     const auto edgeIdx = edge->getEdgeIndex();
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
-    
-    printf("[Replica %lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    printf("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    // If there is a current job assigned to this replica and the job corresponds to a different prompt, then fail
+    if (_activeJob != nullptr) if (promptId != _activeJob->getPromptId())
+     HICR_THROW_RUNTIME("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s' but currently prompt %lu/%lu is running.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str(), _activeJob->getPromptId().first, _activeJob->getPromptId().second);
+
+    // If there is no current active job, create a new one
+    if (_activeJob == nullptr) _activeJob = std::make_shared<Job>(promptId, _inputEdges, _outputEdges);
+
+    // Getting input corresponding to the message that arrived
+    auto& input = _activeJob->getInputEdges()[edgePos];
+
+    // Store a reference to the provided data into the edge (no extra copies required)
+    input.storeDataByReference(data, size);
+
+    // Marking input as satisfied
+    input.setSatisfied();
   }
 
   // Identifier for the replica index
@@ -210,8 +226,8 @@ class Replica final : public Base
   // The main driver for running tasks
   std::unique_ptr<taskr::Function> _taskrFunction;
 
-  // Pointer for the current active prompt being processed
-  std::atomic<std::shared_ptr<Prompt>> _activePrompt;
+  // Pointer for the current active job being processed
+  std::shared_ptr<Job> _activeJob;
 
   
 
