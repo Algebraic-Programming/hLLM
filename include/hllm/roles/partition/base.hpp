@@ -119,24 +119,14 @@ class Base : public hLLM::Role
     // For this, we need to check that all inputs coming from external sources have been satisfied
     [[nodiscard]] __INLINE__ bool isReadyToBeSentToReplica()
     {
-      for (const auto& input : _inputs)
-      {
-        if (input.getEdgeInfo().consumerPartitionIndex == input.getEdgeInfo().producerPartitionIndex &&
-            input.getEdgeInfo().config->isPromptEdge() == false) continue; // Ignore internal edges
-        if (input.isSatisfied() == false) return false;
-      }
+      for (const auto& input : _inputs) if (input.isSatisfied() == false) return false;
       return true;
     }
 
     // Indicates whether the prompt's outputs destined to other partitions are ready for forwarding to the next partition(s)
     [[nodiscard]] __INLINE__ bool isReadyToForward()
     {
-      for (const auto& output : _outputs)
-      {
-        if (output.getEdgeInfo().consumerPartitionIndex == output.getEdgeInfo().producerPartitionIndex &&
-            output.getEdgeInfo().config->isResultEdge() == false) continue; // Ignore internal edges
-        if (output.isSatisfied() == false) return false;
-      }
+      for (const auto& output : _outputs) if (output.isSatisfied() == false) return false;
       return true;
     }
 

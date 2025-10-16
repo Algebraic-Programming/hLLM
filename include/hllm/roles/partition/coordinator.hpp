@@ -141,7 +141,7 @@ class Coordinator final : public Base
       _replicas.push_back(newReplica);
 
       // Adding replica to the ready replica queue
-      _readyReplicaQueue.push(newReplica);
+      _replicaQueue.push(newReplica);
     }
 
     // Iterating through input edges to create a connection with replicas and peer coordinators on that input
@@ -276,7 +276,8 @@ class Coordinator final : public Base
     input.setSatisfied();
   }
 
-  /////////// Job management Service
+  /////////// Job management Service3
+  // Looks for a double coincidence of job ready to run and a free available replica
   __INLINE__ void jobManagementService()
   {
     // Getting a job from the pending job queue
@@ -295,39 +296,37 @@ class Coordinator final : public Base
     // Getting job info
     const auto promptId = job->getPromptId();
 
-    // If the job is ready to go, try to send it to one of the replicas
-    if (job->isReadyToBeSentToReplica()) 
+    // Checking if the job is ready to be sent to a replica
+    bool isJobReady = true;
+    for (const auto& input : job->getInputEdges()) if (input.isSatisfied() == false) { isJobReady = false; break; };
+
+    // If the job is ready to go, check if there is a ready replica to take on this job
+    std::shared_ptr<Replica> replica = nullptr;
+    if (isJobReady)
     {
-      //printf("Job for prompt %lu/%lu is ready to execute\n", promptId.first, promptId.second);
-
       // Check if there is a ready replica to take on this job
-      std::shared_ptr<Replica> readyReplica = nullptr;
-      _readyReplicaQueueMutex.lock();
-      if (_readyReplicaQueue.empty() == false)
+      std::shared_ptr<Replica> replica = nullptr;
+      _replicaQueueMutex.lock();
+      if (_replicaQueue.empty() == false)
       {
-        readyReplica = _readyReplicaQueue.front();
-        _readyReplicaQueue.pop();
+        replica = _replicaQueue.front();
+        _replicaQueue.pop();
       }
-      _readyReplicaQueueMutex.unlock();
+      _replicaQueueMutex.unlock();
+    }
 
-      // If there are no replicas, return job to the queue and return
-      if (readyReplica == nullptr)
-      {
-       _pendingJobQueueMutex.lock();
-       _pendingJobQueue.push(job);
-       _pendingJobQueueMutex.unlock();
-       return;
-      }
-
+    // If the job is ready to go, try to send it to one of the replicas
+    if (isJobReady && replica != nullptr) 
+    {
       // Now we have a ready job and a ready replica, sending the job to the replica
-      printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, readyReplica->getReplicaIdx());
+      printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, replica->getReplicaIdx());
       
       // For each of the edges, push the data through the replica's channels
       for (size_t edgePos = 0; edgePos < _partitionDataInputs.size(); edgePos++)
       {
         // Getting corresponding edges
         auto& inputEdge = job->getInputEdges()[edgePos];
-        const auto& outputEdge = readyReplica->getDataOutputs()[edgePos];
+        const auto& outputEdge = replica->getDataOutputs()[edgePos];
 
         // Creating message
         const auto& dataSlot = inputEdge.getDataSlot();
@@ -337,7 +336,15 @@ class Coordinator final : public Base
         // Free up edge data copy
         inputEdge.freeDataSlot();
       }
+
+      // Return now to avoid putting the job back into the queue
+      return;
     }
+
+    // If the job wasn't ready or there was no replica found for it, simply put it back into the queue
+    _pendingJobQueueMutex.lock();
+    _pendingJobQueue.push(job);
+    _pendingJobQueueMutex.unlock();
   }
   taskr::Service::serviceFc_t _jobManagementServiceFunction = [this](){ this->jobManagementService(); };
   taskr::Service _taskrJobManagementService = taskr::Service(_jobManagementServiceFunction, 0);
@@ -346,8 +353,8 @@ class Coordinator final : public Base
   std::vector<std::shared_ptr<Replica>> _replicas;
 
   // Mutual exclusion mechanism to access the ready replica queue
-  std::mutex _readyReplicaQueueMutex;
-  std::queue<std::shared_ptr<Replica>> _readyReplicaQueue;
+  std::mutex _replicaQueueMutex;
+  std::queue<std::shared_ptr<Replica>> _replicaQueue;
 
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
