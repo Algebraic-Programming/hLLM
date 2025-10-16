@@ -200,8 +200,8 @@ class Deployment final
     }
 
     // For each input / output, remember which partition is its consumer / producer
-    std::map<std::string, std::string> inputPartitionMap;
-    std::map<std::string, std::string> outputPartitionMap;
+    std::map<std::string, std::string> consumerPartitionMap;
+    std::map<std::string, std::string> producerPartitionMap;
     for (const auto& partition : _partitions)
       for (const auto& task : partition->getTasks())
       {
@@ -213,7 +213,7 @@ class Deployment final
         {
           if (inputSet.contains(input)) HICR_THROW_LOGIC("Deployment specifies input '%s' used more than once\n", input.c_str());
           if (edgeNameSet.contains(input) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined input '%s'\n", task->getFunctionName(), input.c_str());
-          inputPartitionMap[input] = partition->getName();
+          consumerPartitionMap[input] = partition->getName();
           inputSet.insert(input);
 
           // Check the task that contains the user interface input does not receive any other inputs
@@ -230,7 +230,7 @@ class Deployment final
         {
           if (outputSet.contains(output)) HICR_THROW_LOGIC("Deployment specifies output '%s' used more than once\n", output.c_str());
           if (edgeNameSet.contains(output) == false) HICR_THROW_LOGIC("Deployment specifies task '%s' with an undefined output '%s'\n", task->getFunctionName(), output.c_str());
-          outputPartitionMap[output] = partition->getName();
+          producerPartitionMap[output] = partition->getName();
           outputSet.insert(output);
 
           // Check the task that contains the user interface input does not receive any other inputs
@@ -246,12 +246,19 @@ class Deployment final
       const auto& edgeName = edge->getName();
       if (edgeName != _settings.userInterface.input)
       if (edgeName != _settings.userInterface.output)
-      if (inputPartitionMap.contains(edgeName) == false || outputPartitionMap.contains(edgeName) == false) 
+      if (consumerPartitionMap.contains(edgeName) == false || producerPartitionMap.contains(edgeName) == false) 
         HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as input or output (or neither)\n", edge->getName().c_str());
 
+      // Getting producer and consumer partitions
+      const auto& producerPartition = producerPartitionMap[edge->getName()];
+      const auto& consumerPartition = consumerPartitionMap[edge->getName()];
+
+      // Checking the edge connects two different partitions
+      if (producerPartition == consumerPartition) HICR_THROW_LOGIC("Deployment specifies edge '%s' that is both produced and consumed by partition %s\n", edge->getName().c_str(), producerPartition.c_str());
+
        // Setting producer and consumer partitions for the edge
-       edge->setProducer(outputPartitionMap[edge->getName()]);
-       edge->setConsumer(inputPartitionMap[edge->getName()]);
+       edge->setProducer(producerPartition);
+       edge->setConsumer(consumerPartition);
     }
 
     // Make sure all inputs are also used as outputs, as long as it is not the user interface input
@@ -266,14 +273,14 @@ class Deployment final
     for (const auto& task : userInterfaceInputPartition->getTasks())
       for (const auto& input : task->getInputs())
         if (input != _settings.userInterface.input)
-         if (outputPartitionMap.at(input) != userInterfaceInputPartition->getName())
+         if (producerPartitionMap.at(input) != userInterfaceInputPartition->getName())
            HICR_THROW_LOGIC("Partition %s consumes the user interface input '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceInputPartition->getName().c_str(), _settings.userInterface.input.c_str(), input.c_str());
       
     // Make sure the partition which contains the user interface output does not contain any cross-partition outputs
     for (const auto& task : userInterfaceOutputPartition->getTasks())
       for (const auto& output : task->getOutputs())
         if (output != _settings.userInterface.output)
-          if (inputPartitionMap.at(output) != userInterfaceOutputPartition->getName())
+          if (consumerPartitionMap.at(output) != userInterfaceOutputPartition->getName())
             HICR_THROW_LOGIC("Partition %s produces the user interface output '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceOutputPartition->getName().c_str(), _settings.userInterface.output.c_str(), output.c_str());
 
     // Setting producer partition for user interface input to be the same as the consumer        

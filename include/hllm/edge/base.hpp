@@ -21,14 +21,6 @@ enum edgeType_t : edgeTypeDatatype_t
   requestManagerToCoordinator = 4
 };
 
-struct edgeInfo_t
-{
-  configuration::Edge::edgeIndex_t index;
-  std::shared_ptr<hLLM::configuration::Edge> config;
-  configuration::Partition::partitionIndex_t producerPartitionIndex;
-  configuration::Partition::partitionIndex_t consumerPartitionIndex;
-};
-
 struct memorySlotExchangeInfo_t
 {
   /// Pointer to the communication manager required to exchange this memory slot

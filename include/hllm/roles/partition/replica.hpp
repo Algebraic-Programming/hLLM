@@ -167,11 +167,27 @@ class Replica final : public Base
     // Registering a handler for the handshake message 
     subscribeMessageEdge(_coordinatorControlInput);
     subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
+
+    ////// Adding data inputs to the message handler
+    subscribeMessageHandler(hLLM::messages::messageTypes::data, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ dataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); });
+    for (const auto& edge : _coordinatorDataInputs) subscribeMessageEdge(edge);
   }
 
   void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
   {
     if(_deployment.getHeartbeat().visible == true)  printf("[Replica %lu / %lu] Received heartbeat from coordinator.\n", _partitionIdx, _replicaIdx);
+  }
+
+    __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  {
+    // Getting prompt id from data
+    const auto promptId = message->getPromptId();
+    const auto data = message->getData();
+    const auto size = message->getSize();
+    const auto edgeIdx = edge->getEdgeIndex();
+    const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
+    
+    printf("[Replica %lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
   }
 
   // Identifier for the replica index
@@ -196,6 +212,8 @@ class Replica final : public Base
 
   // Pointer for the current active prompt being processed
   std::atomic<std::shared_ptr<Prompt>> _activePrompt;
+
+  
 
 }; // class Replica
 

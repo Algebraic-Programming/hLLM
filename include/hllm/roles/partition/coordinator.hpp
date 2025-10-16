@@ -22,96 +22,6 @@ class Coordinator final : public Base
 {
   private:
 
-  // A job represents the series of tasks and input/output data a given prompt requires to execute in this particular partition
-  class Job
-  {
-    public:
-
-    struct edgeData_t
-    {
-      hLLM::edge::edgeInfo_t edgeInfo;
-      std::shared_ptr<HiCR::LocalMemorySlot> edgeSlot;
-      bool isSatisfied;
-    };
-
-    Job() = delete;
-    ~Job() = default;
-
-    Job(const Prompt::promptId_t promptId,
-            const std::vector<hLLM::edge::edgeInfo_t>& inputEdges,
-            const std::vector<hLLM::edge::edgeInfo_t>& outputEdges) :
-            _promptId(promptId)
-    {
-      // Store data and allocate buffers for input edges
-      for (const auto& edgeInfo : inputEdges)  _inputs.push_back(  edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
-      for (const auto& edgeInfo : outputEdges) _outputs.push_back( edgeData_t{.edgeInfo = edgeInfo, .edgeSlot = nullptr, .isSatisfied = false} );
-    }
-
-    // Satisfying an input means that the data for that input has arrived from a peer coordinator to another.
-    // Now we make a copy of the data to store in this prompt object until is is needed for execution
-    __INLINE__ void satisfyInput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_inputs[edgeVectorPosition], data, size); }
-
-    // Satisfying an output means that the data for that output has arrived from a replica to a coordinator.
-    // Now we make a copy of the data to store in this prompt object until is is needed for sending out
-    __INLINE__ void satisfyOutput(const size_t edgeVectorPosition, const uint8_t* data, const size_t size) { satisfyEdge(_outputs[edgeVectorPosition], data, size); }
-
-    // Indicates whether the prompt is ready for local execution (or to be sent to a replica)
-    // For this, we need to check that all inputs coming from external sources have been satisfied
-    [[nodiscard]] __INLINE__ bool isReadyToExecute()
-    {
-      for (const auto& input : _inputs)
-      {
-        // Execution can start as soon as all external edges have arrived. Internal edges are resolved during execution
-        if (input.edgeInfo.consumerPartitionIndex == input.edgeInfo.producerPartitionIndex && input.edgeInfo.config->isPromptEdge() == false) continue; // Ignore internal edges
-        if (input.isSatisfied == false) return false;
-      }
-      return true;
-    }
-
-    // Indicates whether the prompt's outputs destined to other partitions are ready for forwarding to the next partition
-    [[nodiscard]] __INLINE__ bool isReadyToForward()
-    {
-      for (const auto& output : _outputs)
-        if (output.isSatisfied == false) return false;
-      return true;
-    }
-
-    [[nodiscard]] Prompt::promptId_t getPromptId() const { return _promptId; }
-
-    private:
-
-    __INLINE__ void satisfyEdge(edgeData_t& edge, const uint8_t* data, const size_t size)
-    {
-      // Sanity check
-      if (edge.isSatisfied == true) HICR_THROW_RUNTIME("Trying to satisfy edge index %lu ('%s') that was already satisfied. This must be a bug in HiCR\n", edge.edgeInfo.config->getName().c_str(), edge.edgeInfo.index);
-
-      // Getting relevant managers
-      auto edgeMemoryManager = edge.edgeInfo.config->getPayloadMemoryManager();
-      auto edgeMemorySpace = edge.edgeInfo.config->getPayloadMemorySpace();
-      auto edgeCommunicationManager = edge.edgeInfo.config->getPayloadCommunicationManager();
-
-      // Registering memory slot for the incoming data
-      const auto srcSlot = edgeMemoryManager->registerLocalMemorySlot(edgeMemorySpace, (void*)data, size);
-
-      // Creating new buffer for the edge's data
-      edge.edgeSlot = edgeMemoryManager->allocateLocalMemorySlot(edgeMemorySpace, size);
-
-      // Copying the data to the prompt buffer
-      edgeCommunicationManager->memcpy(edge.edgeSlot, 0, srcSlot, 0, size);
-      edgeCommunicationManager->fence(edge.edgeSlot, 0, 1);
-
-      // Deregister memory slot for the incoming data
-      edgeMemoryManager->deregisterLocalMemorySlot(srcSlot);
-
-      // Setting input as satisfied
-      edge.isSatisfied = true;
-    }
-
-    const Prompt::promptId_t _promptId;
-    std::vector<edgeData_t> _inputs;
-    std::vector<edgeData_t> _outputs;
-  }; // class Job
-
   /** 
    * This is the definition of a replica from the standpoint of the coordinator.
    * 
@@ -125,8 +35,8 @@ class Coordinator final : public Base
     Replica(
       const configuration::Partition::partitionIndex_t partitionIndex,
       const configuration::Replica::replicaIndex_t replicaIndex,
-      const std::vector<hLLM::edge::edgeInfo_t>& coordinatorInputs,
-      const std::vector<hLLM::edge::edgeInfo_t>& coordinatorOutputs,
+      const std::vector<edgeInfo_t>& coordinatorInputs,
+      const std::vector<edgeInfo_t>& coordinatorOutputs,
       const std::shared_ptr<hLLM::configuration::Edge> controlEdgeConfig) :
       _partitionIndex(partitionIndex),
       _replicaIndex(replicaIndex)
@@ -183,6 +93,8 @@ class Coordinator final : public Base
       _controlOutput->initialize(tag);
     }
 
+    [[nodiscard]] __INLINE__ configuration::Replica::replicaIndex_t getReplicaIdx() const { return _replicaIndex; }
+
     private:
 
     const configuration::Partition::partitionIndex_t _partitionIndex; 
@@ -225,8 +137,11 @@ class Coordinator final : public Base
       // Creating new replica object, to represent an actual replica we can communicate to/from
       auto newReplica = std::make_shared<Replica>(_partitionIdx, replicaIndex, _inputEdges, _outputEdges, _controlEdgeConfig);
 
-      // Adding new replica
-      _replicas.push_back(std::move(newReplica));
+      // Adding new replica to the collection
+      _replicas.push_back(newReplica);
+
+      // Adding replica to the ready replica queue
+      _readyReplicaQueue.push(newReplica);
     }
 
     // Iterating through input edges to create a connection with replicas and peer coordinators on that input
@@ -349,7 +264,10 @@ class Coordinator final : public Base
     } 
     else job = _jobMap.at(promptId);
 
-    // Satisfying edge for the given job
+    // Making a copy of the data into the edge buffer
+    // job->storeEdgeData
+
+    // Setting edge as satisfied
     job->satisfyInput(edgePos, data, size);
   }
 
@@ -373,13 +291,55 @@ class Coordinator final : public Base
     const auto promptId = job->getPromptId();
 
     // If the job is ready to go, try to send it to one of the replicas
-    if (job->isReadyToExecute()) printf("Job for prompt %lu/%lu is ready to execute\n", promptId.first, promptId.second);
+    if (job->isReadyToBeSentToReplica()) 
+    {
+      //printf("Job for prompt %lu/%lu is ready to execute\n", promptId.first, promptId.second);
+
+      // Check if there is a ready replica to take on this job
+      std::shared_ptr<Replica> readyReplica = nullptr;
+      _readyReplicaQueueMutex.lock();
+      if (_readyReplicaQueue.empty() == false)
+      {
+        readyReplica = _readyReplicaQueue.front();
+        _readyReplicaQueue.pop();
+      }
+      _readyReplicaQueueMutex.unlock();
+
+      // If there are no replicas, return job to the queue and return
+      if (readyReplica == nullptr)
+      {
+       _pendingJobQueueMutex.lock();
+       _pendingJobQueue.push(job);
+       _pendingJobQueueMutex.unlock();
+       return;
+      }
+
+      // Now we have a ready job and a ready replica, sending the job to the replica
+      printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, readyReplica->getReplicaIdx());
+      
+      // For each of the edges, push the data through the replica's channels
+      for (size_t edgeIdx = 0; edgeIdx < _partitionDataInputs.size(); edgeIdx++)
+      {
+        // Getting corresponding edges
+        const auto& inputEdge = job->getInputEdges()[edgeIdx];
+        const auto& outputEdge = readyReplica->getDataOutputs()[edgeIdx];
+
+        // Creating message
+        const auto& memorySlot = inputEdge.edgeSlot;
+        const auto message = messages::Data((const uint8_t*)memorySlot->getPointer(), memorySlot->getSize(), promptId);
+        outputEdge->pushMessage(message.encode());
+      }
+    }
   }
   taskr::Service::serviceFc_t _jobManagementServiceFunction = [this](){ this->jobManagementService(); };
   taskr::Service _taskrJobManagementService = taskr::Service(_jobManagementServiceFunction, 0);
 
   // Container for partition replica objects
   std::vector<std::shared_ptr<Replica>> _replicas;
+
+  // Mutual exclusion mechanism to access the ready replica queue
+  std::mutex _readyReplicaQueueMutex;
+  std::queue<std::shared_ptr<Replica>> _readyReplicaQueue;
 
   // Data Input / Output edges from other partition coordinators
   std::vector<std::shared_ptr<edge::Input>> _partitionDataInputs;
