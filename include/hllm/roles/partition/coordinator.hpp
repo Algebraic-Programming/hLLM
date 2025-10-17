@@ -305,7 +305,6 @@ class Coordinator final : public Base
     if (isJobReady)
     {
       // Check if there is a ready replica to take on this job
-      std::shared_ptr<Replica> replica = nullptr;
       _replicaQueueMutex.lock();
       if (_replicaQueue.empty() == false)
       {
@@ -316,7 +315,7 @@ class Coordinator final : public Base
     }
 
     // If the job is ready to go, try to send it to one of the replicas
-    if (isJobReady && replica != nullptr) 
+    if (replica != nullptr) 
     {
       // Now we have a ready job and a ready replica, sending the job to the replica
       printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, replica->getReplicaIdx());
@@ -337,7 +336,7 @@ class Coordinator final : public Base
         inputEdge.freeDataSlot();
       }
 
-      // Return now to avoid putting the job back into the queue
+      // Return now to avoid putting the job and the replica back into their queues
       return;
     }
 

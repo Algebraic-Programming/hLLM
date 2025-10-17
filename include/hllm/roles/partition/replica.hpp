@@ -59,38 +59,19 @@ class Replica final : public Base
     _coordinatorControlInput = std::make_shared<edge::Input>(*_controlEdgeConfig, edge::edgeType_t::coordinatorToReplica, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
     _coordinatorControlOutput = std::make_shared<edge::Output>(*_controlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
 
-    ////// Building execution graph
-    const auto &tasks = partitionConfiguration->getTasks();
-
     // Creating general TaskR function for all execution graph tasks
     _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
 
-    // Checking the execution graph functions have been registered
-    taskr::taskId_t taskrLabelCounter = 0;
-    for (const auto &task : tasks)
-    {
-      // Checking the requested function was registered
-      const auto taskFunctionName = task->getFunctionName();
-      if (_registeredFunctions.contains(taskFunctionName) == false) HICR_THROW_LOGIC("The requested function name '%s' is not registered. Please register it before running the hLLM.", taskFunctionName.c_str());
+    // Resetting label count
+    _taskrLabelCounter = 0;
 
-      // Getting label for taskr function
-      const auto taskId = taskrLabelCounter++;
-
-      // Creating taskr Task corresponding to the LLM engine task
-      auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
-
-      // Getting function pointer
-      const auto &fc = _registeredFunctions.at(taskFunctionName);
-
-      // Creating hLLM Task object
-      auto newTask = std::make_shared<hLLM::Task>(*task, fc, std::move(taskrTask));
-
-      // Adding task to the label->Task map
-      _taskLabelMap.insert({taskId, newTask});
-
-      // Adding task to TaskR itself
-      _taskr->addTask(newTask->getTaskRTask());
-    }
+    // Calculating, for each of this partition's tasks, what are the edge indexes that correspond to their inputs
+    const auto &tasks = partitionConfiguration->getTasks();
+    for (const auto& task : tasks)
+      for (const auto& taskInput : task->getInputs())
+        for (size_t edgePos = 0; edgePos < _inputEdges.size(); edgePos++)
+          if (taskInput == _inputEdges[edgePos].config->getName())
+            { _taskInputEdgePositions[task->getFunctionName()].push_back(edgePos); break; }
   }
 
   ~Replica() = default;
@@ -114,43 +95,14 @@ class Replica final : public Base
 
   private: 
   
-  __INLINE__ void runTaskRFunction(taskr::Task *task)
+  __INLINE__ void runTaskRFunction(taskr::Task *taskrTask)
   {
-    const auto &taskId       = task->getTaskId();
-    const auto &taskObject   = _taskLabelMap.at(taskId);
-    const auto &function = taskObject->getFunction();
+    const auto &taskId     = taskrTask->getTaskId();
+    const auto &task       = _taskLabelMap.at(taskId);
+    const auto &function   = task->getFunction();
 
-    // Function to check for pending operations
-    auto pendingOperationsCheck = [&]() {
-      // If execution must stop now, return true to go back to the task and finish it
-      if (_continueRunning == false) return true;
-
-      // usleep(5000);
-      // printf("Task %s Not ready yet\n", taskObject->getConfig().getFunctionName().c_str());
-      return false;
-
-      // All dependencies are satisfied, enable this task for execution
-      return true;
-    };
-
-    // Initiate infinite loop
-    while (_continueRunning)
-    {
-      // Adding task dependencies
-      task->addPendingOperation(pendingOperationsCheck);
-
-      // Suspend execution until all dependencies are met
-      task->suspend();
-
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
-
-      // Actually run the function now
-      function(taskObject.get());
-
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
-    }
+    // Actually run the function now
+    function(task.get());
   }
 
   /// This function initializes the workload of the partition replica role
@@ -178,7 +130,7 @@ class Replica final : public Base
     if(_deployment.getHeartbeat().visible == true)  printf("[Replica %lu / %lu] Received heartbeat from coordinator.\n", _partitionIdx, _replicaIdx);
   }
 
-    __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
   {
     // Getting prompt id from data
     const auto promptId = message->getPromptId();
@@ -193,8 +145,15 @@ class Replica final : public Base
     if (_activeJob != nullptr) if (promptId != _activeJob->getPromptId())
      HICR_THROW_RUNTIME("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s' but currently prompt %lu/%lu is running.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str(), _activeJob->getPromptId().first, _activeJob->getPromptId().second);
 
-    // If there is no current active job, create a new one
-    if (_activeJob == nullptr) _activeJob = std::make_shared<Job>(promptId, _inputEdges, _outputEdges);
+    // If there is no current active job
+    if (_activeJob == nullptr)
+    {
+      // Create a new one
+      _activeJob = std::make_shared<Job>(promptId, _inputEdges, _outputEdges);
+
+      // And set it in motion
+      startJob(_activeJob);
+    } 
 
     // Getting input corresponding to the message that arrived
     auto& input = _activeJob->getInputEdges()[edgePos];
@@ -204,6 +163,54 @@ class Replica final : public Base
 
     // Marking input as satisfied
     input.setSatisfied();
+  }
+
+  __INLINE__ void startJob(std::shared_ptr<Job>& job)
+  {
+    // Get my partition configuration
+    const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
+    const auto &tasks = partitionConfiguration->getTasks();
+
+    // Building execution graph
+    for (const auto &task : tasks)
+    {
+      // Checking the requested function was registered
+      const auto taskFunctionName = task->getFunctionName();
+      if (_registeredFunctions.contains(taskFunctionName) == false) HICR_THROW_LOGIC("The requested function name '%s' is not registered. Please register it before running the hLLM.", taskFunctionName.c_str());
+
+      // Getting label for taskr function
+      const auto taskId = _taskrLabelCounter++;
+
+      // Creating taskr Task corresponding to the LLM engine task
+      auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
+
+      // Getting function pointer
+      const auto &fc = _registeredFunctions.at(taskFunctionName);
+
+      // Creating hLLM Task object
+      auto newTask = std::make_shared<hLLM::Task>(*task, fc, std::move(taskrTask));
+
+      // Get ahold of the task dependency edge positions for dependency checking
+      const auto& taskInputEdgePositions = _taskInputEdgePositions[taskFunctionName];
+
+      // Function to check the tasks inputs are present before executing it
+      auto taskInputsCheck = [&]() {
+      // If there is an active job, check whether the inputs for this tasks are satisfied within it
+      for (const auto edgePos : taskInputEdgePositions) if (_activeJob->getInputEdges()[edgePos].isSatisfied() == false) return false;
+
+      // All dependencies are satisfied, enable this task for execution
+      return true;
+      };
+
+      // Adding task to the label->Task map
+      _taskLabelMap.insert({taskId, newTask});
+
+      // Adding task dependencies
+      newTask->getTaskRTask()->addPendingOperation(taskInputsCheck);
+
+      // Adding task to TaskR itself
+      _taskr->addTask(newTask->getTaskRTask());
+    }
   }
 
   // Identifier for the replica index
@@ -217,20 +224,23 @@ class Replica final : public Base
   std::shared_ptr<edge::Input> _coordinatorControlInput;
   std::shared_ptr<edge::Output> _coordinatorControlOutput;
 
-  // Map relating task labels to their hLLM task
+  // Map relating task function names to their input edge positions (for data dependency checking)
+  std::map<std::string, std::vector<size_t>> _taskInputEdgePositions;
+
+  // Map relating task ids to their hLLM task
   std::map<taskr::taskId_t, std::shared_ptr<Task>> _taskLabelMap;
 
   // The set of registered functions to use as targets for tasks
   const std::map<std::string, Task::taskFunction_t> _registeredFunctions;
+
+  // A global count to set unique label ids to each task
+  taskr::taskId_t _taskrLabelCounter;
 
   // The main driver for running tasks
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   // Pointer for the current active job being processed
   std::shared_ptr<Job> _activeJob;
-
-  
-
 }; // class Replica
 
 } // namespace hLLM::replica
