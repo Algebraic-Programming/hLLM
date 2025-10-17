@@ -18,6 +18,14 @@ class Role
   Role() = delete;
   ~Role() = default;
 
+  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::edge::Message&)> messageHandler_t;
+  struct edgeHandlerSubscription_t
+  {
+    hLLM::edge::Message::messageType_t type;
+    std::shared_ptr<edge::Input> edge;
+    messageHandler_t handler;
+  };
+
   Role(
     const configuration::Deployment deployment,
     taskr::Runtime* const taskr
@@ -50,8 +58,8 @@ class Role
     // Disabling heartbeat service, if not needed for now
     if (_deployment.getHeartbeat().enabled == false) _taskrHeartbeatService.disable();
 
-    ////////// Adding service to listen for incoming messages
-    _taskr->addService(&_taskrMessagesListeningService);
+    ////////// Adding service to listen for incoming messages in edge-handler subscriptions
+    _taskr->addService(&_taskrEdgeSubscriptionListeningService);
 
     ////////// Adding runtime task -- only to keep the engine running until shutdown
     _taskr->addTask(&_taskrRuntimeTask);
@@ -80,9 +88,7 @@ class Role
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
 
   // Function to subscribe a  message handler
-  typedef std::function<void(const std::shared_ptr<edge::Input>, const hLLM::edge::Message&)> messageHandler_t;
-  __INLINE__ void subscribeMessageHandler(const hLLM::edge::Message::messageType_t type, const messageHandler_t handler) { _messageHandlers[type] = handler; }
-  __INLINE__ void subscribeMessageEdge(const std::shared_ptr<edge::Input> edge) { _inputEdgesForHandler.push_back(edge); }
+  __INLINE__ void subscribeEdgeMessageHandler(const edgeHandlerSubscription_t subscription) { _edgeHandlerSubscriptions.push_back(subscription); }
   
   private:
 
@@ -120,30 +126,51 @@ class Role
   std::vector<std::shared_ptr<edge::Output>> _heartbeatOutputEdges;
 
   /////////// Message Hanlding Service
-  __INLINE__ void messagesListeningService()
+  __INLINE__ void edgeSubscriptionListeningService()
   {
+    // Checks if a given edge has a pending message that was not handled by any subscription
+    std::set<configuration::Edge::edgeIndex_t> _pendingEdges;
+
     // Checking for all input edges
-    for (const auto& edge : _inputEdgesForHandler)
-    if (edge->hasMessage())
+    for (const auto& subscription : _edgeHandlerSubscriptions)
     {
-      // Getting message from input edge
-      const auto message = edge->getMessage();
-      const auto messageType = message.getMetadata().type;
+      const auto type = subscription.type;
+      const auto edge = subscription.edge;
+      const auto edgeIdx = edge->getEdgeIndex();
+      const auto& handler = subscription.handler;
 
-      // Checking whether the message type is subscribed to
-      if (_messageHandlers.contains(messageType) == false) HICR_THROW_RUNTIME("Received message type %lu that has no subscribed handler\n", messageType);
+      if (edge->hasMessage())
+      {
+        // Getting message from input edge
+        const auto message = edge->getMessage();
+        const auto messageType = message.getMetadata().type;
 
-      // Now calling the handler
-      _messageHandlers[messageType](edge, message);
+        // If the message type coincides with that of the subscription, then run and pop. Otherwise pass
+        if (messageType == type)
+        {
+          // Now calling the handler
+          handler(edge, message);
 
-      // Immediately disposing (popping) of message out of the edge
-      edge->popMessage();
-    } 
+          // Immediately disposing (popping) of message out of the edge
+          edge->popMessage();
+
+          // Removing edge from the set of pending edges, if set
+          if (_pendingEdges.contains(edgeIdx)) _pendingEdges.erase(edgeIdx);
+        }
+        else
+        {
+          // Add edge to the set of pending edges
+          _pendingEdges.insert(edge->getEdgeIndex());
+        }
+      } 
+    }
+
+    // Checking if there were any unhandled edges
+    if (_pendingEdges.empty() == false) HICR_THROW_RUNTIME("Some edges (%lu) cointained messages that were unaccounted for.\n", _pendingEdges.size());
   }
-  taskr::Service::serviceFc_t _taskrMessagesListeningServiceFunction = [this](){ this->messagesListeningService(); };
-  taskr::Service _taskrMessagesListeningService = taskr::Service(_taskrMessagesListeningServiceFunction, 0);
-  std::vector<std::shared_ptr<edge::Input>> _inputEdgesForHandler;
-  std::map<hLLM::edge::Message::messageType_t, messageHandler_t> _messageHandlers;
+  taskr::Service::serviceFc_t _taskrEdgeSubscriptionListeningServiceFunction = [this](){ this->edgeSubscriptionListeningService(); };
+  taskr::Service _taskrEdgeSubscriptionListeningService = taskr::Service(_taskrEdgeSubscriptionListeningServiceFunction, 0);
+  std::vector<edgeHandlerSubscription_t> _edgeHandlerSubscriptions;
 
 }; // class Role
 

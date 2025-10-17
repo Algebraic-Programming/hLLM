@@ -125,6 +125,23 @@ class RequestManager final : public hLLM::Role
   {
     // If this is the prompt management partition, then set up a service for its handling
     _taskr->addService(&_taskrPromptHandlingService);
+
+    // Subscribing data input edges for the incoming prompt responses
+    subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
+    _resultInputEdge,
+    [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ responseDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
+  }
+
+
+  __INLINE__ void responseDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  {
+    // Getting prompt id from data
+    const auto promptId = message->getPromptId();
+    const auto data = message->getData();
+    const auto size = message->getSize();
+    
+    const std::string response = std::string((const char*)data, size);
+    printf("[Request Manager] Received response '%s' for prompt %lu/%lu, edge '%s'.\n", response.c_str(), promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
   }
 
   ///////////// Prompt handling service
@@ -146,7 +163,12 @@ class RequestManager final : public hLLM::Role
       printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Sending data to the partition that takes the prompt as input
-      const auto message = messages::Data((const uint8_t*)promptData.data(), promptData.size()+1, promptId);
+      const auto messageData = (const uint8_t*)promptData.data();
+      const size_t messageSize = promptData.size()+1;
+      const auto message = messages::Data(messageData, messageSize, promptId);
+
+      // Send message once the recipient is ready
+      while(_promptOutputEdge->isFull(messageSize));
       _promptOutputEdge->pushMessage(message.encode());
 
       // Freeing entry in the pending session connection queue

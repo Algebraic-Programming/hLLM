@@ -190,13 +190,16 @@ class Replica final : public Base
     //////// Adding heartbeat service for my coordinator's control edge
     subscribeHeartbeatEdge(_coordinatorControlOutput);
 
-    // Registering a handler for the handshake message 
-    subscribeMessageEdge(_coordinatorControlInput);
-    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
+    // Subscribing control edges to the message service for my replicas
+    subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::heartbeat,
+    _coordinatorControlInput,
+    [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); } });
 
-    ////// Adding data inputs to the message handler
-    subscribeMessageHandler(hLLM::messages::messageTypes::data, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ dataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); });
-    for (const auto& edge : _coordinatorDataInputs) subscribeMessageEdge(edge);
+    // Subscribing control edges to the message service for my replicas
+    for (const auto& dataEdge : _coordinatorDataInputs)
+     subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
+     dataEdge,
+     [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ inputDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
   }
 
   void heartbeatMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Heartbeat> message)
@@ -204,7 +207,7 @@ class Replica final : public Base
     if(_deployment.getHeartbeat().visible == true)  printf("[Replica %lu / %lu] Received heartbeat from coordinator.\n", _partitionIdx, _replicaIdx);
   }
 
-  __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  __INLINE__ void inputDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
   {
     // Getting prompt id from data
     const auto promptId = message->getPromptId();

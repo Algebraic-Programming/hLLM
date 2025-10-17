@@ -138,7 +138,7 @@ class Coordinator final : public Base
       auto newReplica = std::make_shared<Replica>(_partitionIdx, replicaIndex, _inputEdges, _outputEdges, _controlEdgeConfig);
 
       // Adding new replica to the collection
-      _replicas.push_back(newReplica);
+      _replicaMap[replicaIndex] = newReplica;
 
       // Adding replica to the ready replica queue
       _replicaQueue.push(newReplica);
@@ -186,7 +186,7 @@ class Coordinator final : public Base
   {
     for (const auto& edge : _partitionDataInputs)  edge->getMemorySlotsToExchange(memorySlots);
     for (const auto& edge : _partitionDataOutputs) edge->getMemorySlotsToExchange(memorySlots);
-    for (const auto& replica : _replicas) replica->getMemorySlotsToExchange(memorySlots);
+    for (const auto& replica : _replicaMap) replica.second->getMemorySlotsToExchange(memorySlots);
   }
 
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
@@ -194,7 +194,7 @@ class Coordinator final : public Base
   {
     for (const auto& edge : _partitionDataInputs)  edge->initialize(tag);
     for (const auto& edge : _partitionDataOutputs) edge->initialize(tag);
-    for (const auto& replica : _replicas) replica->initializeEdges(tag);
+    for (const auto& replica : _replicaMap) replica.second->initializeEdges(tag);
   }
 
   private:
@@ -212,24 +212,27 @@ class Coordinator final : public Base
     printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
     // Subscribing to the heartbeat sending service for my replicas
-    for (const auto& replica : _replicas) subscribeHeartbeatEdge(replica->getControlOutput());
+    for (const auto& replica : _replicaMap) subscribeHeartbeatEdge(replica.second->getControlOutput());
 
     // Subscribing control edges to the message service for my replicas
-    for (const auto& replica : _replicas) subscribeMessageEdge(replica->getControlInput());
+    for (const auto& replica : _replicaMap)
+        subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::heartbeat,
+        replica.second->getControlInput(),
+        [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); } });
 
-    // Subscribing input edges to the message service for my replicas
-    for (const auto& replica : _replicas) for (const auto& dataEdge : replica->getDataInputs()) subscribeMessageEdge(dataEdge);
+    // Subscribing data input edges to the message service for my replicas results (outputs)
+    for (const auto& replica : _replicaMap) for (const auto& dataEdge : replica.second->getDataInputs())
+        subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
+        dataEdge,
+        [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ outputDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
 
-    // Subscribing input edges to the control message service for the peer coordinators who provide data inputs to us
-    for (const auto& dataEdge : _partitionDataInputs) subscribeMessageEdge(dataEdge);
+    // Subscribing data input edges to the message service for my peers
+    for (const auto& dataEdge : _partitionDataInputs) 
+        subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
+        dataEdge,
+        [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ inputDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
 
-    // Registering a handler for 1handshake messages
-    subscribeMessageHandler(hLLM::messages::messageTypes::heartbeat, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); });
-
-    // Registering a handler for data messages 
-    subscribeMessageHandler(hLLM::messages::messageTypes::data, [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ dataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); });
-
-    // Registering service for job management
+        // Registering service for job management
     _taskr->addService(&_taskrJobManagementService);
   }
 
@@ -239,7 +242,7 @@ class Coordinator final : public Base
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
 
-  __INLINE__ void dataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  __INLINE__ void inputDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
   {
     // Getting prompt id from data
     const auto promptId = message->getPromptId();
@@ -255,10 +258,14 @@ class Coordinator final : public Base
 
     // Check if there exists already a job for this incoming data
     // If it does not exist, create a new one. Otherwise, take it from the map
+    _jobMapMutex.lock();
     if(_jobMap.contains(promptId) == false)
     {
       // Creating new job entry
       job = std::make_shared<Job>(promptId, _inputEdges, _outputEdges);
+
+      // Adding job to the map
+      _jobMap[promptId] = job;
 
       // Also adding to the queue of pending jobs
       _pendingJobQueueMutex.lock();
@@ -268,7 +275,8 @@ class Coordinator final : public Base
 
     // Otherwise, it exists so grab it from the job map
     else job = _jobMap.at(promptId);
-
+    _jobMapMutex.unlock();
+    
     // Getting the input that is satisfied by this message
     auto& input = job->getInputEdges()[edgePos];
 
@@ -277,6 +285,53 @@ class Coordinator final : public Base
 
     // // Setting edge as satisfied
     input.setSatisfied();
+  }
+
+  __INLINE__ void outputDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  {
+    // Getting prompt id from data
+    const auto promptId = message->getPromptId();
+    const auto data = message->getData();
+    const auto size = message->getSize();
+    const auto edgeIdx = edge->getEdgeIndex();
+    const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
+    const auto replicaIdx = edge->getReplicaIndex();
+
+    printf("[Coordinator %lu] Received output data from replica %lu for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    // Check if there exists already a job for this incoming output data
+    _jobMapMutex.lock();
+    if(_jobMap.contains(promptId) == false) HICR_THROW_RUNTIME("The prompt id corresponding to the output data does not exist. This must be a bug in hLLM\n");
+    
+    // Otherwise, it exists so grab it from the job map
+    auto& job = _jobMap.at(promptId);
+    _jobMapMutex.unlock();
+
+    // Forward messages directly to the next peer
+    const auto forwardMessage = messages::Data(data, size, promptId);
+    const auto& peerOutput = _partitionDataOutputs[edgePos];
+
+    // Send message only when the peer is ready
+    while (peerOutput->isFull(size)); 
+    peerOutput->pushMessage(forwardMessage.encode());
+
+    // Getting the input that is satisfied by this message
+    auto& output = job->getOutputEdges()[edgePos];
+
+    // Setting edge as satisfied
+    output.setSatisfied();
+
+     // Checking if the job is ready to be removed
+    bool isJobFinished = true;
+    for (const auto& output : job->getOutputEdges()) if (output.isSatisfied() == false) { isJobFinished = false; break; };
+
+    // If it's finished, take statistics and remove the job from memory
+    if (isJobFinished)
+    {
+      _jobMapMutex.lock();
+      _jobMap.erase(promptId);
+      _jobMapMutex.unlock();
+    }
   }
 
   /////////// Job management Service3
@@ -352,7 +407,7 @@ class Coordinator final : public Base
   taskr::Service _taskrJobManagementService = taskr::Service(_jobManagementServiceFunction, 0);
 
   // Container for partition replica objects
-  std::vector<std::shared_ptr<Replica>> _replicas;
+  std::map<configuration::Replica::replicaIndex_t ,  std::shared_ptr<Replica>> _replicaMap;
 
   // Mutual exclusion mechanism to access the ready replica queue
   std::mutex _replicaQueueMutex;
@@ -367,6 +422,7 @@ class Coordinator final : public Base
   std::queue<std::shared_ptr<Job>> _pendingJobQueue;
 
   // Map of jobs, indexed by prompt id
+  std::mutex _jobMapMutex;
   std::map<Prompt::promptId_t, std::shared_ptr<Job>> _jobMap;
 
 }; // class Coordinator
