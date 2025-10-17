@@ -65,13 +65,25 @@ class Replica final : public Base
     // Resetting label count
     _taskrLabelCounter = 0;
 
-    // Calculating, for each of this partition's tasks, what are the edge indexes that correspond to their inputs
+    // Getting partition's tasks
     const auto &tasks = partitionConfiguration->getTasks();
+
+    // Calculating, for each of this partition's tasks, what are the edge indexes that correspond to their inputs
     for (const auto& task : tasks)
       for (const auto& taskInput : task->getInputs())
         for (size_t edgePos = 0; edgePos < _inputEdges.size(); edgePos++)
           if (taskInput == _inputEdges[edgePos].config->getName())
             { _taskInputEdgePositions[task->getFunctionName()].push_back(edgePos); break; }
+
+    // Similarly, for each edge, store which tasks need to be notified of their arrival
+    for (const auto& input : _inputEdges)
+     for (const auto& task : tasks)
+       for (const auto& taskInput : task->getInputs())
+       {
+        const auto& inputName = input.config->getName();
+        if (taskInput == inputName)
+          { _inputEdgeTaskDependencies[inputName].push_back(task->getFunctionName()); break; }
+       }
   }
 
   ~Replica() = default;
@@ -157,9 +169,14 @@ class Replica final : public Base
 
     // Getting input corresponding to the message that arrived
     auto& input = _activeJob->getInputEdges()[edgePos];
+    const auto& inputName = input.getEdgeInfo().config->getName();
+    const auto& inputData = input.getDataSlot();
 
     // Store a reference to the provided data into the edge (no extra copies required)
     input.storeDataByReference(data, size);
+
+    // Assigning all interested tasks the input data
+    for (const auto& task : _inputEdgeTaskDependencies[inputName]) _taskFunctionNameMap[task]->setInput(inputName, inputData);
 
     // Marking input as satisfied
     input.setSatisfied();
@@ -170,6 +187,10 @@ class Replica final : public Base
     // Get my partition configuration
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
     const auto &tasks = partitionConfiguration->getTasks();
+
+    // Clearing previous job's maps
+    _taskLabelMap.clear();
+    _taskFunctionNameMap.clear();
 
     // Building execution graph
     for (const auto &task : tasks)
@@ -205,6 +226,9 @@ class Replica final : public Base
       // Adding task to the label->Task map
       _taskLabelMap.insert({taskId, newTask});
 
+      // Adding task to the functionName->Task map
+      _taskFunctionNameMap.insert({taskFunctionName, newTask});
+
       // Adding task dependencies
       newTask->getTaskRTask()->addPendingOperation(taskInputsCheck);
 
@@ -227,8 +251,14 @@ class Replica final : public Base
   // Map relating task function names to their input edge positions (for data dependency checking)
   std::map<std::string, std::vector<size_t>> _taskInputEdgePositions;
 
+  // Map relating input edges to the task function names that depend on them
+  std::map<std::string, std::vector<std::string>> _inputEdgeTaskDependencies;
+
   // Map relating task ids to their hLLM task
   std::map<taskr::taskId_t, std::shared_ptr<Task>> _taskLabelMap;
+
+  // Map relating task function names to their hLLM task
+  std::map<std::string, std::shared_ptr<Task>> _taskFunctionNameMap;
 
   // The set of registered functions to use as targets for tasks
   const std::map<std::string, Task::taskFunction_t> _registeredFunctions;

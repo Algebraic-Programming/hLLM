@@ -17,8 +17,10 @@ void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager,
     const auto request = std::string((const char *)requestMemSlot->getPointer());
 
     // Create output
-    std::string processedRequestOutput             = request + std::string(" [Processed]");
-    const auto processedRequestMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, processedRequestOutput.data(), processedRequestOutput.size() + 1);
-    task->setOutput("Response", processedRequestMemSlot);
+    std::string responseOutput             = request + std::string(" [Processed]");
+    const auto responseMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, responseOutput.data(), responseOutput.size() + 1);
+
+    printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
+    task->setOutput("Response", responseMemSlot);
   });
 }
