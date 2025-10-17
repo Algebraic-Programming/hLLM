@@ -124,6 +124,12 @@ class Replica final : public Base
     // Actually run the function now
     function(task.get());
 
+    // Temporarily storing the messages to send to the coordinator outside the mutex
+    std::vector<std::pair<size_t, std::unique_ptr<hLLM::messages::Data>>> messagesForCoordinator;
+
+    // Protecting the active job pointer from overriding
+    _activeJobMutex.lock();
+
     // Once the task has finished, push all its outputs to the active job output edges
     for (const auto& output : taskConfig.getOutputs())
     {
@@ -144,8 +150,7 @@ class Replica final : public Base
       const auto promptId = _activeJob->getPromptId();
 
       // Pushing message back to the coordinator immediately
-      const auto message = messages::Data((const uint8_t*)outputDataSlot->getPointer(), outputDataSlot->getSize(), promptId);
-      _coordinatorDataOutputs[outputEdgePos]->pushMessage(message.encode());
+      messagesForCoordinator.push_back({outputEdgePos, std::make_unique<messages::Data>((const uint8_t*)outputDataSlot->getPointer(), outputDataSlot->getSize(), promptId)});
 
       // Deregistering data slot
       outputEdge.deregisterDataSlot();
@@ -153,6 +158,25 @@ class Replica final : public Base
       // Marking output as satisfied
       outputEdge.setSatisfied();
     }
+
+    // Now Check if the job is now finished
+    if (_activeJob != nullptr)
+    {
+      // If any of the outputs is not yet satisfied, then the job is not finished
+      bool isJobFinished = true;
+      for (const auto& output : _activeJob->getOutputEdges()) if (output.isSatisfied() == false) isJobFinished = false;
+
+      // If it is finished, remove it as active job
+      if (isJobFinished == true)
+      {
+        printf("[Replica] Job %lu/%lu is now finished\n", _activeJob->getPromptId().first, _activeJob->getPromptId().second);
+        _activeJob = nullptr;
+      } 
+    }
+    _activeJobMutex.unlock();
+
+    // Now sending messages to the coordinator (outside the mutex to prevent communication exclusion)
+    for (const auto& message : messagesForCoordinator) _coordinatorDataOutputs[message.first]->pushMessage(message.second->encode());
   }
 
   /// This function initializes the workload of the partition replica role
@@ -192,6 +216,7 @@ class Replica final : public Base
     printf("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // If there is a current job assigned to this replica and the job corresponds to a different prompt, then fail
+    _activeJobMutex.lock();
     if (_activeJob != nullptr) if (promptId != _activeJob->getPromptId())
      HICR_THROW_RUNTIME("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s' but currently prompt %lu/%lu is running.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str(), _activeJob->getPromptId().first, _activeJob->getPromptId().second);
 
@@ -204,6 +229,7 @@ class Replica final : public Base
       // And set it in motion
       startJob(_activeJob);
     } 
+    _activeJobMutex.unlock();
 
     // Getting input corresponding to the message that arrived
     auto& input = _activeJob->getInputEdges()[edgePos];
@@ -311,6 +337,7 @@ class Replica final : public Base
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   // Pointer for the current active job being processed
+  std::mutex _activeJobMutex;
   std::shared_ptr<Job> _activeJob;
 }; // class Replica
 
