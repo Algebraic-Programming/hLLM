@@ -84,6 +84,13 @@ class Replica final : public Base
         if (taskInput == inputName)
           { _inputEdgeTaskDependencies[inputName].push_back(task->getFunctionName()); break; }
        }
+
+    // Calculating, for each of this partition's tasks, what are the edge indexes that correspond to their outputs
+    for (const auto& task : tasks)
+      for (const auto& taskOutput : task->getOutputs())
+        for (size_t edgePos = 0; edgePos < _inputEdges.size(); edgePos++)
+          if (taskOutput == _outputEdges[edgePos].config->getName())
+            { _taskOutputEdgePositions[taskOutput] = edgePos; break; }
   }
 
   ~Replica() = default;
@@ -111,10 +118,41 @@ class Replica final : public Base
   {
     const auto &taskId     = taskrTask->getTaskId();
     const auto &task       = _taskLabelMap.at(taskId);
+    const auto &taskConfig = task->getConfig();
     const auto &function   = task->getFunction();
 
     // Actually run the function now
     function(task.get());
+
+    // Once the task has finished, push all its outputs to the active job output edges
+    for (const auto& output : taskConfig.getOutputs())
+    {
+      // Getting edge position corresponding to the task output
+      const auto outputEdgePos = _taskOutputEdgePositions[output];
+
+      // Getting corresponding output edge
+      auto& outputEdge = _activeJob->getOutputEdges()[outputEdgePos];
+
+      // Getting output from task
+      printf("[Replica] Getting data slot for output '%s'\n", output.c_str());
+      const auto& outputDataSlot = task->getOutput(output);
+
+      // Setting output edge's data
+      outputEdge.setDataSlot(outputDataSlot);
+
+      // Getting active job's prompt id
+      const auto promptId = _activeJob->getPromptId();
+
+      // Pushing message back to the coordinator immediately
+      const auto message = messages::Data((const uint8_t*)outputDataSlot->getPointer(), outputDataSlot->getSize(), promptId);
+      _coordinatorDataOutputs[outputEdgePos]->pushMessage(message.encode());
+
+      // Deregistering data slot
+      outputEdge.deregisterDataSlot();
+
+      // Marking output as satisfied
+      outputEdge.setSatisfied();
+    }
   }
 
   /// This function initializes the workload of the partition replica role
@@ -250,6 +288,9 @@ class Replica final : public Base
 
   // Map relating task function names to their input edge positions (for data dependency checking)
   std::map<std::string, std::vector<size_t>> _taskInputEdgePositions;
+
+  // Map relating task output names to their input edge positions
+  std::map<std::string, size_t> _taskOutputEdgePositions;
 
   // Map relating input edges to the task function names that depend on them
   std::map<std::string, std::vector<std::string>> _inputEdgeTaskDependencies;

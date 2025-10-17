@@ -29,8 +29,8 @@ class Task final
       _taskrTask(std::move(taskrTask))
   {
     // Adding input and output token holders
-    for (const auto& input : taskConfig.getInputs()) _inputTokens[input] = nullptr;
-    for (const auto& output : taskConfig.getOutputs()) _outputTokens[output] = nullptr;
+    for (const auto& input : taskConfig.getInputs()) _inputs[input] = nullptr;
+    for (const auto& output : taskConfig.getOutputs()) _outputs[output] = nullptr;
   }
 
   ~Task() = default;
@@ -38,18 +38,18 @@ class Task final
   __INLINE__ const std::shared_ptr<HiCR::LocalMemorySlot> getInput(const std::string &inputName)
   {
     // Check whether the input token exists for this task
-    if (_inputTokens.contains(inputName) == false)
+    if (_inputs.contains(inputName) == false)
         HICR_THROW_RUNTIME("Function '%s' trying to access input '%s' which has not been declared for this task.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
 
     // Check whether the input has been given (sanity check)
-    if (_inputTokens[inputName] == nullptr)
+    if (_inputs[inputName] == nullptr)
         HICR_THROW_RUNTIME("Function '%s' trying to access input '%s' which has not been provided. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
 
     // Then, get the token
-    const auto token = _inputTokens.at(inputName);
+    const auto token = _inputs.at(inputName);
 
     // Then, erasing it to indicate it was consumed
-    _inputTokens[inputName] = nullptr;
+    _inputs[inputName] = nullptr;
 
     // Returning consumed token
     return token;
@@ -57,13 +57,13 @@ class Task final
 
   __INLINE__ void setOutput(const std::string &outputName, const std::shared_ptr<HiCR::LocalMemorySlot> &memorySlot)
   {
-    if (_outputTokens.contains(outputName) == false) 
+    if (_outputs.contains(outputName) == false) 
       HICR_THROW_RUNTIME("Function '%s' is setting output '%s' which has not been declared for this task.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
 
-    if (_outputTokens[outputName] != nullptr) 
+    if (_outputs[outputName] != nullptr) 
       HICR_THROW_RUNTIME("Function '%s' is setting output '%s' twice.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
 
-    _outputTokens[outputName] = memorySlot;
+    _outputs[outputName] = memorySlot;
   }
 
   private:
@@ -74,23 +74,23 @@ class Task final
 
   __INLINE__ bool isReady() const
   {
-    for (const auto& input : _inputTokens) if (input.second == nullptr) return false;
+    for (const auto& input : _inputs) if (input.second == nullptr) return false;
     return true;
   }
 
   __INLINE__ std::shared_ptr<HiCR::LocalMemorySlot> getOutput(const std::string &outputName)
   { 
-    if (_outputTokens.contains(outputName) == false) 
+    if (_outputs.contains(outputName) == false) 
       HICR_THROW_RUNTIME("Function '%s' is getting output '%s' which has not been provided for this task.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
 
-    if (_outputTokens[outputName] != nullptr) 
+    if (_outputs[outputName] == nullptr) 
       HICR_THROW_RUNTIME("Function '%s' is getting output '%s' twice. This must be a bug in hLLM\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
     
     // First, get the token
-    const auto token = _outputTokens.at(outputName);
+    const auto token = _outputs.at(outputName);
 
     // Then, erasing it from the map to indicate it was consumed
-    _outputTokens[outputName] = nullptr;
+    _outputs[outputName] = nullptr;
 
     // Returning consumed token
     return token;
@@ -99,22 +99,22 @@ class Task final
   __INLINE__ void setInput(const std::string &inputName, const std::shared_ptr<HiCR::LocalMemorySlot> token)
   {
     // Check whether the input token exists for this task
-    if (_inputTokens.contains(inputName) == false)
+    if (_inputs.contains(inputName) == false)
         HICR_THROW_RUNTIME("Function '%s' trying to set input '%s' which has not been declared for this task. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
 
     // Check whether the input has been given (sanity check)
-    if (_inputTokens[inputName] != nullptr)
+    if (_inputs[inputName] != nullptr)
         HICR_THROW_RUNTIME("Function '%s' trying to set input '%s' which has already been set. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
 
-     _inputTokens[inputName] = token;
+     _inputs[inputName] = token;
   }
 
   const hLLM::configuration::Task                    _taskConfig;
   const taskFunction_t                               _function;
   const std::unique_ptr<taskr::Task>                 _taskrTask;
 
-  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputTokens;
-  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputTokens;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputs;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputs;
 
 }; // class Task
 

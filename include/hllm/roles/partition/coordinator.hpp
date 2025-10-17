@@ -214,8 +214,11 @@ class Coordinator final : public Base
     // Subscribing to the heartbeat sending service for my replicas
     for (const auto& replica : _replicas) subscribeHeartbeatEdge(replica->getControlOutput());
 
-    // Subscribing input edges to the control message service for my replicas
+    // Subscribing control edges to the message service for my replicas
     for (const auto& replica : _replicas) subscribeMessageEdge(replica->getControlInput());
+
+    // Subscribing input edges to the message service for my replicas
+    for (const auto& replica : _replicas) for (const auto& dataEdge : replica->getDataInputs()) subscribeMessageEdge(dataEdge);
 
     // Subscribing input edges to the control message service for the peer coordinators who provide data inputs to us
     for (const auto& dataEdge : _partitionDataInputs) subscribeMessageEdge(dataEdge);

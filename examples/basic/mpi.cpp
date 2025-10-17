@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
       auto session = hllm.createSession();
 
       // Send a test message
-      while(true)
+      // while(true)
       {
         const auto messageId = session->sendPrompt("Hello, World!");
         printf("[User] Sent message Id: %lu\n", messageId);

@@ -8,16 +8,20 @@
 #include <hllm/engine.hpp>
 #include "requester.hpp"
 
+// Permanent storage of the response output string (created only once to prevent memory leaking)
+std::string responseOutput;
+
 void createTasks(hLLM::Engine &engine, HiCR::MemoryManager *const memoryManager, std::shared_ptr<HiCR::MemorySpace> memorySpace)
 {
   // Listen request function -- it expects an outside input and creates a request
-  engine.registerFunction("Listen Request", [=](hLLM::Task *task) {
+  engine.registerFunction("Listen Request", [=](hLLM::Task *task) 
+  {
     // Getting input
     const auto &requestMemSlot = task->getInput("Prompt");
     const auto request = std::string((const char *)requestMemSlot->getPointer());
 
     // Create output
-    std::string responseOutput             = request + std::string(" [Processed]");
+    responseOutput             = request + std::string(" [Processed]");
     const auto responseMemSlot = memoryManager->registerLocalMemorySlot(memorySpace, responseOutput.data(), responseOutput.size() + 1);
 
     printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
