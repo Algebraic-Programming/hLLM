@@ -171,10 +171,14 @@ int main(int argc, char *argv[])
       auto session = hllm.createSession();
 
       // Send a test message
-      // while(true)
+      size_t currentPrompt = 0;
+      while(true)
       {
-        const auto messageId = session->sendPrompt("Hello, World!");
-        printf("[User] Sent message Id: %lu\n", messageId);
+        const auto prompt = session->pushPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt));
+        currentPrompt++;
+        printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
+        while(prompt->hasResponse() == false);
+        printf("[User] Got response: %s\n", prompt->getResponse().c_str());
         sleep(1);
       }
     });

@@ -1,13 +1,21 @@
 #pragma once
 
 #include <cstdint>
+#include <hicr/core/definitions.hpp>
 
 namespace hLLM
 {
 
+namespace roles 
+{
+  class RequestManager;
+}
+
 class Prompt
 {
   public:
+
+  friend class roles::RequestManager;
 
   typedef std::pair<sessionId_t, messageId_t>  promptId_t;
 
@@ -20,15 +28,19 @@ class Prompt
   {
   }
 
-  __INLINE__ void setResponse(const std::string& response) { _response = response; }
-  __INLINE__ promptId_t getPromptId() const { return _promptId; }
-  __INLINE__ const std::string& getPrompt() const { return _prompt; }
+  [[nodiscard]] __INLINE__ bool hasResponse() const { return _hasResponse; }
+  [[nodiscard]] __INLINE__ const std::string& getResponse() const { return _response; }
+  [[nodiscard]] __INLINE__ promptId_t getPromptId() const { return _promptId; }
+  [[nodiscard]] __INLINE__ const std::string& getPrompt() const { return _prompt; }
 
   private:
+
+  __INLINE__ void setResponse(const std::string& response) { _response = response; _hasResponse = true; }
 
   const promptId_t _promptId;
   const std::string _prompt;
   std::string _response;
+  bool _hasResponse = false;
 
 }; // class Prompt
 

@@ -322,7 +322,7 @@ class Coordinator final : public Base
     output.setSatisfied();
 
      // Checking if the job is ready to be removed
-    bool isJobFinished = true;
+    bool isJobFinished = true; 
     for (const auto& output : job->getOutputEdges()) if (output.isSatisfied() == false) { isJobFinished = false; break; };
 
     // If it's finished, take statistics and remove the job from memory
@@ -332,6 +332,12 @@ class Coordinator final : public Base
       _jobMap.erase(promptId);
       _jobMapMutex.unlock();
     }
+
+    // Re-adding replica to the queue of ready replicas
+    const auto replica = _replicaMap[replicaIdx];
+    _replicaQueueMutex.lock();
+    _replicaQueue.push(replica);
+    _replicaQueueMutex.unlock();
   }
 
   /////////// Job management Service3

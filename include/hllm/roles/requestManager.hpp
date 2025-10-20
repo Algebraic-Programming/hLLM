@@ -101,21 +101,11 @@ class RequestManager final : public hLLM::Role
     _resultInputEdge->initialize(tag);
   }
 
-  __INLINE__ void pushPrompt(const std::shared_ptr<hLLM::messages::Prompt> prompt)
+  __INLINE__ void pushPrompt(const std::shared_ptr<Prompt> prompt)
   {
-    // Creating new prompt object
-    const auto input = prompt->getInput();
-    const auto sessionId = prompt->getSessionId();
-    const auto messageId = prompt->getMessageId();
-    const auto promptId = Prompt::promptId_t(sessionId, messageId);
-    printf("[Request Manager] Received prompt '%s' from session %lu, message: %lu\n", input.c_str(), sessionId, messageId);
-
-    // Creating new prompt
-    auto promptObject = std::make_shared<Prompt>(promptId, input);
-
     // Adding prompt to new prompt queue
     _promptManagementMutex.lock();
-    _pendingNewPromptsQueue.push(promptObject);
+    _pendingNewPromptsQueue.push(prompt);
     _promptManagementMutex.unlock();
   }
 
@@ -155,7 +145,6 @@ class RequestManager final : public hLLM::Role
     // Adding session management service
     _taskr->addService(&_taskrSessionManagementService);
   }
-
 
   __INLINE__ void responseDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
   {
@@ -243,19 +232,14 @@ class RequestManager final : public hLLM::Role
       // Getting session
       const auto& session = entry.second;
 
-      // Getting next message from the session
-      const auto message = session->getMessage();
+      // Getting next prompt from the session, if any
+      const auto prompt = session->getPrompt();
 
-      // If no messages are available, continue onto the next session
-      if (message == nullptr) continue;
+      // If no prompts are available, continue onto the next session
+      if (prompt == nullptr) continue;
 
-      // Decoding message according to type
-      const auto type = message->getType();
-      switch(type)
-      {
-        case hLLM::messages::messageTypes::prompt: pushPrompt(std::dynamic_pointer_cast<messages::Prompt>(message)); break;
-        default: HICR_THROW_RUNTIME("[Engine] Message type %lu unrecognized. This must be a bug in hLLM\n", type);
-      }
+      // Otherwise, process it
+      pushPrompt(prompt);
     } 
   }
   taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
