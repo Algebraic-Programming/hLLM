@@ -11,6 +11,7 @@
 #include "../edge/output.hpp"
 #include "../configuration/deployment.hpp"
 #include "../messages/data.hpp"
+#include "../session.hpp"
 
 namespace hLLM::roles
 {
@@ -118,6 +119,26 @@ class RequestManager final : public hLLM::Role
     _promptManagementMutex.unlock();
   }
 
+  [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
+  {
+    // Getting unique session id, atomically increasing its value in the process
+    const auto sessionId = _currentSessionId.fetch_add(1);
+
+    // Creating new session
+    auto session = std::make_shared<Session>(sessionId);
+
+    // Registering session
+    _sessionManagementMutex.lock();
+    _pendingSessionConnectionsQueue.push(session);
+    _sessionManagementMutex.unlock();
+
+    // Wait until session is connected
+    while(session->isConnected() == false);
+
+    // Returning session
+    return session;
+  }
+
   private:
 
   /// This function subscribes the handlers and services for the coordinator role
@@ -130,6 +151,9 @@ class RequestManager final : public hLLM::Role
     subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
     _resultInputEdge,
     [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ responseDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
+
+    // Adding session management service
+    _taskr->addService(&_taskrSessionManagementService);
   }
 
 
@@ -142,6 +166,16 @@ class RequestManager final : public hLLM::Role
     
     const std::string response = std::string((const char*)data, size);
     printf("[Request Manager] Received response '%s' for prompt %lu/%lu, edge '%s'.\n", response.c_str(), promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    // Getting prompt object and removing it from the active prompt map. We've got the response now
+    _activePromptMapMutex.lock();
+    if (_activePromptMap.contains(promptId) == false) HICR_THROW_RUNTIME("Prompt map entry for prompt %lu/%lu not found. This must be a bug in hLLM", promptId.first, promptId.second);
+    auto& prompt = _activePromptMap.at(promptId);
+    _activePromptMap.erase(promptId);
+    _activePromptMapMutex.unlock();
+
+    // Setting response
+    prompt->setResponse(response);
   }
 
   ///////////// Prompt handling service
@@ -179,7 +213,54 @@ class RequestManager final : public hLLM::Role
   }
   taskr::Service::serviceFc_t _promptHandlingServiceFunction = [this](){ this->promptHandlingService(); };
   taskr::Service _taskrPromptHandlingService = taskr::Service(_promptHandlingServiceFunction);
+  
+  ///////////// Session management service (no concurrent access active service map)
+  __INLINE__ void sessionManagementServiceFunction()
+  {
+    _sessionManagementMutex.lock();
 
+    // Accepting incoming session connection requests
+    while(_pendingSessionConnectionsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      auto session = _pendingSessionConnectionsQueue.front();
+      
+      // Registering session
+      _activeSessionMap.insert({session->getSessionId(), session});
+
+      // Setting session as connected
+      session->connect();
+
+      // Freeing entry in the pending session connection queue
+      _pendingSessionConnectionsQueue.pop();
+    }
+
+    _sessionManagementMutex.unlock();
+
+    // Iterating over the active sessions in search for the next message to parse
+    for (const auto& entry : _activeSessionMap)
+    {
+      // Getting session
+      const auto& session = entry.second;
+
+      // Getting next message from the session
+      const auto message = session->getMessage();
+
+      // If no messages are available, continue onto the next session
+      if (message == nullptr) continue;
+
+      // Decoding message according to type
+      const auto type = message->getType();
+      switch(type)
+      {
+        case hLLM::messages::messageTypes::prompt: pushPrompt(std::dynamic_pointer_cast<messages::Prompt>(message)); break;
+        default: HICR_THROW_RUNTIME("[Engine] Message type %lu unrecognized. This must be a bug in hLLM\n", type);
+      }
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
+  taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
+  
 
   // Edge to copy a prompt to a coordinator
   std::shared_ptr<edge::Output> _promptOutputEdge;
@@ -194,6 +275,7 @@ class RequestManager final : public hLLM::Role
   std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
 
   // Active prompt map
+  std::mutex _activePromptMapMutex;
   std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
 
   // Index within the deployment of the partition who will consume the initial prompt
@@ -201,6 +283,19 @@ class RequestManager final : public hLLM::Role
 
   // Index within the deployment of the partition who will produce the prompt result
   configuration::Partition::partitionIndex_t _resultProducerPartitionIdx; 
+
+  // Global counter for session ids
+  std::atomic<sessionId_t> _currentSessionId = 0;
+
+  // Session management mutex
+  std::mutex _sessionManagementMutex;
+
+  // Queue of pending sessions for connection
+  std::queue<std::shared_ptr<Session>> _pendingSessionConnectionsQueue;
+
+  // Active session map
+  std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
+
 
 }; // class RequestManager
 

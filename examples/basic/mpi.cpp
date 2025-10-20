@@ -164,6 +164,10 @@ int main(int argc, char *argv[])
   {
     promptThread = std::make_unique<std::thread>([&]()
     {
+      // Wait until the hLLM has deployed
+      while (hllm.isDeployed() == false);
+
+      // Now create session
       auto session = hllm.createSession();
 
       // Send a test message

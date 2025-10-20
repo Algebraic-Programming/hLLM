@@ -9,7 +9,6 @@
 #include "roles/requestManager.hpp"
 #include "edge/base.hpp"
 #include "task.hpp"
-#include "session.hpp"
 
 #define __HLLM_WORKER_ENTRY_POINT_RPC_NAME "[hLLM] Worker Entry Point"
 #define __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME "[hLLM] Request Deployment Configuration"
@@ -56,6 +55,9 @@ class Engine final
    */
   __INLINE__ void initialize(const configuration::Deployment deployment, const HiCR::Instance::instanceId_t deployerInstanceId)
   {
+    // The engine is not yet deployed
+    _isDeployed = false;
+
     // Establish the designated instance as deployer instance
     _deployerInstanceId = deployerInstanceId;
 
@@ -189,34 +191,12 @@ class Engine final
 
   [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
   {
-    // Getting unique session id, atomically increasing its value in the process
-    const auto sessionId = _currentSessionId.fetch_add(1);
+    if (_requestManagerRole == nullptr) HICR_THROW_RUNTIME("Trying to connect to hLLM engine directly, but this is not a request manager instance");
 
-    // Creating new session
-    auto session = std::make_shared<Session>(sessionId);
-
-    // Registering session
-    _sessionManagementMutex.lock();
-    _pendingSessionConnectionsQueue.push(session);
-    _sessionManagementMutex.unlock();
-
-    // Wait until session is connected
-    while(session->isConnected() == false);
-
-    // Returning session
-    return session;
+    return _requestManagerRole->createSession();
   }
 
-  __INLINE__ void disconnectSession(std::shared_ptr<Session> session)
-  {
-    // Registering session
-    _sessionManagementMutex.lock();
-    _pendingSessionDisconnectionsQueue.push(session);
-    _sessionManagementMutex.unlock();
-
-    // Wait until session is connected
-    while(session->isConnected() == true);
-  }
+  [[nodiscard]] __INLINE__ bool isDeployed() const { return _isDeployed; }
 
   private:
 
@@ -432,11 +412,11 @@ class Engine final
     if (isPartitionReplica == true) _partitionReplicaRole->initialize();
     if (isRequestManager == true) _requestManagerRole->initialize();
 
-    // Adding session management service
-    _taskr->addService(&_taskrSessionManagementService);
-
     // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
+
+    // The engine is  now fully deployed
+    _isDeployed = true;
 
     // Running TaskR
     _taskr->run();
@@ -455,80 +435,6 @@ class Engine final
       // Returning serialized topology
       _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
-
-  ///////////// Message management
-  __INLINE__ void processPromptMessage(const std::shared_ptr<hLLM::messages::Prompt> prompt)
-  {
-    // Check if there is a coordinator defined to receive the prompt
-    if (_requestManagerRole == nullptr) HICR_THROW_LOGIC("Send a prompt to instance %lu, but no request manager is defined in it", _instanceId);
-
-    // Send prompt to the coordinator
-    _requestManagerRole->pushPrompt(prompt);
-  }
-  
-  ///////////// Session management service (no concurrent access active service map)
-  __INLINE__ void sessionManagementServiceFunction()
-  {
-    _sessionManagementMutex.lock();
-
-    // Accepting incoming session connection requests
-    while(_pendingSessionConnectionsQueue.empty() == false)
-    {
-      // Getting next pending session to connect
-      auto session = _pendingSessionConnectionsQueue.front();
-      
-      // Registering session
-      _activeSessionMap.insert({session->getSessionId(), session});
-
-      // Setting session as connected
-      session->connect();
-
-      // Freeing entry in the pending session connection queue
-      _pendingSessionConnectionsQueue.pop();
-    }
-
-    // Accepting incoming session disconnection requests
-    while(_pendingSessionDisconnectionsQueue.empty() == false)
-    {
-      // Getting next pending session to connect
-      auto session = _pendingSessionDisconnectionsQueue.front();
-      
-      // Registering session
-      _activeSessionMap.erase(session->getSessionId());
-
-      // Setting session as connected
-      session->disconnect();
-
-      // Freeing entry in the pending session connection queue
-      _pendingSessionDisconnectionsQueue.pop();
-    }
-
-    _sessionManagementMutex.unlock();
-
-    // Iterating over the active sessions in search for the next message to parse
-    for (const auto& entry : _activeSessionMap)
-    {
-      // Getting session
-      const auto& session = entry.second;
-
-      // Getting next message from the session
-      const auto message = session->getMessage();
-
-      // If no messages are available, continue onto the next session
-      if (message == nullptr) continue;
-
-      // Decoding message according to type
-      const auto type = message->getType();
-      switch(type)
-      {
-        case hLLM::messages::messageTypes::prompt: processPromptMessage(std::static_pointer_cast<hLLM::messages::Prompt>(message)); break;
-        default: HICR_THROW_RUNTIME("[Engine] Message type %lu unrecognized. This must be a bug in hLLM\n", type);
-      }
-    } 
-  }
-  taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
-  taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
-
 
   // Pointer to the instance's partition coordinator role, if defined
   std::unique_ptr<roles::partition::Coordinator> _partitionCoordinatorRole = nullptr;
@@ -572,21 +478,8 @@ class Engine final
   // For the deployer instance, this holds the ids of all the initially deployed instances
   std::set<HiCR::Instance::instanceId_t> _instanceSet;
 
-  // Global counter for session ids
-  std::atomic<sessionId_t> _currentSessionId = 0;
-
-  // Session management mutex
-  std::mutex _sessionManagementMutex;
-
-  // Queue of pending sessions for connection
-  std::queue<std::shared_ptr<Session>> _pendingSessionConnectionsQueue;
-
-  // Queue of pending sessions for connection
-  std::queue<std::shared_ptr<Session>> _pendingSessionDisconnectionsQueue;
-
-  // Active session map
-  std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
-
+  // Flag to indicate the engine has deployed correctly
+  bool _isDeployed;
 
 }; // class Engine
 
