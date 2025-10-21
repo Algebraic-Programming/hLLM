@@ -12,7 +12,6 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
-#include "basic.hpp"
 
 #define _PROMPT_THREAD_COUNT 2
 
@@ -157,7 +156,20 @@ int main(int argc, char *argv[])
   hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
   // Declaring the hLLM tasks for the application
-  createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
+  std::string responseOutput;
+  hllm.registerFunction("Listen Request", [&](hLLM::Task *task) 
+  {
+    // Getting input
+    const auto &requestMemSlot = task->getInput("Prompt");
+    const auto request = std::string((const char *)requestMemSlot->getPointer());
+
+    // Create output
+    responseOutput             = request + std::string(" [Processed]");
+    const auto responseMemSlot = mpiMemoryManager->registerLocalMemorySlot(bufferMemorySpace, responseOutput.data(), responseOutput.size() + 1);
+
+    printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
+    task->setOutput("Response", responseMemSlot);
+  });
 
   // If I am the root, create a session to send prompt inputs
   std::vector<std::unique_ptr<std::thread>> promptThreads;
