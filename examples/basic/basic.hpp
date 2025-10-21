@@ -6,7 +6,6 @@
 #include <hicr/core/memoryManager.hpp>
 #include <hicr/core/memorySpace.hpp>
 #include <hllm/engine.hpp>
-#include "requester.hpp"
 
 // Permanent storage of the response output string (created only once to prevent memory leaking)
 std::string responseOutput;

@@ -11,7 +11,6 @@
 #include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hllm/engine.hpp>
 #include "basic.hpp"
-#include "requester.hpp"
 
 int main(int argc, char *argv[])
 {

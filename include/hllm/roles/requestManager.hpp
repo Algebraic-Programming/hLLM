@@ -171,7 +171,7 @@ class RequestManager final : public hLLM::Role
   __INLINE__ void promptHandlingService()
   {
     // Checking for new prompts to be added to the list
-    _promptManagementMutex.lock();
+    const std::lock_guard<std::mutex> lock(_promptManagementMutex);
 
     // Accepting incoming session connection requests
     while(_pendingNewPromptsQueue.empty() == false)
@@ -181,24 +181,26 @@ class RequestManager final : public hLLM::Role
       const auto promptId = prompt->getPromptId();
       const auto& promptData = prompt->getPrompt();
       
-      // Registering session
-      _activePromptMap.insert({promptId, prompt});
-      printf("Added Prompt id: %lu/%lu\n", promptId.first, promptId.second);
-
       // Sending data to the partition that takes the prompt as input
       const auto messageData = (const uint8_t*)promptData.data();
       const size_t messageSize = promptData.size()+1;
+
+      // Interrupt service if the output edge (connecting to the entry partition) is full
+      if(_promptOutputEdge->isFull(messageSize) == true) return;
+
+      // Creating message object
       const auto message = messages::Data(messageData, messageSize, promptId);
 
       // Send message once the recipient is ready
-      while(_promptOutputEdge->isFull(messageSize));
       _promptOutputEdge->pushMessage(message.encode());
+
+      // Registering prompt
+      _activePromptMap.insert({promptId, prompt});
+      printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Freeing entry in the pending session connection queue
       _pendingNewPromptsQueue.pop();
     }
-
-    _promptManagementMutex.unlock();
   }
   taskr::Service::serviceFc_t _promptHandlingServiceFunction = [this](){ this->promptHandlingService(); };
   taskr::Service _taskrPromptHandlingService = taskr::Service(_promptHandlingServiceFunction);

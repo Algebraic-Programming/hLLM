@@ -56,8 +56,7 @@ class Output final : public Base
     _dataChannel->updateDepth();
     // printf("Output Data Depth: %lu\n", _dataChannel->getDepth());
     // printf("Output Data Channel Space Left: %lu\n", _dataChannel->getPayloadHeadPosition());
-    if (_dataChannel->hasEnoughPayloadSpace(msgSize) == false) return true;
-    if (_dataChannel->isFull() == true) return true;
+    if (_dataChannel->isFull(msgSize) == true) return true;
 
     // Check if both are not empty
     return false;

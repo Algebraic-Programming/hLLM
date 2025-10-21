@@ -13,7 +13,8 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 #include "basic.hpp"
-#include "requester.hpp"
+
+#define _PROMPT_THREAD_COUNT 2
 
 int main(int argc, char *argv[])
 {
@@ -159,56 +160,38 @@ int main(int argc, char *argv[])
   createTasks(hllm, mpiMemoryManager.get(), bufferMemorySpace);
 
   // If I am the root, create a session to send prompt inputs
-  std::unique_ptr<std::thread> promptThread;
+  std::vector<std::unique_ptr<std::thread>> promptThreads;
   if (isRoot)
   {
-    promptThread = std::make_unique<std::thread>([&]()
-    {
-      // Wait until the hLLM has deployed
-      while (hllm.isDeployed() == false);
-
-      // Now create session
-      auto session = hllm.createSession();
-
-      // Send a test message
-      size_t currentPrompt = 0;
-      while(true)
+    for (size_t i = 0; i < _PROMPT_THREAD_COUNT; i++)
+      promptThreads.push_back(std::make_unique<std::thread>([&]()
       {
-        const auto prompt = session->pushPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt));
-        currentPrompt++;
-        printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
-        while(prompt->hasResponse() == false);
-        printf("[User] Got response: %s\n", prompt->getResponse().c_str());
-        sleep(1);
-      }
-    });
+        // Wait until the hLLM has deployed
+        while (hllm.isDeployed() == false);
+
+        // Now create session
+        auto session = hllm.createSession();
+
+        // Send a test message
+        size_t currentPrompt = 0;
+        while(true)
+        {
+          const auto prompt = session->pushPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt));
+          currentPrompt++;
+          printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
+          while(prompt->hasResponse() == false);
+          printf("[User] Got response: %s\n", prompt->getResponse().c_str());
+          usleep(100000 + i * 10000);
+        }
+      }));
   }
 
   // Deploying hLLM
   hllm.deploy(deployment);
 
-  // // Instantiating request server (emulates live users)
-  // size_t requestCount   = 32;
-  // size_t requestDelayMs = 100;
-  // initializeRequestServer(&hllm, requestCount);
-  // auto requestThread = std::thread([&]() { startRequestServer(requestDelayMs); });
-
-  // // Deploy all hLLM instances
-  // hllm.deploy(hllmConfigJs);
-
-  // // Waiting for request server to finish producing requests
-  // printf("[basic.cpp] Waiting for request hllm thread to come back...\n");
-  // requestThread.join();
-
-  // // Finalizing hLLM
-  // printf("[basic.cpp] Finalizing...\n");
-  // hllm.finalize();
-
-  // printf("[basic.cpp] Finalizing Instance Manager...\n");
-  // Finalize Instance Manager
-  
   // Waiting for prompt thread to finish
-  if (isRoot) promptThread->join();
+  if (isRoot) for (auto& thread : promptThreads) thread->join();
 
+  // Finalize Instance Manager
   instanceManager->finalize();
 }

@@ -179,13 +179,6 @@ class Engine final
     _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME);
   }
 
-  __INLINE__ void finalize()
-  {
-    // Finished execution, then finish deployment
-    const auto &currentInstance = *_instanceManager->getCurrentInstance();
-    printf("[hLLM] Instance %lu finalizing deployr.\n", currentInstance.getId());
-  }
-
   [[nodiscard]] __INLINE__ auto& getDeployment() { return _deployment; }
   [[nodiscard]] __INLINE__ size_t getPartitionIdx() const { return _partitionIdx; }
 
