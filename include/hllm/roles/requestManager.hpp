@@ -58,7 +58,7 @@ class RequestManager final : public hLLM::Role
 
         // Creating the prompt sending edge
         _promptOutputEdge = std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
-        printf("[Request Manager] Prompt Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        // printf("[Request Manager] Prompt Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
     } 
 
@@ -82,7 +82,7 @@ class RequestManager final : public hLLM::Role
 
         // Creating the result-receiving edge
         _resultInputEdge = std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
-        printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
     } 
   }
@@ -154,7 +154,7 @@ class RequestManager final : public hLLM::Role
     const auto size = message->getSize();
     
     const std::string response = std::string((const char*)data, size);
-    printf("[Request Manager] Received response '%s' for prompt %lu/%lu, edge '%s'.\n", response.c_str(), promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+    // printf("[Request Manager] Received response '%s' for prompt %lu/%lu, edge '%s'.\n", response.c_str(), promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // Getting prompt object and removing it from the active prompt map. We've got the response now
     _activePromptMapMutex.lock();
@@ -196,7 +196,7 @@ class RequestManager final : public hLLM::Role
 
       // Registering prompt
       _activePromptMap.insert({promptId, prompt});
-      printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
+      // printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Freeing entry in the pending session connection queue
       _pendingNewPromptsQueue.pop();

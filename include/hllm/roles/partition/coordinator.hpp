@@ -297,7 +297,7 @@ class Coordinator final : public Base
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
     const auto replicaIdx = edge->getReplicaIndex();
 
-    printf("[Coordinator %lu] Received output data from replica %lu for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+    // printf("[Coordinator %lu] Received output data from replica %lu for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // Check if there exists already a job for this incoming output data
     _jobMapMutex.lock();
@@ -382,7 +382,7 @@ class Coordinator final : public Base
     if (replica != nullptr) 
     {
       // Now we have a ready job and a ready replica, sending the job to the replica
-      printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, replica->getReplicaIdx());
+      // printf("Sending job for prompt %lu/%lu to replica %lu\n", promptId.first, promptId.second, replica->getReplicaIdx());
       
       // For each of the edges, push the data through the replica's channels
       for (size_t edgePos = 0; edgePos < _partitionDataInputs.size(); edgePos++)

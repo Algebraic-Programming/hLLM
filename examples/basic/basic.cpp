@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <thread>
 #include <fstream>
+#include <random>
 #include <hicr/backends/hwloc/memoryManager.hpp>
 #include <hicr/backends/hwloc/topologyManager.hpp>
 #include <hicr/backends/mpi/instanceManager.hpp>
@@ -13,7 +14,7 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 
-#define _PROMPT_THREAD_COUNT 2
+#define _PROMPT_THREAD_COUNT 16
 
 int main(int argc, char *argv[])
 {
@@ -49,7 +50,6 @@ int main(int argc, char *argv[])
   auto mpiCommunicationManager      = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
   auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
-  auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
   auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object
@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
   taskrConfig["Minimum Active Task Workers"]      = 1;     // Have at least one worker active at all times
   taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
   taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
-  auto taskr  = std::make_unique<taskr::Runtime>(boostComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
+  auto taskr  = std::make_unique<taskr::Runtime>(pthreadsComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
 
   // Instantiate RPC Engine
   auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *pthreadsComputeManager, bufferMemorySpace, computeResource);
@@ -173,10 +173,12 @@ int main(int argc, char *argv[])
 
   // If I am the root, create a session to send prompt inputs
   std::vector<std::unique_ptr<std::thread>> promptThreads;
+  std::default_random_engine promptTimeRandomEngine;
+  std::uniform_real_distribution<double> promptTimeRandomDistribution(0.0, 1.0); 
   if (isRoot)
   {
     for (size_t i = 0; i < _PROMPT_THREAD_COUNT; i++)
-      promptThreads.push_back(std::make_unique<std::thread>([&]()
+      promptThreads.push_back(std::make_unique<std::thread>([&, i]()
       {
         // Wait until the hLLM has deployed
         while (hllm.isDeployed() == false);
@@ -190,10 +192,11 @@ int main(int argc, char *argv[])
         {
           const auto prompt = session->pushPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt));
           currentPrompt++;
-          printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
+          // printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
           while(prompt->hasResponse() == false);
-          printf("[User] Got response: %s\n", prompt->getResponse().c_str());
-          usleep(100000 + i * 10000);
+          const auto promptId = prompt->getPromptId();
+          printf("[User %04lu] Got response: '%s' for prompt %lu/%lu: '%s'\n", i, prompt->getResponse().c_str(), promptId.first, promptId.second, prompt->getPrompt().c_str());
+          usleep(10000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
       }));
   }

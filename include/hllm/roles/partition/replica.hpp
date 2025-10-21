@@ -169,7 +169,7 @@ class Replica final : public Base
       // If it is finished, remove it as active job
       if (isJobFinished == true)
       {
-        printf("[Replica] Job %lu/%lu is now finished\n", _activeJob->getPromptId().first, _activeJob->getPromptId().second);
+        // printf("[Replica] Job %lu/%lu is now finished\n", _activeJob->getPromptId().first, _activeJob->getPromptId().second);
         _activeJob = nullptr;
       } 
     }
@@ -216,7 +216,7 @@ class Replica final : public Base
     const auto edgeIdx = edge->getEdgeIndex();
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
 
-    printf("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+    // printf("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // If there is a current job assigned to this replica and the job corresponds to a different prompt, then fail
     _activeJobMutex.lock();

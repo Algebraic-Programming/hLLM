@@ -196,10 +196,12 @@ class Engine final
   __INLINE__ void doLocalTermination()
   {
     printf("[hLLM] Instance %lu terminating TaskR...\n", _deployerInstanceId);
+
     // Stopping the execution of the current and new tasks
     _continueRunning = false;
-    _taskr->forceTermination();
-    printf("[hLLM] Instance %lu terminated TaskR.\n", _deployerInstanceId);
+
+    // Set TaskR to finish on the last task finishing
+    _taskr->setFinishOnLastTask(true);
   }
 
   __INLINE__ void broadcastTermination()
@@ -410,6 +412,9 @@ class Engine final
 
     // The engine is  now fully deployed
     _isDeployed = true;
+
+    // Set TaskR not to finish on the last task
+    _taskr->setFinishOnLastTask(false);
 
     // Running TaskR
     _taskr->run();
