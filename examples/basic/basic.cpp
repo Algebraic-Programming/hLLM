@@ -50,6 +50,7 @@ int main(int argc, char *argv[])
   auto mpiCommunicationManager      = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
   auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
   auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object
@@ -59,7 +60,7 @@ int main(int argc, char *argv[])
   taskrConfig["Minimum Active Task Workers"]      = 1;     // Have at least one worker active at all times
   taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
   taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
-  auto taskr  = std::make_unique<taskr::Runtime>(pthreadsComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
+  auto taskr  = std::make_unique<taskr::Runtime>(boostComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
 
   // Instantiate RPC Engine
   auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *pthreadsComputeManager, bufferMemorySpace, computeResource);
