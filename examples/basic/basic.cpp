@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
   hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
   // Declaring the hLLM tasks for the application
-  std::string responseOutput;
+  thread_local std::string responseOutput;
   hllm.registerFunction("Listen Request", [&](hLLM::Task *task) 
   {
     // Getting input
@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
     responseOutput             = request + std::string(" [Processed]");
     const auto responseMemSlot = mpiMemoryManager->registerLocalMemorySlot(bufferMemorySpace, responseOutput.data(), responseOutput.size() + 1);
 
-    printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
+    // printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
     task->setOutput("Response", responseMemSlot);
   });
 
@@ -189,16 +189,19 @@ int main(int argc, char *argv[])
 
         // Send a test message
         size_t currentPrompt = 0;
-        while(true)
+        for (size_t iterations = 0; iterations < 50; iterations++)
         {
-          const auto prompt = session->pushPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt));
-          currentPrompt++;
+          const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt++));
+          session->pushPrompt(prompt);
           // printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
           while(prompt->hasResponse() == false);
           const auto promptId = prompt->getPromptId();
           printf("[User %04lu] Got response: '%s' for prompt %lu/%lu: '%s'\n", i, prompt->getResponse().c_str(), promptId.first, promptId.second, prompt->getPrompt().c_str());
-          usleep(10000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
+          usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
+        
+        // Violently exit when done with the test
+        exit(0);
       }));
   }
 

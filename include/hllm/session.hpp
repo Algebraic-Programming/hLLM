@@ -30,20 +30,27 @@ class Session
 
   __INLINE__ const sessionId_t getSessionId() const { return _sessionId; }
   
-  __INLINE__ std::shared_ptr<Prompt> pushPrompt(const std::string& prompt)
+  __INLINE__ std::shared_ptr<Prompt> createPrompt(const std::string& promptString)
   {
     // Getting and increasing message id
     const auto messageId = _currentMessageId++;
 
     // Creating prompt object
     const auto promptId = Prompt::promptId_t({_sessionId, messageId});
-    const auto promptObject = std::make_shared<Prompt>(promptId, prompt);
-    _promptMutex.lock();
-    _promptMap.insert({promptId, promptObject});
-    _newPromptQueue.push(promptObject);
-    _promptMutex.unlock();
+    const auto promptObject = std::make_shared<Prompt>(promptId, promptString);
 
     return promptObject;
+  }
+
+  __INLINE__ void pushPrompt(const std::shared_ptr<Prompt> prompt)
+  {
+    // Creating prompt object
+    const auto promptId = prompt->getPromptId();
+
+    _promptMutex.lock();
+    _promptMap.insert({promptId, prompt});
+    _newPromptQueue.push(prompt);
+    _promptMutex.unlock();
   }
 
   __INLINE__ bool isConnected() const { return _isConnected; }

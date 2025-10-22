@@ -251,7 +251,7 @@ class Coordinator final : public Base
     const auto edgeIdx = edge->getEdgeIndex();
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
     
-    printf("[Coordinator %lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+    // printf("[Coordinator %lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // Pointer to the job object
     std::shared_ptr<Job> job;
@@ -340,7 +340,7 @@ class Coordinator final : public Base
     _replicaQueueMutex.unlock();
   }
 
-  /////////// Job management Service3
+  /////////// Job management Service
   // Looks for a double coincidence of job ready to run and a free available replica
   __INLINE__ void jobManagementService()
   {

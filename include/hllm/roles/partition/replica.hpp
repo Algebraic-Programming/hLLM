@@ -127,8 +127,8 @@ class Replica final : public Base
     // Temporarily storing the messages to send to the coordinator outside the mutex
     std::vector<std::pair<size_t, std::unique_ptr<hLLM::messages::Data>>> messagesForCoordinator;
 
-    // Protecting the active job pointer from overriding
-    _activeJobMutex.lock();
+    // Preventing concurrent access
+    _jobManagementMutex.lock();
 
     // Once the task has finished, push all its outputs to the active job output edges
     for (const auto& output : taskConfig.getOutputs())
@@ -140,7 +140,7 @@ class Replica final : public Base
       auto& outputEdge = _activeJob->getOutputEdges()[outputEdgePos];
 
       // Getting output from task
-      printf("[Replica] Getting data slot for output '%s'\n", output.c_str());
+      // printf("[Replica] Getting data slot for output '%s'\n", output.c_str());
       const auto& outputDataSlot = task->getOutput(output);
 
       // Setting output edge's data
@@ -173,7 +173,8 @@ class Replica final : public Base
         _activeJob = nullptr;
       } 
     }
-    _activeJobMutex.unlock();
+
+    _jobManagementMutex.unlock();
 
     // Now sending messages to the coordinator (outside the mutex to prevent communication exclusion)
     for (const auto& message : messagesForCoordinator) _coordinatorDataOutputs[message.first]->pushMessage(message.second->encode());
@@ -216,10 +217,12 @@ class Replica final : public Base
     const auto edgeIdx = edge->getEdgeIndex();
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
 
+    // Preventing concurrent access
+    std::lock_guard lockGuard(_jobManagementMutex);
+
     // printf("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
     // If there is a current job assigned to this replica and the job corresponds to a different prompt, then fail
-    _activeJobMutex.lock();
     if (_activeJob != nullptr) if (promptId != _activeJob->getPromptId())
      HICR_THROW_RUNTIME("[Replica %lu/%lu] Received data for prompt %lu/%lu, edge '%s' but currently prompt %lu/%lu is running.\n", _partitionIdx, _replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str(), _activeJob->getPromptId().first, _activeJob->getPromptId().second);
 
@@ -232,7 +235,6 @@ class Replica final : public Base
       // And set it in motion
       startJob(_activeJob);
     } 
-    _activeJobMutex.unlock();
 
     // Getting input corresponding to the message that arrived
     auto& input = _activeJob->getInputEdges()[edgePos];
@@ -255,11 +257,14 @@ class Replica final : public Base
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
     const auto &tasks = partitionConfiguration->getTasks();
 
+    // Wait for taskR to finish all tasks before clearing the maps (to avoid premature freeing of task metadata)
+    while (_taskr->getActiveTaskCounter() > 0);
+    
     // Clearing previous job's maps
     _taskLabelMap.clear();
     _taskFunctionNameMap.clear();
 
-    // Building execution graph
+    // Re-building execution graph
     for (const auto &task : tasks)
     {
       // Checking the requested function was registered
@@ -340,8 +345,10 @@ class Replica final : public Base
   std::unique_ptr<taskr::Function> _taskrFunction;
 
   // Pointer for the current active job being processed
-  std::mutex _activeJobMutex;
   std::shared_ptr<Job> _activeJob;
+
+  // Mutual exclusion mechanism for job/task management
+  std::mutex _jobManagementMutex;
 }; // class Replica
 
 } // namespace hLLM::replica
