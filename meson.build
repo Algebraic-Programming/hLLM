@@ -7,25 +7,54 @@ project(
 
 ####### Storage for hLLM dependencies
 
+# Warning handling option
+warningAsErrorFlags = []
+if get_option('compileWarningsAsErrors') == true
+  warningAsErrorFlags = ['-Werror']
+endif
+
 hLLMDependencies = []
+hLLMBuildCppArgs = ['-Wfatal-errors', warningAsErrorFlags]
+hLLMBuildIncludes = include_directories(['include'])
 
 # Getting selected distributed engines
 
 engines = get_option('engines')
 
+# Storing required HiCR backends and frontends
+additionalHiCRBackends = []
+additionalHiCRFrontends = []
+
+####### Getting CloudR dependency (if needed)
+
+if 'cloudr' in engines
+  mpirunExecutable = find_program('mpirun', '/usr/bin/mpirun', '/usr/local/bin/mpirun', required : true)
+  CloudRProject = subproject('CloudR', required: true, default_options: [  ])
+  CloudRBuildDep = CloudRProject.get_variable('CloudRBuildDep')
+  hLLMDependencies += CloudRBuildDep
+  hLLMBuildCppArgs += '-D_DEPLOYR_DISTRIBUTED_ENGINE_CLOUDR'
+  
+  CloudRHiCRBackends = CloudRProject.get_variable('CloudRHiCRBackends')
+  CloudRHiCRFrontends = CloudRProject.get_variable('CloudRHiCRFrontends')
+
+  additionalHiCRBackends +=  CloudRHiCRBackends
+  additionalHiCRFrontends += CloudRHiCRFrontends
+endif
+
 ####### Getting HiCR dependency
 
 HiCRDistributedBackend = []
 if 'cloudr' in engines or 'mpi' in engines
-  HiCRDistributedBackend = ['mpi']
+  HiCRDistributedBackend += ['mpi']
 endif
 
 # Selecting default HiCR Backends
-HiCRBackends = ['hwloc', 'pthreads', 'boost'] + HiCRDistributedBackend
+HiCRBackends = ['hwloc', 'pthreads', 'boost'] + additionalHiCRBackends
+HiCRFrontends = [ ] + additionalHiCRFrontends
 HiCRProject = subproject(
   'HiCR',
   required: true,
-  default_options: ['backends=' + ','.join(HiCRBackends), 'frontends=tasking'],
+  default_options: ['backends=' + ','.join(HiCRBackends), 'frontends=' + ','.join(HiCRFrontends)],
 )
 HiCRBuildDep = HiCRProject.get_variable('hicrBuildDep')
 hLLMDependencies += HiCRBuildDep
@@ -34,12 +63,6 @@ if 'cloudr' in engines or 'mpi' in engines
   mpirunExecutable = HiCRProject.get_variable('mpirunExecutable')
 endif
 
-####### Getting DeployR dependency
-
-DeployRProject = subproject('DeployR', required: true, default_options: ['engines=' + ','.join(engines)])
-DeployRBuildDep = DeployRProject.get_variable('DeployRBuildDep')
-hLLMDependencies += DeployRBuildDep
-
 ####### Getting TaskR dependency
 
 TaskRProject = subproject('TaskR', required: true, default_options: [])
@@ -47,18 +70,6 @@ TaskRBuildDep = TaskRProject.get_variable('TaskRBuildDep')
 hLLMDependencies += TaskRBuildDep
 
 ####### Creating hLLM dependency
-
-# Warning handling option
-warningAsErrorFlags = []
-if get_option('compileWarningsAsErrors') == true
-  warningAsErrorFlags = ['-Werror']
-endif
-
-hLLMBuildCppArgs = ['-Wfatal-errors', warningAsErrorFlags]
-
-hLLMBuildIncludes = include_directories(['include'])
-
-####### Collect the dependencies
 
 hLLMBuildDep = declare_dependency(
   compile_args: hLLMBuildCppArgs,

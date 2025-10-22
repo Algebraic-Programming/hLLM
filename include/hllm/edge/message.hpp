@@ -1,0 +1,51 @@
+#pragma once
+
+#include <cstdint>
+#include <cstdlib>
+
+namespace hLLM
+{
+  typedef uint64_t messageId_t;
+  typedef uint64_t sessionId_t;
+
+  namespace edge
+  {
+
+  class Message final
+  {
+    public:
+
+    typedef uint64_t messageType_t;
+
+    #pragma pack(push, 1)
+    struct metadata_t
+    {
+      messageType_t type;
+      sessionId_t sessionId;
+      messageId_t messageId;
+    };
+    #pragma pack(pop)
+
+    Message() = delete;
+    Message(const uint8_t* const data, const size_t size, const metadata_t metadata) :
+    _data(data),
+    _size(size),
+    _metadata(metadata)
+    { }
+
+    virtual ~Message() = default;
+
+    const uint8_t* getData() const { return _data; }
+    size_t getSize() const { return _size; }
+    const metadata_t& getMetadata() const { return _metadata; }
+
+    private:
+
+    const uint8_t* const _data;
+    const size_t _size;
+    const metadata_t _metadata;
+    
+  }; // class Message
+
+  } // namespace edge
+} // namespace hLLM

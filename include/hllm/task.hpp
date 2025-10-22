@@ -1,56 +1,55 @@
 #pragma once
 
 #include <unordered_map>
-
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
-#include <hicr/frontends/channel/variableSize/mpsc/locking/consumer.hpp>
-#include <hicr/frontends/channel/variableSize/mpsc/locking/producer.hpp>
 #include <taskr/taskr.hpp>
-#include <deployr/deployr.hpp>
-
-#include "channels/consumer.hpp"
-#include "channels/producer.hpp"
+#include "configuration/task.hpp"
 
 namespace hLLM
 {
 
-class Engine;
-class Task;
-
-using function_t = std::function<void(hLLM::Task *task)>;
+namespace roles::partition { class Replica; }
 
 class Task final
 {
-  friend class Engine;
+  friend class roles::partition::Replica;
 
   public:
 
+  using taskFunction_t = std::function<void(Task *task)>;
+
   Task() = delete;
 
-  Task(const std::string                                 &name,
-       const function_t                                  &function,
-       std::unordered_map<std::string, channel::Consumer> consumers,
-       std::unordered_map<std::string, channel::Producer> producers,
-       std::unique_ptr<taskr::Task>                       taskrTask)
-    : _name(name),
+  Task(const hLLM::configuration::Task                   taskConfig,
+       const taskFunction_t                              &function,
+       std::unique_ptr<taskr::Task>                      taskrTask)
+    : _taskConfig(taskConfig),
       _function(function),
-      _consumers(std::move(consumers)),
-      _producers(std::move(producers)),
       _taskrTask(std::move(taskrTask))
-  {}
-
-  __INLINE__ std::string getName() const { return _name; }
+  {
+    // Adding input and output token holders
+    for (const auto& input : taskConfig.getInputs()) _inputs[input] = nullptr;
+    for (const auto& output : taskConfig.getOutputs()) _outputs[output] = nullptr;
+  }
 
   ~Task() = default;
 
   __INLINE__ const std::shared_ptr<HiCR::LocalMemorySlot> getInput(const std::string &inputName)
   {
-    // First, get the token
-    const auto token = _inputTokens.at(inputName);
+    // Check whether the input token exists for this task
+    if (_inputs.contains(inputName) == false)
+        HICR_THROW_RUNTIME("Function '%s' trying to access input '%s' which has not been declared for this task.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
 
-    // Then, erasing it from the map to indicate it was consumed
-    _inputTokens.erase(inputName);
+    // Check whether the input has been given (sanity check)
+    if (_inputs[inputName] == nullptr)
+        HICR_THROW_RUNTIME("Function '%s' trying to access input '%s' which has not been provided. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
+
+    // Then, get the token
+    const auto token = _inputs.at(inputName);
+
+    // Then, erasing it to indicate it was consumed
+    _inputs[inputName] = nullptr;
 
     // Returning consumed token
     return token;
@@ -58,111 +57,64 @@ class Task final
 
   __INLINE__ void setOutput(const std::string &outputName, const std::shared_ptr<HiCR::LocalMemorySlot> &memorySlot)
   {
-    if (_outputTokens.contains(outputName))
-    {
-      fprintf(stderr, "Function '%s' is setting output '%s' twice.\n", _name.c_str(), outputName.c_str());
-      abort();
-    }
-    _outputTokens[outputName] = memorySlot;
-  }
+    if (_outputs.contains(outputName) == false) 
+      HICR_THROW_RUNTIME("Function '%s' is setting output '%s' which has not been declared for this task.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
 
-  __INLINE__ void waitFor(taskr::Task::pendingOperation_t operation)
-  {
-    _taskrTask->addPendingOperation(operation);
-    _taskrTask->suspend();
-  }
+    if (_outputs[outputName] != nullptr) 
+      HICR_THROW_RUNTIME("Function '%s' is setting output '%s' twice.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
 
-  __INLINE__ bool checkInputsReadiness()
-  {
-    for (auto &[_, consumer] : _consumers)
-    {
-      if (consumer.isEmpty()) return false;
-    }
-    return true;
-  }
-
-  __INLINE__ bool checkOutputsReadiness()
-  {
-    for (auto &[_, producer] : _producers)
-    {
-      if (producer.isFull()) return false;
-    }
-    return true;
-  }
-
-  __INLINE__ void setInputs()
-  {
-    for (auto &[input, consumer] : _consumers)
-    {
-      // Get token
-      auto token = consumer.peek();
-
-      // Pushing token onto the task
-      setInput(input, token);
-    }
-  }
-
-  __INLINE__ void popInputs()
-  {
-    for (auto &[input, consumer] : _consumers)
-    {
-      if (hasInput(input) == true)
-      {
-        fprintf(stderr, "Function '%s' has not consumed required input '%s'\n", _name.c_str(), input.c_str());
-        abort();
-      }
-
-      consumer.pop();
-    }
-  }
-
-  __INLINE__ void pushOutputs()
-  {
-    for (auto &[output, producer] : _producers)
-    {
-      // Checking if output has been produced by the task
-      if (hasOutput(output) == false)
-      {
-        fprintf(stderr, "Function '%s' has not pushed required output '%s'\n", _name.c_str(), output.c_str());
-        abort();
-      }
-
-      // Now getting output token
-      const auto outputToken = getOutput(output);
-
-      // Pushing token onto channel
-      if (producer.push(outputToken) == false) { HICR_THROW_RUNTIME("Channel full"); }
-    }
+    _outputs[outputName] = memorySlot;
   }
 
   private:
 
-  __INLINE__ function_t getFunction() const { return _function; }
+  __INLINE__ taskFunction_t getFunction() const { return _function; }
+  __INLINE__ const hLLM::configuration::Task& getConfig() const { return _taskConfig; }
   __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
 
+  __INLINE__ bool isReady() const
+  {
+    for (const auto& input : _inputs) if (input.second == nullptr) return false;
+    return true;
+  }
+
   __INLINE__ std::shared_ptr<HiCR::LocalMemorySlot> getOutput(const std::string &outputName)
-  { // First, get the token
-    const auto token = _outputTokens.at(outputName);
+  { 
+    if (_outputs.contains(outputName) == false) 
+      HICR_THROW_RUNTIME("Function '%s' is getting output '%s' which has not been provided for this task.\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
+
+    if (_outputs[outputName] == nullptr) 
+      HICR_THROW_RUNTIME("Function '%s' is getting output '%s' twice. This must be a bug in hLLM\n", _taskConfig.getFunctionName().c_str(), outputName.c_str());
+    
+    // First, get the token
+    const auto token = _outputs.at(outputName);
 
     // Then, erasing it from the map to indicate it was consumed
-    _outputTokens.erase(outputName);
+    _outputs[outputName] = nullptr;
 
     // Returning consumed token
     return token;
   }
-  __INLINE__ void setInput(const std::string &inputName, const std::shared_ptr<HiCR::LocalMemorySlot> token) { _inputTokens[inputName] = token; }
-  __INLINE__ bool hasOutput(const std::string &outputName) { return _outputTokens.contains(outputName); }
-  __INLINE__ bool hasInput(const std::string &inputName) { return _inputTokens.contains(inputName); }
-  __INLINE__ void clearOutputs() { _outputTokens.clear(); }
 
-  const std::string                                  _name;
-  const function_t                                   _function;
-  std::unordered_map<std::string, channel::Consumer> _consumers;
-  std::unordered_map<std::string, channel::Producer> _producers;
+  __INLINE__ void setInput(const std::string &inputName, const std::shared_ptr<HiCR::LocalMemorySlot> token)
+  {
+    // Check whether the input token exists for this task
+    if (_inputs.contains(inputName) == false)
+        HICR_THROW_RUNTIME("Function '%s' trying to set input '%s' which has not been declared for this task. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
+
+    // Check whether the input has been given (sanity check)
+    if (_inputs[inputName] != nullptr)
+        HICR_THROW_RUNTIME("Function '%s' trying to set input '%s' which has already been set. This must be a bug in hLLM.\n", _taskConfig.getFunctionName().c_str(), inputName.c_str());
+
+     _inputs[inputName] = token;
+  }
+
+  const hLLM::configuration::Task                    _taskConfig;
+  const taskFunction_t                               _function;
   const std::unique_ptr<taskr::Task>                 _taskrTask;
 
-  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputTokens;
-  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputTokens;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputs;
+  std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputs;
 
 }; // class Task
 

@@ -1,0 +1,288 @@
+#pragma once
+
+#include <memory>
+#include <vector>
+#include <hicr/core/exceptions.hpp>
+#include <hicr/core/definitions.hpp>
+#include <hicr/core/globalMemorySlot.hpp>
+#include <taskr/taskr.hpp>
+#include "../role.hpp"
+#include "../edge/base.hpp"
+#include "../edge/output.hpp"
+#include "../configuration/deployment.hpp"
+#include "../messages/data.hpp"
+#include "../session.hpp"
+
+namespace hLLM::roles
+{
+
+class RequestManager final : public hLLM::Role
+{
+  public:
+
+  RequestManager() = delete;
+  ~RequestManager() = default;
+
+  RequestManager(
+    const configuration::Deployment deployment,
+    taskr::Runtime* const taskr
+  ) : Role(deployment, taskr)
+  {
+    // Name of the prompt input
+    const auto& promptInputName = _deployment.getUserInterface().input;
+    const auto& resultOutputName = _deployment.getUserInterface().output;
+
+    // Getting partition list
+    const auto& partitions = _deployment.getPartitions();
+
+    // Getting list of edges in the deployment
+    const auto& edgeConfigs = _deployment.getEdges();
+
+    // Looking for the edge corresponding to a partition's prompt input 
+    for (size_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
+    {
+      const auto& edgeConfig = edgeConfigs[edgeIdx];
+      const auto& edgeName = edgeConfig->getName();
+        
+      // If this is the prompt input, then create the outgoing edge to the corresponding partition
+      if (edgeConfig->isPromptEdge() == true)
+      {
+        // Looking for the partition who needs the prompt input
+        for (configuration::Partition::partitionIndex_t idx = 0; idx < partitions.size(); idx++)
+        {
+          const auto& partition = partitions[idx];
+          for (const auto& task : partition->getTasks())
+            for (const auto& input : task->getInputs())
+              if (input == promptInputName) _promptConsumerPartitionIdx = idx;
+        }
+
+        // Creating the prompt sending edge
+        _promptOutputEdge = std::make_shared<edge::Output>(*edgeConfig, edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        // printf("[Request Manager] Prompt Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::requestManagerToCoordinator, edgeIdx, _promptConsumerPartitionIdx, _promptConsumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      }
+    } 
+
+    // Looking for the edge corresponding to a partition's prompt input 
+    for (size_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
+    {
+      const auto& edgeConfig = edgeConfigs[edgeIdx];
+      const auto& edgeName = edgeConfig->getName();
+        
+      // If this is the result output, then create the incoming edge from the corresponding partition
+      if (edgeConfig->isResultEdge() == true)
+      {
+        // Looking for the partition who needs the prompt input
+        for (configuration::Partition::partitionIndex_t idx = 0; idx < partitions.size(); idx++)
+        {
+          const auto& partition = partitions[idx];
+          for (const auto& task : partition->getTasks())
+            for (const auto& output : task->getOutputs())
+              if (output == resultOutputName) _resultProducerPartitionIdx = idx;
+        }
+
+        // Creating the result-receiving edge
+        _resultInputEdge = std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+        // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      }
+    } 
+  }
+
+  // Gets the memory slots required by the edges
+  __INLINE__ void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots)
+  {
+    _promptOutputEdge->getMemorySlotsToExchange(memorySlots);
+    _resultInputEdge->getMemorySlotsToExchange(memorySlots);
+  }
+
+  /// This function completes the initialization of the edges, after the memory slot exchanges are completed
+  __INLINE__ void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag)
+  {
+    _promptOutputEdge->initialize(tag);
+    _resultInputEdge->initialize(tag);
+  }
+
+  __INLINE__ void pushPrompt(const std::shared_ptr<Prompt> prompt)
+  {
+    // Adding prompt to new prompt queue
+    _promptManagementMutex.lock();
+    _pendingNewPromptsQueue.push(prompt);
+    _promptManagementMutex.unlock();
+  }
+
+  [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
+  {
+    // Getting unique session id, atomically increasing its value in the process
+    const auto sessionId = _currentSessionId.fetch_add(1);
+
+    // Creating new session
+    auto session = std::make_shared<Session>(sessionId);
+
+    // Registering session
+    _sessionManagementMutex.lock();
+    _pendingSessionConnectionsQueue.push(session);
+    _sessionManagementMutex.unlock();
+
+    // Wait until session is connected
+    while(session->isConnected() == false);
+
+    // Returning session
+    return session;
+  }
+
+  private:
+
+  /// This function subscribes the handlers and services for the coordinator role
+  __INLINE__ void initializeImpl() override
+  {
+    // If this is the prompt management partition, then set up a service for its handling
+    _taskr->addService(&_taskrPromptHandlingService);
+
+    // Subscribing data input edges for the incoming prompt responses
+    subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::data,
+    _resultInputEdge,
+    [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ responseDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
+
+    // Adding session management service
+    _taskr->addService(&_taskrSessionManagementService);
+  }
+
+  __INLINE__ void responseDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
+  {
+    // Getting prompt id from data
+    const auto promptId = message->getPromptId();
+    const auto data = message->getData();
+    const auto size = message->getSize();
+    
+    const std::string response = std::string((const char*)data, size);
+    // printf("[Request Manager] Received response '%s' for prompt %lu/%lu, edge '%s'.\n", response.c_str(), promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+    // Getting prompt object and removing it from the active prompt map. We've got the response now
+    _activePromptMapMutex.lock();
+    if (_activePromptMap.contains(promptId) == false) HICR_THROW_RUNTIME("Prompt map entry for prompt %lu/%lu not found. This must be a bug in hLLM", promptId.first, promptId.second);
+    auto& prompt = _activePromptMap.at(promptId);
+    _activePromptMap.erase(promptId);
+    _activePromptMapMutex.unlock();
+
+    // Setting response
+    prompt->setResponse(response);
+  }
+
+  ///////////// Prompt handling service
+  __INLINE__ void promptHandlingService()
+  {
+    // Checking for new prompts to be added to the list
+    const std::lock_guard<std::mutex> lock(_promptManagementMutex);
+
+    // Accepting incoming session connection requests
+    while(_pendingNewPromptsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      const auto prompt = _pendingNewPromptsQueue.front();
+      const auto promptId = prompt->getPromptId();
+      const auto& promptData = prompt->getPrompt();
+      
+      // Sending data to the partition that takes the prompt as input
+      const auto messageData = (const uint8_t*)promptData.data();
+      const size_t messageSize = promptData.size()+1;
+
+      // Interrupt service if the output edge (connecting to the entry partition) is full
+      if(_promptOutputEdge->isFull(messageSize) == true) return;
+
+      // Creating message object
+      const auto message = messages::Data(messageData, messageSize, promptId);
+
+      // Send message once the recipient is ready
+      _promptOutputEdge->pushMessage(message.encode());
+
+      // Registering prompt
+      _activePromptMap.insert({promptId, prompt});
+      // printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
+
+      // Freeing entry in the pending session connection queue
+      _pendingNewPromptsQueue.pop();
+    }
+  }
+  taskr::Service::serviceFc_t _promptHandlingServiceFunction = [this](){ this->promptHandlingService(); };
+  taskr::Service _taskrPromptHandlingService = taskr::Service(_promptHandlingServiceFunction);
+  
+  ///////////// Session management service (no concurrent access active service map)
+  __INLINE__ void sessionManagementServiceFunction()
+  {
+    _sessionManagementMutex.lock();
+
+    // Accepting incoming session connection requests
+    while(_pendingSessionConnectionsQueue.empty() == false)
+    {
+      // Getting next pending session to connect
+      auto session = _pendingSessionConnectionsQueue.front();
+      
+      // Registering session
+      _activeSessionMap.insert({session->getSessionId(), session});
+
+      // Setting session as connected
+      session->connect();
+
+      // Freeing entry in the pending session connection queue
+      _pendingSessionConnectionsQueue.pop();
+    }
+
+    _sessionManagementMutex.unlock();
+
+    // Iterating over the active sessions in search for the next message to parse
+    for (const auto& entry : _activeSessionMap)
+    {
+      // Getting session
+      const auto& session = entry.second;
+
+      // Getting next prompt from the session, if any
+      const auto prompt = session->getPrompt();
+
+      // If no prompts are available, continue onto the next session
+      if (prompt == nullptr) continue;
+
+      // Otherwise, process it
+      pushPrompt(prompt);
+    } 
+  }
+  taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
+  taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
+  
+
+  // Edge to copy a prompt to a coordinator
+  std::shared_ptr<edge::Output> _promptOutputEdge;
+  
+  // Edge to receive a result from a coordinator
+  std::shared_ptr<edge::Input> _resultInputEdge;
+
+  // Prompt management mutex
+  std::mutex _promptManagementMutex;
+
+  // Queue of pending new prompts
+  std::queue<std::shared_ptr<Prompt>> _pendingNewPromptsQueue;
+
+  // Active prompt map
+  std::mutex _activePromptMapMutex;
+  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _activePromptMap;
+
+  // Index within the deployment of the partition who will consume the initial prompt
+  configuration::Partition::partitionIndex_t _promptConsumerPartitionIdx; 
+
+  // Index within the deployment of the partition who will produce the prompt result
+  configuration::Partition::partitionIndex_t _resultProducerPartitionIdx; 
+
+  // Global counter for session ids
+  std::atomic<sessionId_t> _currentSessionId = 0;
+
+  // Session management mutex
+  std::mutex _sessionManagementMutex;
+
+  // Queue of pending sessions for connection
+  std::queue<std::shared_ptr<Session>> _pendingSessionConnectionsQueue;
+
+  // Active session map
+  std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
+
+
+}; // class RequestManager
+
+} // namespace hLLM

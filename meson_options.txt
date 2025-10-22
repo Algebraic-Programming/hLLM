@@ -5,7 +5,6 @@ option('engines',
        value: [ 'mpi' ]
 )
 
-
 option('buildTests', type : 'boolean', value : false,
        description: 'Indicates whether to build tests'
 )

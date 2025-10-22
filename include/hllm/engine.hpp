@@ -1,85 +1,149 @@
 #pragma once
 
-#include <ranges>
-#include <unordered_map>
-
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
-#include <deployr/deployr.hpp>
 #include <taskr/taskr.hpp>
-#include <hicr/backends/hwloc/topologyManager.hpp>
-#include <hicr/backends/boost/computeManager.hpp>
-#include <hicr/backends/pthreads/computeManager.hpp>
-
+#include "configuration/deployment.hpp"
+#include "roles/partition/coordinator.hpp"
+#include "roles/partition/replica.hpp"
+#include "roles/requestManager.hpp"
+#include "edge/base.hpp"
 #include "task.hpp"
 
-#define __HLLM_BROADCAST_CONFIGURATION "[hLLM] Broadcast Configuration"
+#define __HLLM_WORKER_ENTRY_POINT_RPC_NAME "[hLLM] Worker Entry Point"
+#define __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME "[hLLM] Request Deployment Configuration"
+#define __HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME "[hLLM] Request Deployment Stop"
+#define __HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME "[hLLM] Broadcast Deployment Stop"
+#define __HLLM_DEFAULT_EXCHANGE_TAG 0x0000A000
 
 namespace hLLM
 {
-
-typedef uint64_t partitionId_t;
 
 class Engine final
 {
   public:
 
   Engine(HiCR::InstanceManager             *instanceManager,
-         HiCR::CommunicationManager        *bufferedCommunicationManager,
-         HiCR::CommunicationManager        *unbufferedCommunicationManager,
-         HiCR::MemoryManager               *bufferedMemoryManager,
-         HiCR::MemoryManager               *unbufferedMemoryManager,
          HiCR::frontend::RPCEngine         *rpcEngine,
-         std::shared_ptr<HiCR::MemorySpace> bufferedMemorySpace,
-         std::shared_ptr<HiCR::MemorySpace> unbufferedMemorySpace,
-         const HiCR::Topology              &localTopology)
-    : _deployr(instanceManager, rpcEngine, localTopology),
-      _instanceManager(instanceManager),
-      _bufferedCommunicationManager(bufferedCommunicationManager),
-      _unbufferedCommunicationManager(unbufferedCommunicationManager),
-      _bufferedMemoryManager(bufferedMemoryManager),
-      _unbufferedMemoryManager(unbufferedMemoryManager),
+         taskr::Runtime                    *taskr,
+         const HiCR::GlobalMemorySlot::tag_t exchangeTag = __HLLM_DEFAULT_EXCHANGE_TAG)
+    : _instanceManager(instanceManager),
       _rpcEngine(rpcEngine),
-      _bufferedMemorySpace(bufferedMemorySpace),
-      _unbufferedMemorySpace(unbufferedMemorySpace)
-  {}
-
-  ~Engine() {}
-
-  __INLINE__ void initialize(HiCR::Instance::instanceId_t deployerInstanceId)
+      _taskr(taskr),
+      _instanceId(_instanceManager->getCurrentInstance()->getId()),
+      _exchangeTag(exchangeTag)
   {
-    // Store the id of the coordinator partition
+    // Registering entry point function for partition coordinators / replicas. Not for the deployment launcher
+    _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) { entryPoint(); }));
+
+    // Registering deployment information request
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
+
+    // Registering finalization function (for root to execute)
+    _rpcEngine->addRPCTarget(__HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { doLocalTermination(); }));
+
+    // Registering finalization request function (for non-root to request roots to end the entire execution)
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { broadcastTermination(); }));
+  }
+
+  ~Engine() = default;
+
+  /**
+   * Broadcasting deployment information to all other instances
+   * 
+   * The broadcaster becomes the deployment launcher instance
+   */
+  __INLINE__ void initialize(const configuration::Deployment deployment, const HiCR::Instance::instanceId_t deployerInstanceId)
+  {
+    // The engine is not yet deployed
+    _isDeployed = false;
+
+    // Establish the designated instance as deployer instance
     _deployerInstanceId = deployerInstanceId;
 
-    // Registering entry point function in DeployR
-    _deployr.registerFunction(_entryPointName, [this]() { entryPoint(); });
+    // If I am not the deployer instance, simply request the deployment information from the deployer
+    if (_instanceId != _deployerInstanceId)
+    {
+      // Send request RPC
+      _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME);
 
-    // Initializing DeployR
-    _deployr.initialize();
+      // Wait for serialized information
+      auto returnValue = _rpcEngine->getReturnValue();
+
+      // Receiving raw serialized topology information from the worker
+      std::string deploymentString = (char *)returnValue->getPointer();
+
+      // Parsing serialized raw topology into a json object
+      auto deploymentJs = nlohmann::json::parse(deploymentString);
+
+      // Creating the deployment object from the json
+      _deployment = configuration::Deployment(deploymentJs);
+
+      // Getting my partition id
+      _partitionIdx = 0;
+
+      // Freeing return value
+      _rpcEngine->getMemoryManager()->freeLocalMemorySlot(returnValue);
+
+      printf("Instance %lu - Got deployment configuration\n", _instanceId);
+
+      // Return now
+      return;
+    }
+
+    // Assigning deployment
+    _deployment = deployment;
+
+    // Getting the instances involved in the deployment (only relevant for the deployer instance)
+    for (const auto& partition : _deployment.getPartitions())
+    {
+      // Getting the instance id assigned to the partition coordinator
+      const auto coordinatorInstanceId = partition->getInstanceId();
+
+      // Adding it to the set
+      _instanceSet.insert(coordinatorInstanceId);
+
+      // Now getting all replicas for the replica
+      for (const auto& replica : partition->getReplicas())
+      {
+        // Getting the instance id assigned to the replica
+        const auto replicaInstanceId = replica->getInstanceId();
+
+        // Adding it to the collection
+        _instanceSet.insert(replicaInstanceId);
+      }
+    }
+
+    // Iterating over the instances involved in the deployment
+    for (const auto instanceId : _instanceSet)
+      if (instanceId != _deployerInstanceId) // If it's not me, listen for a deployment configuration request
+      {
+        printf("Deployer %lu: Listening for instance %lu\n", _instanceId, instanceId);
+         _rpcEngine->listen();
+      }
   }
 
-  __INLINE__ void deploy(const nlohmann::json &config)
+  __INLINE__ void deploy(const configuration::Deployment deployment)
   {
-    // Validate configuration
-    validateConfiguration(config);
+    // If I am not the deployer instance await for the deployment launcher to request us to start
+    if (_instanceId != _deployerInstanceId) { _rpcEngine->listen(); return; } 
 
-    // Storing configuration
-    _config = parseConfiguration(config);
+    // Considering whether the deployment launcher is actually part of the deployment
+    bool isLauncherInDeployment = false;
 
-    // Get global Topology
-    gatherGlobalTopology();
+    // Iterating over the instances involved in the deployment and requesting them
+    for (const auto instanceId : _instanceSet)
+    {
+      // If it's not me, then request the partition to start executing (worker entry point)
+      if (instanceId != _deployerInstanceId) _rpcEngine->requestRPC(instanceId, __HLLM_WORKER_ENTRY_POINT_RPC_NAME);
 
-    // Broadcast the global topology to everyone else
-    // broadcastGlobalTopology();
+      // If it's me, I am part of the execution so remember to launch later
+      if (instanceId == _deployerInstanceId) isLauncherInDeployment = true;
+    }
 
-    // Sort partitions according to the partition id that serves as a priority
-    sortPartitions(_config["Partitions"], "Partition ID");
-
-    // Deploying
-    _deploy(hicr::json::getArray<nlohmann::json>(_config, "Partitions"));
+    // If I (the coordinator) am part of the deployment, run my instance now
+    if (isLauncherInDeployment == true) entryPoint();
   }
-
-  __INLINE__ void abort() { _deployr.abort(); }
 
   /**
    * Registers a function that can be a target as initial function for one or more requested instances.
@@ -90,7 +154,7 @@ class Engine final
    * @param[in] fc The actual function to register
    * 
    */
-  __INLINE__ void registerFunction(const std::string &functionName, const function_t fc)
+  __INLINE__ void registerFunction(const std::string &functionName, const Task::taskFunction_t fc)
   {
     // Checking if the RPC name was already used
     if (_registeredFunctions.contains(functionName) == true)
@@ -103,85 +167,48 @@ class Engine final
     _registeredFunctions.insert({functionName, fc});
   }
 
-  __INLINE__ void terminate()
+  __INLINE__ void requestTermination()
   {
-    const auto &currentInstance = _deployr.getCurrentHiCRInstance();
+    const auto &currentInstance = *_instanceManager->getCurrentInstance();
 
     // If I am the deployer instance, broadcast termination directly
     if (currentInstance.getId() == _deployerInstanceId) broadcastTermination();
 
     // If I am not the deployer instance, request the deployer to please broadcast terminationp
     printf("[hLLM] Instance %lu requesting deployer instance %lu to finish execution.\n", currentInstance.getId(), _deployerInstanceId);
-    _rpcEngine->requestRPC(_deployerInstanceId, _requestStopRPCName);
+    _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME);
   }
 
-  __INLINE__ void finalize()
+  [[nodiscard]] __INLINE__ auto& getDeployment() { return _deployment; }
+  [[nodiscard]] __INLINE__ size_t getPartitionIdx() const { return _partitionIdx; }
+
+  [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
   {
-    // Finished execution, then finish deployment
-    const auto &currentInstance = _deployr.getCurrentHiCRInstance();
-    printf("[hLLM] Instance %lu finalizing deployr.\n", currentInstance.getId());
-    _deployr.finalize();
+    if (_requestManagerRole == nullptr) HICR_THROW_RUNTIME("Trying to connect to hLLM engine directly, but this is not a request manager instance");
+
+    return _requestManagerRole->createSession();
   }
+
+  [[nodiscard]] __INLINE__ bool isDeployed() const { return _isDeployed; }
 
   private:
-
-  //////////////////////////////// Configuration parsing
-
-  /**
-   * Validate the configuration
-   * 
-   * @param[in] config hLLM configuration
-  */
-  __INLINE__ static void validateConfiguration(const nlohmann::json_abi_v3_11_2::json &config);
-
-  /**
-   * Parse dependencies. Contains information on the dependencies to be created
-   * 
-   * @param instanceJs Instance information in JSON format
-   * 
-   * @return a map with the dependencies information in JSON format 
-  */
-  __INLINE__ std::unordered_map<std::string, nlohmann::json> parseDependencies(const std::vector<nlohmann::json> &instancesJS);
-
-  //////////////////////////////// Channels management
-
-  /**
-   * Retrieves one of the producer channels creates during deployment.
-   * 
-   * If the provided name is not registered for this partition, the function will produce an exception.
-   * 
-   * @param[in] name The channel name
-   * @return The requested producer
-   */
-  __INLINE__ std::unique_ptr<channel::channelProducerInterface_t> moveProducer(const std::string &name);
-
-  /**
-   * Retrieves one of the consumer channels creates during deployment.
-   * 
-   * If the provided name is not registered for this partition, the function will produce an exception.
-   * 
-   * @param[in] name The channel name
-   * @return The requested consumer
-   */
-  __INLINE__ std::unique_ptr<channel::channelConsumerInterface_t> moveConsumer(const std::string &name);
-
-  /**
-  * Function to create all the channels based on the previously passed configuration
-  * */
-  __INLINE__ void createDependencies();
 
   __INLINE__ void doLocalTermination()
   {
     printf("[hLLM] Instance %lu terminating TaskR...\n", _deployerInstanceId);
+
     // Stopping the execution of the current and new tasks
     _continueRunning = false;
-    _taskr->forceTermination();
-    printf("[hLLM] Instance %lu terminated TaskR.\n", _deployerInstanceId);
+
+    // Set TaskR to finish on the last task finishing
+    _taskr->setFinishOnLastTask(true);
   }
 
   __INLINE__ void broadcastTermination()
   {
-    if (_deployr.getCurrentHiCRInstance().getId() != _deployerInstanceId) HICR_THROW_RUNTIME("Only the deployer instance %lu can broadcast termination", _deployerInstanceId);
+    const auto &currentInstance = *_instanceManager->getCurrentInstance();
+
+    if (currentInstance.getId() != _deployerInstanceId) HICR_THROW_RUNTIME("Only the deployer instance %lu can broadcast termination", _deployerInstanceId);
 
     // Send a finalization signal to all other non-root instances
     auto &instances = _instanceManager->getInstances();
@@ -189,7 +216,7 @@ class Engine final
       if (instance->getId() != _deployerInstanceId)
       {
         printf("[hLLM] Instance %lu sending stop RPC to instance %lu.\n", _deployerInstanceId, instance->getId());
-        _rpcEngine->requestRPC(instance->getId(), _stopRPCName);
+        _rpcEngine->requestRPC(instance->getId(), __HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME);
       }
 
     // (deployer) Executing local termination myself now
@@ -203,12 +230,6 @@ class Engine final
 
     // Getting the partitions vector
     const auto &partitionsJs = hicr::json::getArray<nlohmann::json>(parsedConfig, "Partitions");
-
-    // Extract dependencies
-    const auto &dependencies = parseDependencies(partitionsJs);
-
-    // Add dependencies to request
-    parsedConfig["Dependencies"] = dependencies;
 
     // Creating configuration for TaskR
     nlohmann::json taskrConfig;
@@ -225,413 +246,239 @@ class Engine final
     return parsedConfig;
   }
 
-  __INLINE__ void sortPartitions(nlohmann::json &partitions, std::string field)
-  {
-    // Sort according to partition Id
-    std::sort(partitions.begin(), partitions.end(), [&](const nlohmann::json &a, const nlohmann::json &b) {
-      return hicr::json::getNumber<partitionId_t>(a, field) < hicr::json::getNumber<partitionId_t>(b, field);
-    });
-  }
-
-  __INLINE__ void gatherGlobalTopology()
-  {
-    std::vector<HiCR::Instance::instanceId_t> instanceIds;
-    for (const auto &instance : _instanceManager->getInstances()) instanceIds.push_back(instance->getId());
-    _globalTopology = _deployr.gatherGlobalTopology(_instanceManager->getRootInstanceId(), instanceIds);
-  }
-
-  __INLINE__ void _deploy(const std::vector<nlohmann::json> &partitionRequestsJs)
-  {
-    bool isDeployer = _instanceManager->getCurrentInstance()->getId() == _deployerInstanceId;
-
-    // If am the one designated to coordinate the deployment
-    if (isDeployer)
-    {
-      // Getting requested topologies from the json file
-      std::vector<HiCR::Topology> requestedTopologies;
-
-      // Parse the single topologies
-      for (const auto &partition : partitionRequestsJs) { requestedTopologies.push_back(HiCR::Topology(partition["Topology"])); }
-
-      // Determine best pairing between the detected instances
-      const auto matching = deployr::DeployR::doBipartiteMatching(requestedTopologies, _globalTopology);
-
-      // Check matching
-      if (matching.size() != requestedTopologies.size())
-      {
-        fprintf(stderr, "Error: The provided instances do not have the sufficient hardware resources to run this job.\n");
-        abort();
-      }
-
-      // Creating the runner objects
-      for (size_t i = 0; i < partitionRequestsJs.size(); i++)
-      {
-        // Get partition data
-        const auto &partition = partitionRequestsJs[i];
-
-        // Add runner to deployment
-        _deployment.addRunner(deployr::Runner(i, _entryPointName, matching[i]));
-
-        // Populate the partition runner map
-        _partitionRunnerIdMap[hicr::json::getNumber<partitionId_t>(partition, "Partition ID")] = i;
-      }
-    }
-
-    // Deploying request
-    try
-    {
-      _deployr.deploy(_deployment, _deployerInstanceId);
-    }
-    catch (const std::exception &e)
-    {
-      fprintf(stderr, "[hLLM] Error: Failed to deploy. Reason:\n + '%s'", e.what());
-      _deployr.abort();
-    }
-  }
-
-#define __HLLM_REQUEST_PARTITION_ID "[hLLM] Request Partition ID"
-
-  void broadcastPartitionId()
-  {
-    auto storePartitionIdExecutionUnit = HiCR::backend::pthreads::ComputeManager::createExecutionUnit([&](void *) {
-      const auto &instance = _rpcEngine->getRPCRequester();
-      size_t      rpcRequesterRunnerId;
-      for (rpcRequesterRunnerId = 0; rpcRequesterRunnerId < _deployment.getRunners().size(); rpcRequesterRunnerId++)
-      {
-        auto runnerInstanceId = _deployment.getRunners()[rpcRequesterRunnerId].getInstanceId();
-        if (runnerInstanceId == instance->getId()) { break; }
-      }
-
-      partitionId_t rpcRequesterPartitionId;
-
-      for (const auto &[partitionId, runnerId] : _partitionRunnerIdMap)
-      {
-        if (runnerId == rpcRequesterRunnerId)
-        {
-          rpcRequesterPartitionId = partitionId;
-          break;
-        }
-      }
-      _rpcEngine->submitReturnValue(&rpcRequesterPartitionId, sizeof(rpcRequesterPartitionId));
-    });
-    _rpcEngine->addRPCTarget(__HLLM_REQUEST_PARTITION_ID, storePartitionIdExecutionUnit);
-
-    if (_deployerInstanceId == _instanceManager->getCurrentInstance()->getId())
-    {
-      // If I am the deployer, search for its own partition id
-      for (const auto &[partitionId, runnerId] : _partitionRunnerIdMap)
-      {
-        if (runnerId == _deployr.getRunnerId()) { _partitionId = partitionId; }
-      }
-
-      // Wait for incoming rpc from all the other_ =nner_
-      for (size_t _ = 0; _ < _deployment.getRunners().size() - 1; _++) { _rpcEngine->listen(); }
-    }
-    else
-    {
-      _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_PARTITION_ID);
-      _partitionId = *((partitionId_t *)_rpcEngine->getReturnValue()->getPointer());
-    }
-  }
-
   __INLINE__ void entryPoint()
   {
-    // Broadcast the partition id to all the instances
-    broadcastPartitionId();
+    printf("[Instance %lu] At Common Entry Point\n", _instanceId);
 
-    printf("[hLLM] Partition %lu starts\n", _partitionId);
+    configuration::Partition::partitionIndex_t myPartitionIndex = 0;
+    configuration::Replica::replicaIndex_t myReplicaIndex = 0;
+    bool isPartitionCoordinator = false;
+    bool isPartitionReplica = false;
+    bool isRequestManager = false;
 
-    // Finding partition information on the configuration
-    const auto    &partitionsJs = hicr::json::getArray<nlohmann::json>(_config, "Partitions");
-    nlohmann::json partitionConfig;
-    for (const auto &partition : partitionsJs)
+    // Sanity checks on the deployment object
+    _deployment.verify();
+
+    // Checking if I am the request manager
+    if (_deployment.getUserInterface().instanceId == _instanceId) isRequestManager = true;
+
+    // Perusing the deployment to see what my  partition role(s) is(are), if any
+    for (configuration::Partition::partitionIndex_t pIdx = 0; pIdx < _deployment.getPartitions().size(); pIdx++)
     {
-      const auto &partitionId = hicr::json::getNumber<partitionId_t>(partition, "Partition ID");
-      if (partitionId == _partitionId) partitionConfig = partition;
+      // Getting partition object
+      const auto partition = _deployment.getPartitions()[pIdx];
+
+      // Getting the instance id assigned to the partition
+      const auto coordinatorInstanceId = partition->getInstanceId();
+
+      // If I am a partition coordinator, mark it now
+      if (_instanceId == coordinatorInstanceId)
+      {
+        isPartitionCoordinator = true;
+        myPartitionIndex = pIdx;
+      } 
+
+      // Now getting all replicas for the replica
+      for (configuration::Replica::replicaIndex_t rIdx = 0; rIdx < partition->getReplicas().size(); rIdx++)
+      {
+        // Getting the instance id assigned to the replica
+        const auto replicaInstanceId = partition->getReplicas()[rIdx]->getInstanceId();
+
+        // If I am a partition 
+        if (_instanceId == replicaInstanceId)
+        {
+          isPartitionReplica = true;
+          myPartitionIndex = pIdx;
+          myReplicaIndex = rIdx;
+        } 
+      }
     }
 
-    // Set partition name
-    _partitionName = hicr::json::getString(partitionConfig, "Name");
+    // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
+    // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
+    // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
+    std::vector<edge::memorySlotExchangeInfo_t> memorySlotsToExchange;
 
-    printf("[hLLM] Partition %lu starts creating its dependencies...\n", _partitionId);
-    // Create channels
-    createDependencies();
-    printf("[hLLM] Partition %lu created the dependencies\n", _partitionId);
+    // If I am a partition coordinator, construct the coordinator object
+    if (isPartitionCoordinator == true)
+    {
+      printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
+      _partitionCoordinatorRole = std::make_unique<roles::partition::Coordinator>(_deployment, myPartitionIndex, _taskr);
+
+      // Get memory slots to exchange for the partition coordinator
+      printf("Registering Partition Coordinator Memory Slots...\n");
+      _partitionCoordinatorRole->getMemorySlotsToExchange(memorySlotsToExchange);
+    }
+
+    // If I am a replica, construct the replica object:
+    // Note: An instance can be simultaneously a partition coordinator and a replica
+    if (isPartitionReplica == true)
+    {
+      printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
+      _partitionReplicaRole = std::make_unique<roles::partition::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
+
+      // Get memory slots to exchange for the replica
+      printf("Registering Partition Replica Memory Slots...\n");
+      _partitionReplicaRole->getMemorySlotsToExchange(memorySlotsToExchange);
+    }
+
+    // If I am a Request Manager, construct the role now
+    if (isRequestManager == true)
+    {
+      printf("[Instance %lu] I am the request manager\n", _instanceId);
+      _requestManagerRole = std::make_unique<roles::RequestManager>(_deployment, _taskr);
+
+      // Get memory slots to exchange for the replica
+      printf("Registering Request Manager Memory Slots...\n");
+      _requestManagerRole->getMemorySlotsToExchange(memorySlotsToExchange);
+    }
+
+    // Sanity check
+    if (isPartitionCoordinator == false &&
+       isPartitionReplica == false &&
+       isRequestManager == false) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it. This must be a bug in hLLM", _instanceId);
+
+    ////////// Exchange memory slots now
+    // printf("[Instance %lu] Memory Slots to exchange: %lu\n", _instanceId, memorySlotsToExchange.size());
+
+    // Finding all distinct communication managers and storing them in the order in which they were declared.
+    // This is important for all intervening instances to do the exchange in the same order
+    std::set<HiCR::CommunicationManager*> communicationManagerSet;
+    std::vector<HiCR::CommunicationManager*> communicationManagerVector;
+
+    // Adding control communication manager
+    const auto controlCommunicationManager = _deployment.getControlBuffer().communicationManager;
+    communicationManagerSet.insert(controlCommunicationManager);
+    communicationManagerVector.push_back(controlCommunicationManager);
+
+    // Adding edge-specific communication managers
+    for (const auto& edge : _deployment.getEdges())
+    {
+      const auto coordinationComunicationManager = edge->getCoordinationCommunicationManager();
+      if (communicationManagerSet.contains(coordinationComunicationManager) == false)
+      {
+        communicationManagerSet.insert(coordinationComunicationManager);
+        communicationManagerVector.push_back(coordinationComunicationManager);
+      }
+
+      const auto payloadComunicationManager = edge->getPayloadCommunicationManager();
+      if (communicationManagerSet.contains(payloadComunicationManager) == false)
+      {
+        communicationManagerSet.insert(payloadComunicationManager);
+        communicationManagerVector.push_back(payloadComunicationManager);
+      }
+    }
+
+    // Now creating a map of memory slots to exchange, mapped by communication manager
+    std::map<HiCR::CommunicationManager*, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> exchangeMap;
+    for (const auto& entry : memorySlotsToExchange)
+    {
+      // Getting the communication manager used for this memory slot
+      const auto& communicationManager = entry.communicationManager;
+
+      // Sanity check
+      if (communicationManagerSet.contains(communicationManager) == false) HICR_THROW_RUNTIME("Could not find communication manager in the set. This is a bug in hLLM");
+
+      // Adding memory slot to the exchange map
+      // printf("Exchanging Memory Slot with key: %lu\n", entry.globalKey);
+      exchangeMap[communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
+    } 
+
+    // Finally, doing the exchange, one communication manager at a time, in the order given by the edge ordering
+    printf("[Instance %lu] Exchanging Memory Slots...\n", _instanceId);
+    for (const auto communicationManager : communicationManagerVector) communicationManager->exchangeGlobalMemorySlots(_exchangeTag, exchangeMap[communicationManager]);
+
+    // Waiting for the finalization of the exchange
+    for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
+
+    // After the exchange, we can now initialize the edges
+    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initializeEdges(_exchangeTag);
+    if (isPartitionReplica == true) _partitionReplicaRole->initializeEdges(_exchangeTag);
+    if (isRequestManager == true) _requestManagerRole->initializeEdges(_exchangeTag);
 
     // Starting a new deployment
     _continueRunning = true;
 
-    // Registering finalization function (for root to execute)
-    _rpcEngine->addRPCTarget(_stopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) {
-                               printf("[hLLM] Received finalization RPC\n");
-                               doLocalTermination();
-                             }));
-
-    // Registering finalization request function (for non-root to request roots to end the entire execution)
-    _rpcEngine->addRPCTarget(_requestStopRPCName, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) {
-                               printf("[hLLM] Partition %s - received RPC request to finalize\n", _partitionName.c_str());
-                               broadcastTermination();
-                             }));
-
-    // Creating HWloc topology object
-    hwloc_topology_t topology;
-
-    // initializing hwloc topology object
-    hwloc_topology_init(&topology);
-
-    // Initializing HWLoc-based host (CPU) topology manager
-    HiCR::backend::hwloc::TopologyManager tm(&topology);
-
-    // Asking backend to check the available devices
-    const auto t = tm.queryTopology();
-
-    // Compute resources to use
-    HiCR::Device::computeResourceList_t computeResources;
-
-    // Considering all compute devices of NUMA Domain type
-    const auto &devices = t.getDevices();
-    for (const auto &device : devices)
-      if (device->getType() == "NUMA Domain")
-      {
-        // Getting compute resources in this device
-        auto crs = device->getComputeResourceList();
-
-        // Adding it to the list
-        for (const auto &cr : crs) computeResources.push_back(cr);
-      }
-
-    // Freeing up memory
-    hwloc_topology_destroy(topology);
-
-    // Creating taskr object
-    const auto &taskRConfig = hicr::json::getObject(_config, "TaskR Configuration");
-    _taskr                  = std::make_unique<taskr::Runtime>(&_boostComputeManager, &_pthreadsComputeManager, computeResources, taskRConfig);
-
     // Initializing TaskR
     _taskr->initialize();
 
-    // Getting relevant information
-    const auto &executionGraph = hicr::json::getArray<nlohmann::json>(partitionConfig, "Execution Graph");
-
-    // Creating general TaskR function for all execution graph functions
-    _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
-
-    // Checking the execution graph functions have been registered
-    taskr::taskId_t taskrLabelCounter = 0;
-    for (const auto &functionJs : executionGraph)
-    {
-      const auto &fcName = hicr::json::getString(functionJs, "Name");
-
-      // Checking the requested function was registered
-      if (_registeredFunctions.contains(fcName) == false)
-      {
-        fprintf(stderr, "The requested function name '%s' is not registered. Please register it before running the hLLM.\n", fcName.c_str());
-        abort();
-      }
-
-      // Getting inputs and outputs
-      std::unordered_map<std::string, channel::Producer> producers;
-      std::unordered_map<std::string, channel::Consumer> consumers;
-
-      const auto &dependencies = hicr::json::getObject(_config, "Dependencies");
-
-      const auto &inputsJs = hicr::json::getArray<nlohmann::json>(functionJs, "Inputs");
-      for (const auto &inputJs : inputsJs)
-      {
-        const auto &inputName            = hicr::json::getString(inputJs, "Name");
-        const auto &dependency           = hicr::json::getObject(dependencies, inputName);
-        const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
-
-        // Determine the dependency type
-        auto                               dependencyType = channel::dependencyType::buffered;
-        HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
-        std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
-        if (dependencyTypeString == "Unbuffered")
-        {
-          dependencyType = channel::dependencyType::unbuffered;
-          memoryManager  = _unbufferedMemoryManager;
-          memorySpace    = _unbufferedMemorySpace;
-        }
-
-        consumers.try_emplace(inputName, inputName, memoryManager, memorySpace, dependencyType, moveConsumer(inputName));
-      }
-
-      const auto &outputsJs = hicr::json::getArray<std::string>(functionJs, "Outputs");
-      for (const auto &outputName : outputsJs)
-      {
-        const auto &dependency           = hicr::json::getObject(dependencies, outputName);
-        const auto &dependencyTypeString = hicr::json::getString(dependency, "Type");
-
-        // Determine the dependency type
-        auto                               dependencyType = channel::dependencyType::buffered;
-        HiCR::MemoryManager               *memoryManager  = _bufferedMemoryManager;
-        std::shared_ptr<HiCR::MemorySpace> memorySpace    = _bufferedMemorySpace;
-        if (dependencyTypeString == "Unbuffered")
-        {
-          dependencyType = channel::dependencyType::unbuffered;
-          memoryManager  = _unbufferedMemoryManager;
-          memorySpace    = _unbufferedMemorySpace;
-        }
-        producers.try_emplace(outputName, outputName, memoryManager, memorySpace, dependencyType, moveProducer(outputName));
-      }
-
-      // Getting label for taskr function
-      const auto taskId = taskrLabelCounter++;
-
-      // Creating taskr Task corresponding to the LLM engine task
-      auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
-
-      // Getting function pointer
-      const auto &fc = _registeredFunctions[fcName];
-
-      // Creating Engine Task object
-      auto newTask = std::make_shared<hLLM::Task>(fcName, fc, std::move(consumers), std::move(producers), std::move(taskrTask));
-
-      // Adding task to the label->Task map
-      _taskLabelMap.insert({taskId, newTask});
-
-      // Adding task to TaskR itself
-      _taskr->addTask(newTask->getTaskRTask());
-    }
+    // Initializing coordinator and replica roles, whichever applies (or both), so that they add their initial functions to taskR
+    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initialize();
+    if (isPartitionReplica == true) _partitionReplicaRole->initialize();
+    if (isRequestManager == true) _requestManagerRole->initialize();
 
     // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
-    // Setting service to listen for incoming administrative messages
-    std::function<void()> RPCListeningServiceFc = [this]() {
-      if (_rpcEngine->hasPendingRPCs()) _rpcEngine->listen();
-    };
-    _rpcListeningService = std::make_unique<taskr::Service>(RPCListeningServiceFc, 50);
-    _taskr->addService(_rpcListeningService.get());
+    // The engine is  now fully deployed
+    _isDeployed = true;
+
+    // Set TaskR not to finish on the last task
+    _taskr->setFinishOnLastTask(false);
 
     // Running TaskR
     _taskr->run();
     _taskr->await();
     _taskr->finalize();
 
-    printf("[hLLM] Instance '%s' TaskR Stopped\n", _partitionName.c_str());
+    // printf("[hLLM] Instance '%s' TaskR Stopped\n", _partitionName.c_str());
   }
 
-  __INLINE__ void runTaskRFunction(taskr::Task *task)
+  // For every new partition instance created, we send it the serialized deployment configuration
+  __INLINE__ void attendDeploymentConfigurationRequest()
   {
-    const auto &taskId       = task->getTaskId();
-    const auto &taskObject   = _taskLabelMap.at(taskId);
-    const auto &function     = taskObject->getFunction();
-    const auto &functionName = taskObject->getName();
+      // Serializing
+      const auto serializedDeployment = _deployment.serialize().dump();
 
-    // Function to check for pending operations
-    auto pendingOperationsCheck = [&]() {
-      // If execution must stop now, return true to go back to the task and finish it
-      if (_continueRunning == false) return true;
-
-      // The task is not ready if any of its inputs are not yet available
-      if (taskObject->checkInputsReadiness() == false) return false;
-
-      // The task is not ready if any of its output channels are still full
-      if (taskObject->checkOutputsReadiness() == false) return false;
-
-      // All dependencies are satisfied, enable this task for execution
-      return true;
-    };
-
-    // Initiate infinite loop
-    while (_continueRunning)
-    {
-      // Adding task dependencies
-      task->addPendingOperation(pendingOperationsCheck);
-
-      // Suspend execution until all dependencies are met
-      task->suspend();
-
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
-
-      // Inputs dependencies must be satisfied by now; getting them values
-      taskObject->setInputs();
-
-      // Actually run the function now
-      function(taskObject.get());
-
-      // Another exit point (the more the better)
-      if (_continueRunning == false) break;
-
-      // Checking input messages were properly consumed and popping the used token
-      taskObject->popInputs();
-
-      // Validating and pushing output messages
-      taskObject->pushOutputs();
-
-      // Clearing output token maps
-      taskObject->clearOutputs();
-    }
+      // Returning serialized topology
+      _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
+
+  // Pointer to the instance's partition coordinator role, if defined
+  std::unique_ptr<roles::partition::Coordinator> _partitionCoordinatorRole = nullptr;
+
+  // Pointer to the instance's partition replica role, if defined
+  std::unique_ptr<roles::partition::Replica> _partitionReplicaRole = nullptr;
+
+  // Pointer to the instance's request manager role, if defined
+  std::unique_ptr<roles::RequestManager> _requestManagerRole = nullptr;
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;
 
-  std::unique_ptr<taskr::Function> _taskrFunction;
+  // Storage for the partition index within the deployment corresponding to this instance
+  size_t _partitionIdx;
 
   /// A map of registered functions, targets for an partition's initial function
-  std::map<std::string, function_t> _registeredFunctions;
+  std::map<std::string, Task::taskFunction_t> _registeredFunctions;
 
-  // Copy of the initial configuration file
-  nlohmann::json _config;
+  // Copy of the initial deployment configuration
+  configuration::Deployment _deployment;
 
-  // Name of the hLLM entry point after deployment
-  const std::string _entryPointName     = "__hLLM Entry Point__";
-  const std::string _stopRPCName        = "__hLLM Stop__";
-  const std::string _requestStopRPCName = "__LLM Request Engine Stop__";
+  // The instance manager to use for creating / relinquishing  replicas
+  HiCR::InstanceManager *const _instanceManager;
 
-  // DeployR instance
-  deployr::DeployR _deployr;
-
-  // TaskR instance
-  std::unique_ptr<taskr::Runtime> _taskr;
-
-  // Map relating task labels to their hLLM task
-  std::map<taskr::taskId_t, std::shared_ptr<hLLM::Task>> _taskLabelMap;
-
-  HiCR::InstanceManager *const      _instanceManager;
-  HiCR::CommunicationManager *const _bufferedCommunicationManager;
-  HiCR::CommunicationManager *const _unbufferedCommunicationManager;
-  HiCR::MemoryManager *const        _bufferedMemoryManager;
-  HiCR::MemoryManager *const        _unbufferedMemoryManager;
   // Pointer to the HiCR RPC Engine
   HiCR::frontend::RPCEngine *_rpcEngine;
 
-  std::shared_ptr<HiCR::MemorySpace> _bufferedMemorySpace;
-  std::shared_ptr<HiCR::MemorySpace> _unbufferedMemorySpace;
+  // TaskR instance
+  taskr::Runtime* const _taskr;
 
-  ///// HiCR Objects for TaskR
+  // My instance Id
+  const HiCR::Instance::instanceId_t _instanceId;
 
-  // Initializing Boost-based compute manager to instantiate suspendable coroutines
-  HiCR::backend::boost::ComputeManager _boostComputeManager;
-
-  // Initializing Pthreads-based compute manager to instantiate processing units
-  HiCR::backend::pthreads::ComputeManager _pthreadsComputeManager;
-
-  /// Map of created producers and consumers
-  std::unordered_map<std::string, std::unique_ptr<channel::channelConsumerInterface_t>> _consumers;
-  std::unordered_map<std::string, std::unique_ptr<channel::channelProducerInterface_t>> _producers;
-
-  // Global topology
-  std::vector<HiCR::Topology> _globalTopology;
-
-  std::string   _partitionName;
-  partitionId_t _partitionId;
-
-  // Creating deployment object
-  deployr::Deployment _deployment;
+  // HiCR Tag to use for channel exchanges
+  const HiCR::GlobalMemorySlot::tag_t _exchangeTag;
 
   // HiCR instance id associated to the instance that will coordinate the deployment
   HiCR::Instance::instanceId_t _deployerInstanceId;
 
-  std::map<partitionId_t, deployr::Runner::runnerId_t> _partitionRunnerIdMap;
+  // For the deployer instance, this holds the ids of all the initially deployed instances
+  std::set<HiCR::Instance::instanceId_t> _instanceSet;
 
-  std::unique_ptr<taskr::Service> _rpcListeningService;
+  // Flag to indicate the engine has deployed correctly
+  bool _isDeployed;
+
 }; // class Engine
 
 } // namespace hLLM
-
-#include "channelCreationImpl.hpp"
-#include "parseConfigImpl.hpp"
