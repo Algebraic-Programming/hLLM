@@ -173,8 +173,20 @@ class Engine final
   {
     const auto &currentInstance = *_instanceManager->getCurrentInstance();
 
-    // If I am the deployer instance, broadcast termination directly
-    if (currentInstance.getId() == _deployerInstanceId) broadcastTermination();
+    // If I am the deployer instance, 
+    if (currentInstance.getId() == _deployerInstanceId)
+    {
+       printf("[hLLM] Deployer instance %lu finalizing hLLM...\n", currentInstance.getId());
+
+       // Broadcast termination to others (and myself)
+       broadcastTermination(); 
+       
+       // (deployer) Executing local termination myself now
+       doLocalTermination();
+
+       // Return
+       return;
+    } 
 
     // If I am not the deployer instance, request the deployer to please broadcast terminationp
     printf("[hLLM] Instance %lu requesting deployer instance %lu to finish execution.\n", currentInstance.getId(), _deployerInstanceId);
@@ -220,9 +232,6 @@ class Engine final
         printf("[hLLM] Instance %lu sending stop RPC to instance %lu.\n", _deployerInstanceId, instance->getId());
         _rpcEngine->requestRPC(instance->getId(), __HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME);
       }
-
-    // (deployer) Executing local termination myself now
-    doLocalTermination();
   }
 
   __INLINE__ nlohmann::json parseConfiguration(const nlohmann::json &config)

@@ -15,6 +15,7 @@
 #include <taskr/taskr.hpp>
 
 #define _PROMPT_THREAD_COUNT 16
+#define _REQUESTS_PER_THREAD_COUNT 32
 
 int main(int argc, char *argv[])
 {
@@ -176,6 +177,7 @@ int main(int argc, char *argv[])
   std::vector<std::unique_ptr<std::thread>> promptThreads;
   std::default_random_engine promptTimeRandomEngine;
   std::uniform_real_distribution<double> promptTimeRandomDistribution(0.0, 1.0); 
+  std::atomic<size_t> finishedPromptThreads = 0;
   if (isRoot)
   {
     for (size_t i = 0; i < _PROMPT_THREAD_COUNT; i++)
@@ -188,10 +190,9 @@ int main(int argc, char *argv[])
         auto session = hllm.createSession();
 
         // Send a test message
-        size_t currentPrompt = 0;
-        for (size_t iterations = 0; true; iterations++)
+        for (size_t promptCount = 0; promptCount < _REQUESTS_PER_THREAD_COUNT; promptCount++)
         {
-          const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt++));
+          const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(promptCount));
           session->pushPrompt(prompt);
           // printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
           while(prompt->hasResponse() == false);
@@ -199,9 +200,13 @@ int main(int argc, char *argv[])
           printf("[User %04lu] Got response: '%s' for prompt %lu/%lu: '%s'\n", i, prompt->getResponse().c_str(), promptId.first, promptId.second, prompt->getPrompt().c_str());
           usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
-        
-        // Violently exit when done with the test
-        exit(0);
+
+        // Increase counter for finished prompt threads
+        const auto finishedThreads = finishedPromptThreads.fetch_add(1) + 1;
+        printf("Finished Threads: %lu\n", finishedThreads);
+
+        // If ths was the last thread, then ask hllm to shutdown
+        if (finishedThreads == _PROMPT_THREAD_COUNT) hllm.requestTermination();
       }));
   }
 
@@ -212,5 +217,5 @@ int main(int argc, char *argv[])
   if (isRoot) for (auto& thread : promptThreads) thread->join();
 
   // Finalize Instance Manager
-  instanceManager->finalize();
+  // instanceManager->finalize();
 }
