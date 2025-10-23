@@ -28,7 +28,7 @@ class Prompt
   {
   }
 
-  [[nodiscard]] __INLINE__ bool hasResponse() const { return _hasResponse; }
+  [[nodiscard]] __INLINE__ auto hasResponse() const { return _hasResponse; }
   [[nodiscard]] __INLINE__ const std::string& getResponse() const { return _response; }
   [[nodiscard]] __INLINE__ promptId_t getPromptId() const { return _promptId; }
   [[nodiscard]] __INLINE__ const std::string& getPrompt() const { return _prompt; }
@@ -40,7 +40,7 @@ class Prompt
   const promptId_t _promptId;
   const std::string _prompt;
   std::string _response;
-  bool _hasResponse = false;
+  volatile bool _hasResponse = false;
 
 }; // class Prompt
 

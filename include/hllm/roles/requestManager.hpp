@@ -158,13 +158,24 @@ class RequestManager final : public hLLM::Role
 
     // Getting prompt object and removing it from the active prompt map. We've got the response now
     _activePromptMapMutex.lock();
+    
+    // Check that the prompt actually exists  
     if (_activePromptMap.contains(promptId) == false) HICR_THROW_RUNTIME("Prompt map entry for prompt %lu/%lu not found. This must be a bug in hLLM", promptId.first, promptId.second);
-    auto& prompt = _activePromptMap.at(promptId);
+
+    // Recovering prompt from the map
+    auto prompt = _activePromptMap.at(promptId);
+
+    // Removing map entry
     _activePromptMap.erase(promptId);
+
+    // Unlocking prompt map lock
     _activePromptMapMutex.unlock();
 
-    // Setting response
+    // Setting response into the prompt now
     prompt->setResponse(response);
+    
+    // printf("Prompt Map Size: %lu\n", _activePromptMap.size());
+    // usleep(10000);
   }
 
   ///////////// Prompt handling service
@@ -195,7 +206,9 @@ class RequestManager final : public hLLM::Role
       _promptOutputEdge->pushMessage(message.encode());
 
       // Registering prompt
+      _activePromptMapMutex.lock();
       _activePromptMap.insert({promptId, prompt});
+      _activePromptMapMutex.unlock();
       // printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Freeing entry in the pending session connection queue

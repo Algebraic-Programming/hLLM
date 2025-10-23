@@ -55,6 +55,8 @@ class Engine final
    */
   __INLINE__ void initialize(const configuration::Deployment deployment, const HiCR::Instance::instanceId_t deployerInstanceId)
   {
+    // printf("hLLM Initializing...\n");
+
     // The engine is not yet deployed
     _isDeployed = false;
 
@@ -189,7 +191,7 @@ class Engine final
     return _requestManagerRole->createSession();
   }
 
-  [[nodiscard]] __INLINE__ bool isDeployed() const { return _isDeployed; }
+  [[nodiscard]] __INLINE__ const auto isDeployed() const { return _isDeployed; }
 
   private:
 
@@ -248,8 +250,6 @@ class Engine final
 
   __INLINE__ void entryPoint()
   {
-    printf("[Instance %lu] At Common Entry Point\n", _instanceId);
-
     configuration::Partition::partitionIndex_t myPartitionIndex = 0;
     configuration::Replica::replicaIndex_t myReplicaIndex = 0;
     bool isPartitionCoordinator = false;
@@ -260,6 +260,7 @@ class Engine final
     _deployment.verify();
 
     // Checking if I am the request manager
+    printf("InstanceId: %lu, userInterfaceInstanceId: %lu\n", _instanceId, _deployment.getUserInterface().instanceId);
     if (_deployment.getUserInterface().instanceId == _instanceId) isRequestManager = true;
 
     // Perusing the deployment to see what my  partition role(s) is(are), if any
@@ -477,7 +478,7 @@ class Engine final
   std::set<HiCR::Instance::instanceId_t> _instanceSet;
 
   // Flag to indicate the engine has deployed correctly
-  bool _isDeployed;
+  volatile bool _isDeployed;
 
 }; // class Engine
 
