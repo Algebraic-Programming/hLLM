@@ -41,31 +41,14 @@ int main(int argc, char *argv[])
     
     // prompt + output lists
     auto o = torch::zeros({B, n, d});
-    size_t max_p_size = 0;
-    
+    const size_t p_size = 3; // prompt size (this one will later be flexible)
+
     // creating prompts
-    for(size_t b = 0; b < B; ++b){
-        // size_t p_size = (size_t)torch::randint(0, 5, {1})[0];
-        size_t p_size = static_cast<size_t>(torch::randint(0,5,{}).item<int64_t>());
-
-        std::cout << "p_size: " << p_size << "\n";
-
-        if(p_size > max_p_size){
-            max_p_size = p_size;
-        }
-
-        o[b].slice(0, 0, p_size) = torch::rand({(int64_t)p_size, d});
-    }
-
-    std::cout << "o: " << o << "\n";
-
-    std::cout << "max_p_size: " << max_p_size << "\n";
-
-    assert(max_p_size < n && "max_p_size is larger than n, this is illegal and can lead to segfaults\n");
+    o.slice(1, 0, p_size) = torch::rand({B, p_size, d});
 
     // prompt phase
     for(size_t b = 0; b < B; ++b){
-        for(size_t i = 0; i < max_p_size; ++i){
+        for(size_t i = 0; i < p_size; ++i){
             KV_cache[b][0][i] = torch::matmul(Wk, o[b][i]);
             KV_cache[b][1][i] = torch::matmul(Wv, o[b][i]);
         }
@@ -73,7 +56,7 @@ int main(int argc, char *argv[])
 
     // autoregressive phase
     for(size_t b = 0; b < B; ++b){
-        for(size_t i = max_p_size; i < n; ++i){
+        for(size_t i = p_size; i < n; ++i){
             auto q            = torch::matmul(Wq, o[b][i]);
             KV_cache[b][0][i] = torch::matmul(Wk, o[b][i]);
             KV_cache[b][1][i] = torch::matmul(Wv, o[b][i]);
@@ -81,11 +64,6 @@ int main(int argc, char *argv[])
             single_attention(q, KV_cache, o, i, b);
 
             std::cout << "b: " << b << ", i: " << i << ", o: " << o << "\n";
-            
-            // The <eos> token call (emulated)
-            if(o[b][i][0].item<float>() > 0.95){
-                break;
-            }
         }
     }
 
