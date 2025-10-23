@@ -44,11 +44,7 @@ class Session
 
   __INLINE__ void pushPrompt(const std::shared_ptr<Prompt> prompt)
   {
-    // Creating prompt object
-    const auto promptId = prompt->getPromptId();
-
     _promptMutex.lock();
-    _promptMap.insert({promptId, prompt});
     _newPromptQueue.push(prompt);
     _promptMutex.unlock();
   }
@@ -78,9 +74,6 @@ class Session
 
   // Mutual exclusion for managing prompts
   std::mutex _promptMutex;
-
-  // This map connects a prompt ids with their prompt objects for prompt/response assignment
-  std::map<Prompt::promptId_t, std::shared_ptr<Prompt>> _promptMap;
 
   // This queue hold the prompt until they are started by the request manager
   std::queue<std::shared_ptr<Prompt>> _newPromptQueue;

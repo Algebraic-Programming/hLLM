@@ -183,13 +183,13 @@ int main(int argc, char *argv[])
       {
         // Wait until the hLLM has deployed
         while (hllm.isDeployed() == false);
-
+        
         // Now create session
         auto session = hllm.createSession();
 
         // Send a test message
         size_t currentPrompt = 0;
-        for (size_t iterations = 0; iterations < 50; iterations++)
+        for (size_t iterations = 0; true; iterations++)
         {
           const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(currentPrompt++));
           session->pushPrompt(prompt);
@@ -208,7 +208,7 @@ int main(int argc, char *argv[])
   // Deploying hLLM
   hllm.deploy(deployment);
 
-  // Waiting for prompt thread to finish
+  // // Waiting for prompt thread to finish
   if (isRoot) for (auto& thread : promptThreads) thread->join();
 
   // Finalize Instance Manager
