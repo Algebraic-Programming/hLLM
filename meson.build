@@ -43,13 +43,22 @@ endif
 
 ####### Getting HiCR dependency
 
-HiCRDistributedBackend = []
 if 'cloudr' in engines or 'mpi' in engines
-  HiCRDistributedBackend += ['mpi']
+  if 'mpi' not in additionalHiCRBackends
+    additionalHiCRBackends += ['mpi']
+  endif
 endif
 
 # Selecting default HiCR Backends
-HiCRBackends = ['hwloc', 'pthreads', 'boost'] + additionalHiCRBackends
+HiCRBackends = ['hwloc', 'pthreads', 'boost']
+
+# adding additional backends but only if not already listed
+foreach b : additionalHiCRBackends
+  if b not in HiCRBackends
+    HiCRBackends += [b]
+  endif
+endforeach
+
 HiCRFrontends = [ ] + additionalHiCRFrontends
 HiCRProject = subproject(
   'HiCR',
