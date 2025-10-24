@@ -4,9 +4,8 @@
 #include <random>
 #include <hicr/backends/hwloc/memoryManager.hpp>
 #include <hicr/backends/hwloc/topologyManager.hpp>
-#include <hicr/backends/mpi/instanceManager.hpp>
-#include <hicr/backends/mpi/communicationManager.hpp>
-#include <hicr/backends/mpi/memoryManager.hpp>
+#include <hicr/backends/pthreads/instanceManager.hpp>
+#include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
 #include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
@@ -22,7 +21,7 @@ int main(int argc, char *argv[])
   // Creating HWloc topology object
   hwloc_topology_t hwlocTopologyObject;
 
-  // Reserving memory for hwloc
+  // Reserving memory for hwloc 
   hwloc_topology_init(&hwlocTopologyObject);
 
   // Initializing host (CPU) topology manager
@@ -46,13 +45,15 @@ int main(int argc, char *argv[])
   // Grabbing first compute resource for computing incoming RPCs
   auto computeResource = *computeResources.begin();
 
-  // Getting MPI managers
-  auto instanceManager              = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
-  auto mpiCommunicationManager      = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
-  auto mpiMemoryManager             = std::make_shared<HiCR::backend::mpi::MemoryManager>();
-  auto pthreadsComputeManager       = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
-  auto boostComputeManager          = std::make_shared<HiCR::backend::boost::ComputeManager>();
-  auto hwlocMemoryManager           = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
+  // Creating pthreads manager core
+  HiCR::backend::pthreads::Core core(1);
+
+  // Getting managers
+  auto instanceManager              = std::make_shared<HiCR::backend::pthreads::InstanceManager>(core);
+  auto communicationManager         = std::make_shared<HiCR::backend::pthreads::CommunicationManager>(core);
+  auto workerComputeManager         = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
+  auto taskComputeManager           = std::make_shared<HiCR::backend::boost::ComputeManager>();
+  auto memoryManager                = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object
   nlohmann::json taskrConfig;
@@ -61,10 +62,10 @@ int main(int argc, char *argv[])
   taskrConfig["Minimum Active Task Workers"]      = 1;     // Have at least one worker active at all times
   taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
   taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
-  auto taskr  = std::make_unique<taskr::Runtime>(boostComputeManager.get(), pthreadsComputeManager.get(), computeResources, taskrConfig);
+  auto taskr  = std::make_unique<taskr::Runtime>(taskComputeManager.get(), workerComputeManager.get(), computeResources, taskrConfig);
 
   // Instantiate RPC Engine
-  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*mpiCommunicationManager, *instanceManager, *mpiMemoryManager, *pthreadsComputeManager, bufferMemorySpace, computeResource);
+  auto rpcEngine = std::make_shared<HiCR::frontend::RPCEngine>(*communicationManager, *instanceManager, *memoryManager, *workerComputeManager, bufferMemorySpace, computeResource);
 
   // Initialize RPC Engine
   rpcEngine->initialize();
@@ -118,7 +119,7 @@ int main(int argc, char *argv[])
     // Checking I have the correct number of instances (one per replica)
     if (instanceManager->getInstances().size() != replicasRequired)
     {
-      fprintf(stderr, "Error: %lu MPI instances provided, but %lu partition replicas were requested\n", instanceManager->getInstances().size(), replicasRequired);
+      fprintf(stderr, "Error: %lu instances provided, but %lu partition replicas were requested\n", instanceManager->getInstances().size(), replicasRequired);
       instanceManager->abort(-1);
     }
 
@@ -143,18 +144,18 @@ int main(int argc, char *argv[])
   // This allows for flexibility to choose in which devices to place the payload and coordination buffers
   for (const auto& edge : hllm.getDeployment().getEdges())
   {
-    edge->setPayloadCommunicationManager(mpiCommunicationManager.get());
-    edge->setPayloadMemoryManager(mpiMemoryManager.get());
+    edge->setPayloadCommunicationManager(communicationManager.get());
+    edge->setPayloadMemoryManager(memoryManager.get());
     edge->setPayloadMemorySpace(bufferMemorySpace);
 
-    edge->setCoordinationCommunicationManager(mpiCommunicationManager.get());
-    edge->setCoordinationMemoryManager(mpiMemoryManager.get());
+    edge->setCoordinationCommunicationManager(communicationManager.get());
+    edge->setCoordinationMemoryManager(memoryManager.get());
     edge->setCoordinationMemorySpace(bufferMemorySpace);
   }
 
   // Setting managers for partition-wise control messaging
-  hllm.getDeployment().getControlBuffer().communicationManager = mpiCommunicationManager.get();
-  hllm.getDeployment().getControlBuffer().memoryManager = mpiMemoryManager.get();
+  hllm.getDeployment().getControlBuffer().communicationManager = communicationManager.get();
+  hllm.getDeployment().getControlBuffer().memoryManager = memoryManager.get();
   hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
   // Declaring the hLLM tasks for the application
@@ -167,7 +168,7 @@ int main(int argc, char *argv[])
 
     // Create output
     responseOutput             = request + std::string(" [Processed]");
-    const auto responseMemSlot = mpiMemoryManager->registerLocalMemorySlot(bufferMemorySpace, responseOutput.data(), responseOutput.size() + 1);
+    const auto responseMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, responseOutput.data(), responseOutput.size() + 1);
 
     // printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
     task->setOutput("Response", responseMemSlot);

@@ -76,8 +76,8 @@ class Output final : public Base
     auto messageMetadataMemorySlot = _edgeConfig.getCoordinationMemoryManager()->registerLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), (void*)&message.getMetadata(), sizeof(Message::metadata_t));
     _metadataChannel->push(messageMetadataMemorySlot);
 
-    _edgeConfig.getPayloadMemoryManager()->freeLocalMemorySlot(messagePayloadMemorySlot);
-    _edgeConfig.getCoordinationMemoryManager()->freeLocalMemorySlot(messageMetadataMemorySlot);
+    _edgeConfig.getPayloadMemoryManager()->deregisterLocalMemorySlot(messagePayloadMemorySlot);
+    _edgeConfig.getCoordinationMemoryManager()->deregisterLocalMemorySlot(messageMetadataMemorySlot);
   }
 
   private:

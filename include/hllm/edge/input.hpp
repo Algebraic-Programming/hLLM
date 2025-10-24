@@ -27,7 +27,8 @@ class Input final : public Base
     _dataChannelSizesBuffer   = _edgeConfig.getCoordinationMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getCoordinationMemorySpace(), sizesBufferSize);
 
     // Allocating payload buffer as a local memory slot
-    _dataChannelPayloadBuffer = _edgeConfig.getPayloadMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), _edgeConfig.getBufferSize());
+    auto payloadBufferSize = HiCR::channel::variableSize::SPSC::Consumer::getPayloadBufferSize(_edgeConfig.getBufferSize());
+    _dataChannelPayloadBuffer = _edgeConfig.getPayloadMemoryManager()->allocateLocalMemorySlot(_edgeConfig.getPayloadMemorySpace(), payloadBufferSize);
 
     ///// Allocating additional local buffers required for the consumer medata channel
 
