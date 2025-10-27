@@ -33,10 +33,6 @@
             "Response"
           ]
         }
-      ],
-      "Replicas":
-      [
-        { "Name": "Replica 0/0" }
       ]
     }
   ],

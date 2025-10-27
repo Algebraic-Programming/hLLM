@@ -66,6 +66,8 @@ class Engine final
     // If I am not the deployer instance, simply request the deployment information from the deployer
     if (_instanceId != _deployerInstanceId)
     {
+      printf("Instance %lu - Requesting deployment configuration\n", _instanceId);
+
       // Send request RPC
       _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME);
 
@@ -100,7 +102,7 @@ class Engine final
     for (const auto& partition : _deployment.getPartitions())
     {
       // Getting the instance id assigned to the partition coordinator
-      const auto coordinatorInstanceId = partition->getInstanceId();
+      const auto coordinatorInstanceId = partition->getCoordinatorInstanceId();
 
       // Adding it to the set
       _instanceSet.insert(coordinatorInstanceId);
@@ -269,7 +271,6 @@ class Engine final
     _deployment.verify();
 
     // Checking if I am the request manager
-    printf("InstanceId: %lu, userInterfaceInstanceId: %lu\n", _instanceId, _deployment.getUserInterface().instanceId);
     if (_deployment.getUserInterface().instanceId == _instanceId) isRequestManager = true;
 
     // Perusing the deployment to see what my  partition role(s) is(are), if any
@@ -279,7 +280,7 @@ class Engine final
       const auto partition = _deployment.getPartitions()[pIdx];
 
       // Getting the instance id assigned to the partition
-      const auto coordinatorInstanceId = partition->getInstanceId();
+      const auto coordinatorInstanceId = partition->getCoordinatorInstanceId();
 
       // If I am a partition coordinator, mark it now
       if (_instanceId == coordinatorInstanceId)
@@ -437,6 +438,8 @@ class Engine final
   // For every new partition instance created, we send it the serialized deployment configuration
   __INLINE__ void attendDeploymentConfigurationRequest()
   {
+      printf("[Deployer Instance %lu] Received request to send deployment configuration...\n", _instanceId);
+      
       // Serializing
       const auto serializedDeployment = _deployment.serialize().dump();
 

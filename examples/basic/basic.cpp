@@ -98,28 +98,13 @@ int main(int argc, char *argv[])
     // Parsing config file using hLLM
     deployment.deserialize(hllmConfigJs);
 
-    // Checking I have the correct number of replicas (at least one per partition)
-    size_t replicasRequired = 0;
-    for (auto p : deployment.getPartitions())
-    {
-      // Getting number of replicas required
-      const auto replicaCount = p->getReplicas().size();
+    // Calculating the number of instances required (1 per partition that runs the coorinator and a replica)
+    const auto instancesRequired = deployment.getPartitions().size();
 
-      // Checking replicas count for this partition is not zero
-      if (replicaCount == 0)
-      {
-        fprintf(stderr, "Error: This example requires at least one replica per partition to be provided. Partition '%s' has no replicas\n", p->getName().c_str());
-        instanceManager->abort(-1);
-      }
-
-      // Adding the number of requested replicas
-      replicasRequired += p->getReplicas().size();
-    } 
-    
     // Checking I have the correct number of instances (one per replica)
-    if (instanceManager->getInstances().size() != replicasRequired)
+    if (instanceManager->getInstances().size() != instancesRequired)
     {
-      fprintf(stderr, "Error: %lu instances provided, but %lu partition replicas were requested\n", instanceManager->getInstances().size(), replicasRequired);
+      fprintf(stderr, "Error: %lu instances provided, but %lu are required\n", instanceManager->getInstances().size(), instancesRequired);
       instanceManager->abort(-1);
     }
 
@@ -127,11 +112,18 @@ int main(int argc, char *argv[])
     auto instanceItr = instanceManager->getInstances().begin();
     for (auto p : deployment.getPartitions()) 
     {
-      // Setting this partition to be executed by the same instance than replica zero
-      p->setInstanceId(instanceItr.operator*()->getId());
+      // Getting instance Id that will run this partition (only one)
+      const auto partitionInstanceId = instanceItr.operator*()->getId();
 
-      // Setting this partition replicas incrementally
-      for (auto r : p->getReplicas()) r->setInstanceId(instanceItr++.operator*()->getId());
+      // Setting this partition to be executed by the same instance than replica zero
+      p->setCoordinatorInstanceId(partitionInstanceId);
+
+      // Adding a single replica to this partition, the same instance as the coordinator
+      const auto replica = std::make_shared<hLLM::configuration::Replica>(partitionInstanceId);
+      p->addReplica(replica);
+
+      // Advancing to the next instance
+      instanceItr++;
     }
     
     // printf("%s\n", deployment.serialize().dump(2).c_str());
@@ -204,7 +196,7 @@ int main(int argc, char *argv[])
 
         // Increase counter for finished prompt threads
         const auto finishedThreads = finishedPromptThreads.fetch_add(1) + 1;
-        printf("Finished Threads: %lu\n", finishedThreads);
+        // printf("Finished Threads: %lu\n", finishedThreads);
 
         // If ths was the last thread, then ask hllm to shutdown
         if (finishedThreads == _PROMPT_THREAD_COUNT) hllm.requestTermination();
