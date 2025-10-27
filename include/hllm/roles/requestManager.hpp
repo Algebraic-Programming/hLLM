@@ -182,10 +182,10 @@ class RequestManager final : public hLLM::Role
   __INLINE__ void promptHandlingService()
   {
     // Checking for new prompts to be added to the list
-    const std::lock_guard<std::mutex> lock(_promptManagementMutex);
+    std::lock_guard<std::mutex> lock(_promptManagementMutex);
 
     // Accepting incoming session connection requests
-    while(_pendingNewPromptsQueue.empty() == false)
+    if (_pendingNewPromptsQueue.empty() == false)
     {
       // Getting next pending session to connect
       const auto prompt = _pendingNewPromptsQueue.front();
@@ -197,7 +197,8 @@ class RequestManager final : public hLLM::Role
       const size_t messageSize = promptData.size()+1;
 
       // Interrupt service if the output edge (connecting to the entry partition) is full
-      if(_promptOutputEdge->isFull(messageSize) == true) return;
+      const auto isPromptOutputEdgeFull = _promptOutputEdge->isFull(messageSize);
+      if(isPromptOutputEdgeFull == true)  return;
 
       // Creating message object
       const auto message = messages::Data(messageData, messageSize, promptId);
@@ -221,10 +222,10 @@ class RequestManager final : public hLLM::Role
   ///////////// Session management service (no concurrent access active service map)
   __INLINE__ void sessionManagementServiceFunction()
   {
-    _sessionManagementMutex.lock();
+    std::lock_guard<std::mutex> lock(_sessionManagementMutex);
 
     // Accepting incoming session connection requests
-    while(_pendingSessionConnectionsQueue.empty() == false)
+    if (_pendingSessionConnectionsQueue.empty() == false)
     {
       // Getting next pending session to connect
       auto session = _pendingSessionConnectionsQueue.front();
@@ -238,8 +239,6 @@ class RequestManager final : public hLLM::Role
       // Freeing entry in the pending session connection queue
       _pendingSessionConnectionsQueue.pop();
     }
-
-    _sessionManagementMutex.unlock();
 
     // Iterating over the active sessions in search for the next message to parse
     for (const auto& entry : _activeSessionMap)
@@ -260,7 +259,6 @@ class RequestManager final : public hLLM::Role
   taskr::Service::serviceFc_t _taskrSessionManagementFunction = [this](){ this->sessionManagementServiceFunction(); };
   taskr::Service _taskrSessionManagementService = taskr::Service(_taskrSessionManagementFunction);
   
-
   // Edge to copy a prompt to a coordinator
   std::shared_ptr<edge::Output> _promptOutputEdge;
   

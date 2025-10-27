@@ -13,6 +13,7 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 
+#define _REPLICAS_PER_PARTITION 4
 #define _PROMPT_THREAD_COUNT 16
 #define _REQUESTS_PER_THREAD_COUNT 32
 
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
   taskrConfig["Task Suspend Interval Time (Ms)"]  = 100;   // Workers suspend for this time before checking back
   taskrConfig["Minimum Active Task Workers"]      = 1;     // Have at least one worker active at all times
   taskrConfig["Service Worker Count"]             = 1;     // Have one dedicated service workers at all times to listen for incoming messages
-  taskrConfig["Make Task Workers Run Services"]   = false; // Workers will check for meta messages in between executions
+  taskrConfig["Make Task Workers Run Services"]   = true;  // Workers will check for meta messages in between executions
   auto taskr  = std::make_unique<taskr::Runtime>(taskComputeManager.get(), workerComputeManager.get(), computeResources, taskrConfig);
 
   // Instantiate RPC Engine
@@ -118,9 +119,12 @@ int main(int argc, char *argv[])
       // Setting this partition to be executed by the same instance than replica zero
       p->setCoordinatorInstanceId(partitionInstanceId);
 
-      // Adding a single replica to this partition, the same instance as the coordinator
-      const auto replica = std::make_shared<hLLM::configuration::Replica>(partitionInstanceId);
-      p->addReplica(replica);
+      // Adding a replicas to this partition, with the same instance as the coordinator
+      for (size_t i = 0; i < _REPLICAS_PER_PARTITION; i++)
+      {
+        const auto replica = std::make_shared<hLLM::configuration::Replica>(partitionInstanceId);
+        p->addReplica(replica);
+      }
 
       // Advancing to the next instance
       instanceItr++;
@@ -181,15 +185,16 @@ int main(int argc, char *argv[])
         
         // Now create session
         auto session = hllm.createSession();
+        printf("Created Session: %lu\n", session->getSessionId());
 
         // Send a test message
         for (size_t promptCount = 0; promptCount < _REQUESTS_PER_THREAD_COUNT; promptCount++)
         {
           const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(promptCount));
           session->pushPrompt(prompt);
-          // printf("[User] Sent prompt: %s\n", prompt->getPrompt().c_str());
-          while(prompt->hasResponse() == false);
           const auto promptId = prompt->getPromptId();
+          // printf("[User] Sent prompt (%lu/%lu): '%s'\n", promptId.first, promptId.second,  prompt->getPrompt().c_str());
+          while(prompt->hasResponse() == false);
           printf("[User %04lu] Got response: '%s' for prompt %lu/%lu: '%s'\n", i, prompt->getResponse().c_str(), promptId.first, promptId.second, prompt->getPrompt().c_str());
           usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
