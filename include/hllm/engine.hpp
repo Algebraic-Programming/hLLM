@@ -261,17 +261,12 @@ class Engine final
 
   __INLINE__ void entryPoint()
   {
-    configuration::Partition::partitionIndex_t myPartitionIndex = 0;
-    configuration::Replica::replicaIndex_t myReplicaIndex = 0;
-    bool isPartitionCoordinator = false;
-    bool isPartitionReplica = false;
-    bool isRequestManager = false;
+    // Indexes corresponding to the roles assigned to this instance
+    std::vector<configuration::Partition::partitionIndex_t> coordinatorRoleIndexes;
+    std::vector<std::pair<configuration::Partition::partitionIndex_t, configuration::Replica::replicaIndex_t>> replicaRoleIndexes;
 
     // Sanity checks on the deployment object
     _deployment.verify();
-
-    // Checking if I am the request manager
-    if (_deployment.getUserInterface().instanceId == _instanceId) isRequestManager = true;
 
     // Perusing the deployment to see what my  partition role(s) is(are), if any
     for (configuration::Partition::partitionIndex_t pIdx = 0; pIdx < _deployment.getPartitions().size(); pIdx++)
@@ -282,12 +277,8 @@ class Engine final
       // Getting the instance id assigned to the partition
       const auto coordinatorInstanceId = partition->getCoordinatorInstanceId();
 
-      // If I am a partition coordinator, mark it now
-      if (_instanceId == coordinatorInstanceId)
-      {
-        isPartitionCoordinator = true;
-        myPartitionIndex = pIdx;
-      } 
+      // If I am a coordinator for this partition, add it now
+      if (_instanceId == coordinatorInstanceId) coordinatorRoleIndexes.push_back(pIdx);
 
       // Now getting all replicas for the replica
       for (configuration::Replica::replicaIndex_t rIdx = 0; rIdx < partition->getReplicas().size(); rIdx++)
@@ -295,61 +286,55 @@ class Engine final
         // Getting the instance id assigned to the replica
         const auto replicaInstanceId = partition->getReplicas()[rIdx]->getInstanceId();
 
-        // If I am a partition 
-        if (_instanceId == replicaInstanceId)
-        {
-          isPartitionReplica = true;
-          myPartitionIndex = pIdx;
-          myReplicaIndex = rIdx;
-        } 
+        // If I am a partition replica, add the corresponding indexes now
+        if (_instanceId == replicaInstanceId) replicaRoleIndexes.push_back({pIdx, rIdx});
       }
     }
 
+    // If I am a partition coordinator, construct the coordinator object
+    for (const auto& coordinatorRoleIndex : coordinatorRoleIndexes)
+    {
+      printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, coordinatorRoleIndex);
+      auto coordinatorRole = std::make_shared<roles::partition::Coordinator>(_deployment, coordinatorRoleIndex, _taskr);
+
+      // Storing role
+      _instanceRoles.push_back(coordinatorRole);
+    }
+
+    // If I am a replica, construct the replica object:
+    // Note: An instance can be simultaneously a partition coordinator and a replica
+    for (const auto& replicaRoleIndex : replicaRoleIndexes)
+    {
+      printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, replicaRoleIndex.first, replicaRoleIndex.second);
+      auto replicaRole = std::make_shared<roles::partition::Replica>(_deployment, replicaRoleIndex.first, replicaRoleIndex.second, _taskr, _registeredFunctions);
+
+      // Storing role
+      _instanceRoles.push_back(replicaRole);
+    }
+
+    // If I am a Request Manager, construct the role now
+    if (_deployment.getUserInterface().instanceId == _instanceId)
+    {
+      printf("[Instance %lu] I am the request manager\n", _instanceId);
+      _requestManagerRole = std::make_shared<roles::RequestManager>(_deployment, _taskr);
+
+      // Storing role
+      _instanceRoles.push_back(_requestManagerRole);
+    }
+
+    // Sanity check
+    if (_instanceRoles.empty()) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it.", _instanceId);
+
+    ////////// Exchange memory slots now
+   
     // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
     // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
     // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
     std::vector<edge::memorySlotExchangeInfo_t> memorySlotsToExchange;
 
-    // If I am a partition coordinator, construct the coordinator object
-    if (isPartitionCoordinator == true)
-    {
-      printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, myPartitionIndex);
-      _partitionCoordinatorRole = std::make_unique<roles::partition::Coordinator>(_deployment, myPartitionIndex, _taskr);
+    // Getting memory slots to exchange
+    for (const auto& role : _instanceRoles) role->getMemorySlotsToExchange(memorySlotsToExchange);
 
-      // Get memory slots to exchange for the partition coordinator
-      printf("Registering Partition Coordinator Memory Slots...\n");
-      _partitionCoordinatorRole->getMemorySlotsToExchange(memorySlotsToExchange);
-    }
-
-    // If I am a replica, construct the replica object:
-    // Note: An instance can be simultaneously a partition coordinator and a replica
-    if (isPartitionReplica == true)
-    {
-      printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, myPartitionIndex, myReplicaIndex);
-      _partitionReplicaRole = std::make_unique<roles::partition::Replica>(_deployment, myPartitionIndex, myReplicaIndex, _taskr, _registeredFunctions);
-
-      // Get memory slots to exchange for the replica
-      printf("Registering Partition Replica Memory Slots...\n");
-      _partitionReplicaRole->getMemorySlotsToExchange(memorySlotsToExchange);
-    }
-
-    // If I am a Request Manager, construct the role now
-    if (isRequestManager == true)
-    {
-      printf("[Instance %lu] I am the request manager\n", _instanceId);
-      _requestManagerRole = std::make_unique<roles::RequestManager>(_deployment, _taskr);
-
-      // Get memory slots to exchange for the replica
-      printf("Registering Request Manager Memory Slots...\n");
-      _requestManagerRole->getMemorySlotsToExchange(memorySlotsToExchange);
-    }
-
-    // Sanity check
-    if (isPartitionCoordinator == false &&
-       isPartitionReplica == false &&
-       isRequestManager == false) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it. This must be a bug in hLLM", _instanceId);
-
-    ////////// Exchange memory slots now
     // printf("[Instance %lu] Memory Slots to exchange: %lu\n", _instanceId, memorySlotsToExchange.size());
 
     // Finding all distinct communication managers and storing them in the order in which they were declared.
@@ -403,20 +388,13 @@ class Engine final
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
 
     // After the exchange, we can now initialize the edges
-    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initializeEdges(_exchangeTag);
-    if (isPartitionReplica == true) _partitionReplicaRole->initializeEdges(_exchangeTag);
-    if (isRequestManager == true) _requestManagerRole->initializeEdges(_exchangeTag);
-
-    // Starting a new deployment
-    _continueRunning = true;
+    for (const auto& role : _instanceRoles) role->initializeEdges(_exchangeTag);
 
     // Initializing TaskR
     _taskr->initialize();
 
-    // Initializing coordinator and replica roles, whichever applies (or both), so that they add their initial functions to taskR
-    if (isPartitionCoordinator == true) _partitionCoordinatorRole->initialize();
-    if (isPartitionReplica == true) _partitionReplicaRole->initialize();
-    if (isRequestManager == true) _requestManagerRole->initialize();
+    // Initializing roles
+    for (const auto& role : _instanceRoles) role->initialize();
 
     // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
@@ -426,6 +404,9 @@ class Engine final
 
     // Set TaskR not to finish on the last task
     _taskr->setFinishOnLastTask(false);
+
+    // Starting a new deployment
+    _continueRunning = true;
 
     // Running TaskR
     _taskr->run();
@@ -447,14 +428,11 @@ class Engine final
       _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
 
-  // Pointer to the instance's partition coordinator role, if defined
-  std::unique_ptr<roles::partition::Coordinator> _partitionCoordinatorRole = nullptr;
-
-  // Pointer to the instance's partition replica role, if defined
-  std::unique_ptr<roles::partition::Replica> _partitionReplicaRole = nullptr;
+  // Pointer to the instance's roles assigned to this instance
+  std::vector<std::shared_ptr<Role>> _instanceRoles;
 
   // Pointer to the instance's request manager role, if defined
-  std::unique_ptr<roles::RequestManager> _requestManagerRole = nullptr;
+  std::shared_ptr<roles::RequestManager> _requestManagerRole = nullptr;
 
   // A system-wide flag indicating that we should continue executing
   bool _continueRunning;

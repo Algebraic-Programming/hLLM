@@ -65,11 +65,12 @@ class Role
     _continueRunning = true;
   }
 
-  protected: 
-
   /// This function completes the initialization of the edges, after the memory slot exchanges are completed
   virtual void initializeEdges(const HiCR::GlobalMemorySlot::tag_t tag) = 0;
   virtual void getMemorySlotsToExchange(std::vector<hLLM::edge::memorySlotExchangeInfo_t>& memorySlots) = 0;
+
+  protected: 
+
   virtual void initializeImpl() = 0;
 
   const configuration::Deployment _deployment;
