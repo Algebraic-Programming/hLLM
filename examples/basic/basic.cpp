@@ -210,5 +210,5 @@ int main(int argc, char *argv[])
   if (isRoot) for (auto& thread : promptThreads) thread->join();
 
   // Finalize Instance Manager
-  // instanceManager->finalize();
+  instanceManager->finalize();
 }
