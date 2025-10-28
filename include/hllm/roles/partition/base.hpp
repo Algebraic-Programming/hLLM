@@ -44,7 +44,11 @@ class Base : public hLLM::Role
       [[nodiscard]] __INLINE__ const auto& getEdgeInfo() const { return _edgeInfo; }
       [[nodiscard]] __INLINE__ const bool isSatisfied() const { return _isSatisfied; }
 
-      __INLINE__ void setSatisfied(const bool value = true)  { _isSatisfied = value; }
+      __INLINE__ void setSatisfied(const bool value = true)
+      {
+        if (value == _isSatisfied) HICR_THROW_RUNTIME("The specified edge has already been set as '%s' for edge '%s'. This is a bug in hLLM.", value ? "True" : "False", _edgeInfo.config->getName().c_str());
+         _isSatisfied = value;
+      }
       __INLINE__ void setDataSlot(const std::shared_ptr<HiCR::LocalMemorySlot> dataSlot) { _dataSlot = dataSlot; }
 
       __INLINE__ void freeDataSlot()
@@ -156,6 +160,7 @@ class Base : public hLLM::Role
 
     // Iterating through edges by their index and creating them
     size_t inputEdgeVectorPosition = 0;
+    size_t outputEdgeVectorPosition = 0;
     for (configuration::Edge::edgeIndex_t edgeIdx = 0; edgeIdx < edgeConfigs.size(); edgeIdx++)
     {
       // Getting edge object by index
@@ -196,7 +201,6 @@ class Base : public hLLM::Role
       } 
 
       // If I am a producer in this edge
-      size_t outputEdgeVectorPosition = 0;
       if (edgeConfig->getProducer() == partitionName  && edgeConfig->isPromptEdge() == false)
       {
         // Looking for the index of the consumer of the input

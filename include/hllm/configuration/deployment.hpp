@@ -191,6 +191,28 @@ class Deployment final
     std::shared_ptr<hLLM::configuration::Partition> userInterfaceInputPartition = nullptr;
     std::shared_ptr<hLLM::configuration::Partition> userInterfaceOutputPartition = nullptr;
 
+    // Now checking all dependencies belong in the same partition
+    std::set<std::string> tasksWithDependencies;
+    for (const auto& partition : _partitions)
+    {
+      // Creating set of task names of this partition
+      std::set<std::string> _taskNames;
+      for (const auto& task : partition->getTasks()) _taskNames.insert(task->getFunctionName());
+
+      for (const auto& task : partition->getTasks())
+        for (const auto& dependency : task->getDependencies())
+        {
+          // Check the task doesn't depend on itself
+          if (dependency == task->getFunctionName()) HICR_THROW_LOGIC("Task %s has a dependency on itself\n", task->getFunctionName().c_str());
+
+          // Check the dependency has a task that is referenced by this dependency
+          if (_taskNames.contains(dependency) == false) HICR_THROW_LOGIC("Task %s has a dependency on '%s' which is not defined in this partition\n", task->getFunctionName().c_str(), dependency.c_str());
+
+          // Adding dependency to tasks with dependencies
+          tasksWithDependencies.insert(dependency);
+        }
+    }
+
     // First, the user interface input/outputs are counted as edges for the purposes of this check
     for (const auto& edge : _edges)
     {
@@ -206,7 +228,7 @@ class Deployment final
       for (const auto& task : partition->getTasks())
       {
         // Make sure all tasks have at least one input
-        if (task->getInputs().size() == 0) HICR_THROW_LOGIC("Deployment specifies task in partition '%s' with function name '%s' without any inputs\n", partition->getName().c_str(), task->getFunctionName().c_str());
+        if (task->getInputs().size() == 0 && task->getDependencies().empty() == true) HICR_THROW_LOGIC("Deployment specifies task in partition '%s' with function name '%s' without any inputs or dependencies\n", partition->getName().c_str(), task->getFunctionName().c_str());
 
         // Check that the edge is not used as input more than once. All edges must be 1-to-1
         for (const auto& input : task->getInputs())
@@ -223,7 +245,7 @@ class Deployment final
         } 
 
         // Make sure all tasks have at least one output
-        if (task->getOutputs().size() == 0) HICR_THROW_LOGIC("Deployment specifies task in partition '%'' with function name '%s' without any outputs\n", partition->getName().c_str(), task->getFunctionName().c_str());
+        if (task->getOutputs().size() == 0 && tasksWithDependencies.contains(task->getFunctionName()) == false) HICR_THROW_LOGIC("Deployment specifies task in partition '%'' with function name '%s' without any outputs or dependents\n", partition->getName().c_str(), task->getFunctionName().c_str());
 
         // Check that the output is not used as input more than once. All edges must be 1-to-1
         for (const auto& output : task->getOutputs())

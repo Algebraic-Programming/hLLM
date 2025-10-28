@@ -3,9 +3,10 @@
 #include <fstream>
 #include <random>
 #include <hicr/backends/hwloc/memoryManager.hpp>
+#include <hicr/backends/mpi/memoryManager.hpp>
 #include <hicr/backends/hwloc/topologyManager.hpp>
-#include <hicr/backends/pthreads/instanceManager.hpp>
-#include <hicr/backends/pthreads/communicationManager.hpp>
+#include <hicr/backends/mpi/instanceManager.hpp>
+#include <hicr/backends/mpi/communicationManager.hpp>
 #include <hicr/backends/pthreads/computeManager.hpp>
 #include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
@@ -13,7 +14,7 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 
-#define _REPLICAS_PER_PARTITION 4
+#define _REPLICAS_PER_PARTITION 1
 #define _PROMPT_THREAD_COUNT 16
 #define _REQUESTS_PER_THREAD_COUNT 32
 
@@ -50,11 +51,11 @@ int main(int argc, char *argv[])
   HiCR::backend::pthreads::Core core(1);
 
   // Getting managers
-  auto instanceManager              = std::make_shared<HiCR::backend::pthreads::InstanceManager>(core);
-  auto communicationManager         = std::make_shared<HiCR::backend::pthreads::CommunicationManager>(core);
+  auto instanceManager              = HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv);
+  auto communicationManager         = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
+  auto memoryManager                = std::make_shared<HiCR::backend::mpi::MemoryManager>();
   auto workerComputeManager         = std::make_shared<HiCR::backend::pthreads::ComputeManager>();
   auto taskComputeManager           = std::make_shared<HiCR::backend::boost::ComputeManager>();
-  auto memoryManager                = std::make_shared<HiCR::backend::hwloc::MemoryManager>(&hwlocTopologyObject);
 
   // Creating taskr object
   nlohmann::json taskrConfig;
@@ -100,21 +101,23 @@ int main(int argc, char *argv[])
     deployment.deserialize(hllmConfigJs);
 
     // Calculating the number of instances required (1 per partition that runs the coorinator and a replica)
-    const auto instancesRequired = deployment.getPartitions().size();
+    const auto instancesRequired = 1;
 
-    // Checking I have the correct number of instances (one per replica)
+    // Checking I have the correct number of instances (only one)
     if (instanceManager->getInstances().size() != instancesRequired)
     {
-      fprintf(stderr, "Error: %lu instances provided, but %lu are required\n", instanceManager->getInstances().size(), instancesRequired);
+      fprintf(stderr, "Error: %lu instances provided, but %d are required\n", instanceManager->getInstances().size(), instancesRequired);
       instanceManager->abort(-1);
     }
 
+    // Assigning this example to run in a single instance
+    auto instance = *instanceManager->getInstances().begin();
+
     // Assigning instance ids to the partitions
-    auto instanceItr = instanceManager->getInstances().begin();
     for (auto p : deployment.getPartitions()) 
     {
       // Getting instance Id that will run this partition (only one)
-      const auto partitionInstanceId = instanceItr.operator*()->getId();
+      const auto partitionInstanceId = instance->getId();
 
       // Setting this partition to be executed by the same instance than replica zero
       p->setCoordinatorInstanceId(partitionInstanceId);
@@ -125,9 +128,6 @@ int main(int argc, char *argv[])
         const auto replica = std::make_shared<hLLM::configuration::Replica>(partitionInstanceId);
         p->addReplica(replica);
       }
-
-      // Advancing to the next instance
-      instanceItr++;
     }
     
     // printf("%s\n", deployment.serialize().dump(2).c_str());
@@ -154,29 +154,99 @@ int main(int argc, char *argv[])
   hllm.getDeployment().getControlBuffer().memoryManager = memoryManager.get();
   hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
+  // Declaring outputs (outside the functions for them to persist)
+  float cathetusAoutput;
+  float cathetusBoutput;
+  float cathetusASquaredOutput;
+  float cathetusBSquaredOutput;
+  float cathetusSquaredSummedOutput;
+  float hypotenuseOutput;
+
   // Declaring the hLLM tasks for the application
-  thread_local std::string responseOutput;
   hllm.registerFunction("Listen Request", [&](hLLM::Task *task) 
   {
-    // Getting input
-    const auto &requestMemSlot = task->getInput("Prompt");
+    // Getting raw request
+    const auto &requestMemSlot = task->getInput("Catheti");
     const auto request = std::string((const char *)requestMemSlot->getPointer());
 
-    // Create output
-    responseOutput             = request + std::string(" [Processed]");
-    const auto responseMemSlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, responseOutput.data(), responseOutput.size() + 1);
+    // Getting catheti values
+    sscanf(request.c_str(), "%f %f", &cathetusAoutput, &cathetusBoutput);
+
+    // Sending outputs
+    auto cathetusAMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusAoutput, sizeof(float));
+    auto cathetusBMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusBoutput, sizeof(float));
+    task->setOutput("Cathetus A", cathetusAMemorySlot);
+    task->setOutput("Cathetus B", cathetusBMemorySlot);
+  });
+
+  hllm.registerFunction("Square Cathetus A", [&](hLLM::Task *task) 
+  {
+    // Getting input
+    const auto &cathetusMemSlot = task->getInput("Cathetus A");
+    const float* cathetusA = (float *)cathetusMemSlot->getPointer();
+
+    // Squaring cathetus
+    cathetusASquaredOutput = (*cathetusA) * (*cathetusA);
+
+    // Sending output
+    auto cathetusASquaredMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusASquaredOutput, sizeof(float));
+    task->setOutput("Cathetus A Squared", cathetusASquaredMemorySlot);
+  });
+
+  hllm.registerFunction("Square Cathetus B", [&](hLLM::Task *task) 
+  {
+    // Getting input
+    const auto &cathetusMemSlot = task->getInput("Cathetus B");
+    const float* cathetusB = (float *)cathetusMemSlot->getPointer();
+
+    // Squaring cathetus
+    cathetusBSquaredOutput = (*cathetusB) * (*cathetusB);
+
+    // Sending output
+    auto cathetusBSquaredMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusBSquaredOutput, sizeof(float));
+    task->setOutput("Cathetus B Squared", cathetusBSquaredMemorySlot);
+  });
+
+  hllm.registerFunction("Sum Catheti Squares", [&](hLLM::Task *task) 
+  {
+    // Getting inputs
+    const auto &cathetusASquaredMemSlot = task->getInput("Cathetus A Squared");
+    const float* cathetusAsquared = (float *)cathetusASquaredMemSlot->getPointer();
+    const auto &cathetusBSquaredMemSlot = task->getInput("Cathetus B Squared");
+    const float* cathetusBsquared = (float *)cathetusBSquaredMemSlot->getPointer();
+
+    // Squaring cathetus
+    cathetusSquaredSummedOutput = (*cathetusAsquared) + (*cathetusBsquared);
+  });
+
+  hllm.registerFunction("Square Root Sum", [&](hLLM::Task *task) 
+  {
+    // Squaring cathetus
+    hypotenuseOutput = sqrt(cathetusSquaredSummedOutput);
 
     // printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
-    task->setOutput("Response", responseMemSlot);
+    auto hypotenuseMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &hypotenuseOutput, sizeof(float));
+    task->setOutput("Hypotenuse", hypotenuseMemorySlot);
   });
 
   // If I am the root, create a session to send prompt inputs
   std::vector<std::unique_ptr<std::thread>> promptThreads;
-  std::default_random_engine promptTimeRandomEngine;
-  std::uniform_real_distribution<double> promptTimeRandomDistribution(0.0, 1.0); 
-  std::atomic<size_t> finishedPromptThreads = 0;
   if (isRoot)
   {
+    // RNG for wait time between prompts
+    std::default_random_engine promptTimeRandomEngine;
+    std::uniform_real_distribution<float> promptTimeRandomDistribution(0.0, 1.0); 
+
+    // RNG for catheti values
+    std::default_random_engine cathetiRandomEngine;
+    std::uniform_real_distribution<float> cathetiRandomDistribution(0.1, 10.0); 
+
+    // Counter for the finished threads
+    std::atomic<size_t> finishedPromptThreads = 0;
+
+    // Error tolerance
+    const auto tolerance = 0.0001;
+
     for (size_t i = 0; i < _PROMPT_THREAD_COUNT; i++)
       promptThreads.push_back(std::make_unique<std::thread>([&, i]()
       {
@@ -185,17 +255,41 @@ int main(int argc, char *argv[])
         
         // Now create session
         auto session = hllm.createSession();
-        printf("Created Session: %lu\n", session->getSessionId());
+        printf("[User %04lu] Created Session: %lu\n", i, session->getSessionId());
 
-        // Send a test message
+        // Producing prompt, and receiving a response
         for (size_t promptCount = 0; promptCount < _REQUESTS_PER_THREAD_COUNT; promptCount++)
         {
-          const auto prompt = session->createPrompt(std::string("Hello, World! ") + std::to_string(promptCount));
+          // Getting catheti values
+          float cathetusA = cathetiRandomDistribution(cathetiRandomEngine);
+          float cathetusB = cathetiRandomDistribution(cathetiRandomEngine);
+
+          // Creating prompt with the catheti values
+          const auto prompt = session->createPrompt(std::to_string(cathetusA) + std::string(" ") + std::to_string(cathetusB));
+
+          // Pushing propmpt to the service
           session->pushPrompt(prompt);
+
+          // Getting prompt id
           const auto promptId = prompt->getPromptId();
           // printf("[User] Sent prompt (%lu/%lu): '%s'\n", promptId.first, promptId.second,  prompt->getPrompt().c_str());
+
+          // Wait until the prompt receives a response
           while(prompt->hasResponse() == false);
-          printf("[User %04lu] Got response: '%s' for prompt %lu/%lu: '%s'\n", i, prompt->getResponse().c_str(), promptId.first, promptId.second, prompt->getPrompt().c_str());
+
+          // Getting response
+          const float response = *(float*)prompt->getResponse().data();
+
+          // Calculating
+          const float error = std::abs(sqrtf(cathetusA * cathetusA + cathetusB * cathetusB) - response);
+
+          // Printing response
+          printf("[User %04lu] Got response: %f for prompt %lu/%lu: '%s'. |Error|: %f (< tolerance: %f)\n", i, response, promptId.first, promptId.second, prompt->getPrompt().c_str(), error, tolerance);
+
+          // Verifying result
+          if (error > tolerance) { fprintf(stderr, "Response error is higher than tolerance, aborting...\n"); exit(-1); }
+
+          // Waiting a random amount of time before sending the next prompt
           usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
 

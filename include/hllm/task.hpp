@@ -5,6 +5,8 @@
 #include <hicr/core/definitions.hpp>
 #include <taskr/taskr.hpp>
 #include "configuration/task.hpp"
+#include "configuration/replica.hpp"
+#include "configuration/partition.hpp"
 
 namespace hLLM
 {
@@ -66,11 +68,16 @@ class Task final
     _outputs[outputName] = memorySlot;
   }
 
+  [[nodiscard]] __INLINE__ configuration::Partition::partitionIndex_t getPartitionIdx() const { return _partitionIdx; }
+  [[nodiscard]] __INLINE__ configuration::Replica::replicaIndex_t getReplicaIdx() const { return _replicaIdx; }
+
   private:
 
   __INLINE__ taskFunction_t getFunction() const { return _function; }
   __INLINE__ const hLLM::configuration::Task& getConfig() const { return _taskConfig; }
   __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
+  __INLINE__ void setPartitionIdx(const configuration::Partition::partitionIndex_t partitionIdx) { _partitionIdx = partitionIdx; }
+  __INLINE__ void setReplicaIdx(const configuration::Replica::replicaIndex_t replicaIdx) { _replicaIdx = replicaIdx; }
 
   __INLINE__ bool isReady() const
   {
@@ -115,6 +122,9 @@ class Task final
 
   std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputs;
   std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _outputs;
+
+  configuration::Partition::partitionIndex_t _partitionIdx;
+  configuration::Replica::replicaIndex_t _replicaIdx;
 
 }; // class Task
 

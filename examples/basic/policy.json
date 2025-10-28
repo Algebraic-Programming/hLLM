@@ -16,8 +16,8 @@
     },
     "User Interface":
     {
-      "Input": "Prompt",
-      "Output": "Response"
+      "Input": "Catheti",
+      "Output": "Hypotenuse"
     }
   },
   "Partitions": [
@@ -27,10 +27,69 @@
         {
           "Function Name": "Listen Request",
           "Inputs": [
-            "Prompt"
+            "Catheti"
           ],
           "Outputs": [
-            "Response"
+            "Cathetus A",
+            "Cathetus B"
+          ],
+          "Dependencies": []
+        }
+      ]
+    },
+    {
+      "Name": "Cathetus A Partition",
+      "Tasks": [
+        {
+          "Function Name": "Square Cathetus A",
+          "Inputs": [
+            "Cathetus A"
+          ],
+          "Outputs": [
+            "Cathetus A Squared"
+          ],
+          "Dependencies": []
+        }
+      ]
+    },
+    {
+      "Name": "Cathetus B Partition",
+      "Tasks": [
+        {
+          "Function Name": "Square Cathetus B",
+          "Inputs": [
+            "Cathetus B"
+          ],
+          "Outputs": [
+            "Cathetus B Squared"
+          ],
+          "Dependencies": []
+        }
+      ]
+    },
+    {
+      "Name": "Hypotenuse Partition",
+      "Tasks": [
+        {
+          "Function Name": "Sum Catheti Squares",
+          "Inputs": [
+            "Cathetus A Squared",
+            "Cathetus B Squared"
+          ],
+          "Outputs": [
+          ],
+          "Dependencies": []
+        },
+        {
+          "Function Name": "Square Root Sum",
+          "Inputs": [
+          ],
+          "Outputs": [
+            "Hypotenuse"
+          ],
+          "Dependencies":
+          [
+            "Sum Catheti Squares"
           ]
         }
       ]
@@ -38,12 +97,28 @@
   ],
   "Edges": [
     {
-      "Name": "Prompt",
+      "Name": "Catheti",
       "Buffer Size": 4096
     },
     {
-      "Name": "Response",
-      "Buffer Size": 16384
+      "Name": "Cathetus A",
+      "Buffer Size": 4096
+    },
+    {
+      "Name": "Cathetus B",
+      "Buffer Size": 4096
+    },
+    {
+      "Name": "Cathetus A Squared",
+      "Buffer Size": 4096
+    },
+    {
+      "Name": "Cathetus B Squared",
+      "Buffer Size": 4096
+    },
+    {
+      "Name": "Hypotenuse",
+      "Buffer Size": 4096
     }
   ]
 }

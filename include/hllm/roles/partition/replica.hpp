@@ -88,9 +88,22 @@ class Replica final : public Base
     // Calculating, for each of this partition's tasks, what are the edge indexes that correspond to their outputs
     for (const auto& task : tasks)
       for (const auto& taskOutput : task->getOutputs())
-        for (size_t edgePos = 0; edgePos < _inputEdges.size(); edgePos++)
+      {
+        bool foundEdge = false;
+        printf("Looking for task output: %s\n", taskOutput.c_str());
+
+        // Finding the edge corresponding to this task output
+        for (size_t edgePos = 0; edgePos < _outputEdges.size(); edgePos++)
           if (taskOutput == _outputEdges[edgePos].config->getName())
-            { _taskOutputEdgePositions[taskOutput] = edgePos; break; }
+            {
+              _taskOutputEdgePositions[taskOutput] = edgePos;
+              foundEdge = true;
+              break;
+            }
+
+        // Sanity check    
+        if (foundEdge == false) HICR_THROW_RUNTIME("[Replica %lu / %lu] Could not find the edge for output: %s. This must be a bug in hLLM", _partitionIdx, _replicaIdx, taskOutput.c_str());
+      }
   }
 
   ~Replica() = default;
@@ -121,6 +134,10 @@ class Replica final : public Base
     const auto &taskConfig = task->getConfig();
     const auto &function   = task->getFunction();
 
+    // Setting tasks's partition and replica idxs
+    task->setPartitionIdx(_partitionIdx);
+    task->setReplicaIdx(_replicaIdx);
+
     // Actually run the function now
     function(task.get());
 
@@ -134,9 +151,11 @@ class Replica final : public Base
     for (const auto& output : taskConfig.getOutputs())
     {
       // Getting edge position corresponding to the task output
-      const auto outputEdgePos = _taskOutputEdgePositions[output];
+      if (_taskOutputEdgePositions.contains(output) == false) HICR_THROW_RUNTIME("[Replica %lu / %lu] Could not find output: %s's position...", _partitionIdx, _replicaIdx, output.c_str());
+      const auto outputEdgePos = _taskOutputEdgePositions.at(output);
 
       // Getting corresponding output edge
+      // printf("[Replica %lu / %lu] Pushing Output: %s (Pos: %lu)...\n", _partitionIdx, _replicaIdx, output.c_str(), outputEdgePos);
       auto& outputEdge = _activeJob->getOutputEdges()[outputEdgePos];
 
       // Getting output from task
@@ -177,13 +196,20 @@ class Replica final : public Base
     _jobManagementMutex.unlock();
 
     // Now sending messages to the coordinator (outside the mutex to prevent communication exclusion)
-    for (const auto& message : messagesForCoordinator) _coordinatorDataOutputs[message.first]->pushMessage(message.second->encode());
+    for (const auto& message : messagesForCoordinator)
+    {
+     // Wait until there is enough space in the output buffer before sending
+     while(_coordinatorDataOutputs[message.first]->isFull(message.second->getSize()) == true);
+
+     // Now pushing message
+     _coordinatorDataOutputs[message.first]->pushMessage(message.second->encode());
+    }
   }
 
   /// This function initializes the workload of the partition replica role
   __INLINE__ void initializeImpl() override
   {
-    printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
+    // printf("[Replica %lu / %lu] Initializing...\n", _partitionIdx, _replicaIdx);
 
     // Indicate we have no current active job being processed
     _activeJob = nullptr;
@@ -301,11 +327,32 @@ class Replica final : public Base
       // Adding task to the functionName->Task map
       _taskFunctionNameMap.insert({taskFunctionName, newTask});
 
-      // Adding task dependencies
+      // Adding task input dependencies
       newTask->getTaskRTask()->addPendingOperation(taskInputsCheck);
+    }
 
-      // Adding task to TaskR itself
-      _taskr->addTask(newTask->getTaskRTask());
+    // Adding task <-> task dependencies
+    for (const auto &task : tasks) 
+    {
+      const auto& dependentTaskName = task->getFunctionName();
+      const auto& dependentTask = _taskFunctionNameMap[dependentTaskName];
+      const auto& dependentTaskRTask = dependentTask->getTaskRTask();
+
+      for (const auto& dependedTaskName : task->getDependencies())
+      {
+        const auto& dependedTask = _taskFunctionNameMap[dependedTaskName];
+        const auto& dependedTaskRTask = dependedTask->getTaskRTask();
+        dependentTaskRTask->addDependency(dependedTaskRTask);
+      } 
+    }
+
+    // Adding tasks to TaskR itself
+    for (const auto &task : tasks) 
+    {
+      const auto& taskName = task->getFunctionName();
+      const auto& taskObject = _taskFunctionNameMap[taskName];
+      const auto& taskRTask = taskObject->getTaskRTask();
+      _taskr->addTask(taskRTask);
     }
   }
 

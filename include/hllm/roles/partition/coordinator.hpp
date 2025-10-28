@@ -159,7 +159,7 @@ class Coordinator final : public Base
       // Create the input edges to pass this information to the receiving partition
       _partitionDataInputs.push_back(std::make_shared<edge::Input>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-      if (edgeConfig->isPromptEdge()) printf("[Coordinator] Prompt Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      // if (edgeConfig->isPromptEdge()) printf("[Coordinator] Prompt Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
 
     // Iterating through output edges to create a connection with replicas and peer coordinators on that output
@@ -177,7 +177,7 @@ class Coordinator final : public Base
       // Create the output edge to pass this information to the receiving partition
       _partitionDataOutputs.push_back(std::make_shared<edge::Output>(*edgeConfig, edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex));
 
-      if (edgeConfig->isResultEdge()) printf("[Coordinator] Result Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
+      // if (edgeConfig->isResultEdge()) printf("[Coordinator] Result Output Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edgeType, edgeIdx, producerPartitionIdx, consumerPartitionIdx, edge::Base::coordinatorReplicaIndex);
     } 
   }
 
@@ -209,7 +209,7 @@ class Coordinator final : public Base
     const auto& partitionName = partitionConfiguration->getName();
 
     // Welcome message
-    printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
+    // printf("Initializing Partition Coordinator Index %lu - Name: %s - %lu Consumer / %lu Producer edges...\n", _partitionIdx, partitionName.c_str(), _partitionDataInputs.size(), _partitionDataOutputs.size());
 
     // Subscribing to the heartbeat sending service for my replicas
     for (const auto& replica : _replicaMap) subscribeHeartbeatEdge(replica.second->getControlOutput());
@@ -280,10 +280,10 @@ class Coordinator final : public Base
     // Getting the input that is satisfied by this message
     auto& input = job->getInputEdges()[edgePos];
 
-    // // Making a copy of the data into the edge buffer -- we don't do it by referece because we want to free up the input channels immediately to avoid deadlocks
+    // Making a copy of the data into the edge buffer -- we don't do it by referece because we want to free up the input channels immediately to avoid deadlocks
     input.storeDataByCopy(data, size);
 
-    // // Setting edge as satisfied
+    // Setting edge as satisfied
     input.setSatisfied();
   }
 
@@ -313,6 +313,7 @@ class Coordinator final : public Base
 
     // Send message only when the peer is ready
     while (peerOutput->isFull(size)); 
+    // printf("[Coordinator %lu] Pushing output data for prompt %lu/%lu, edge '%s' (index: %lu, pos: %lu) to Coordinator %lu.\n", _partitionIdx, promptId.first, promptId.second, peerOutput->getEdgeConfig().getName().c_str(), edgeIdx, edgePos, peerOutput->getConsumerPartitionIndex());
     peerOutput->pushMessage(forwardMessage.encode());
 
     // Getting the input that is satisfied by this message
@@ -325,19 +326,24 @@ class Coordinator final : public Base
     bool isJobFinished = true; 
     for (const auto& output : job->getOutputEdges()) if (output.isSatisfied() == false) { isJobFinished = false; break; };
 
-    // If it's finished, take statistics and remove the job from memory
+    // If it's finished, do the following
     if (isJobFinished)
     {
+      // printf("[Coordinator %lu] Job finished from replica %lu for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
+
+      // Take statistics
+
+      // Remove job from the queue
       _jobMapMutex.lock();
       _jobMap.erase(promptId);
       _jobMapMutex.unlock();
-    }
 
-    // Re-adding replica to the queue of ready replicas
-    const auto replica = _replicaMap[replicaIdx];
-    _replicaQueueMutex.lock();
-    _replicaQueue.push(replica);
-    _replicaQueueMutex.unlock();
+      // Re-adding replica to the queue of ready replicas
+      const auto replica = _replicaMap[replicaIdx];
+      _replicaQueueMutex.lock();
+      _replicaQueue.push(replica);
+      _replicaQueueMutex.unlock();
+    }
   }
 
   /////////// Job management Service
