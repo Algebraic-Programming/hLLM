@@ -14,7 +14,7 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 
-#define _REPLICAS_PER_PARTITION 1
+#define _REPLICAS_PER_PARTITION 4
 #define _PROMPT_THREAD_COUNT 16
 #define _REQUESTS_PER_THREAD_COUNT 32
 
@@ -154,13 +154,9 @@ int main(int argc, char *argv[])
   hllm.getDeployment().getControlBuffer().memoryManager = memoryManager.get();
   hllm.getDeployment().getControlBuffer().memorySpace = bufferMemorySpace;
 
-  // Declaring outputs (outside the functions for them to persist)
-  float cathetusAoutput;
-  float cathetusBoutput;
-  float cathetusASquaredOutput;
-  float cathetusBSquaredOutput;
-  float cathetusSquaredSummedOutput;
-  float hypotenuseOutput;
+  // Declaring local value outside the functions for them to persist, but particular to each replica
+  std::vector<float> cathetusSquaredSummedOutput;
+  cathetusSquaredSummedOutput.resize(_REPLICAS_PER_PARTITION);
 
   // Declaring the hLLM tasks for the application
   hllm.registerFunction("Listen Request", [&](hLLM::Task *task) 
@@ -170,6 +166,8 @@ int main(int argc, char *argv[])
     const auto request = std::string((const char *)requestMemSlot->getPointer());
 
     // Getting catheti values
+    float cathetusAoutput;
+    float cathetusBoutput;
     sscanf(request.c_str(), "%f %f", &cathetusAoutput, &cathetusBoutput);
 
     // Sending outputs
@@ -177,6 +175,8 @@ int main(int argc, char *argv[])
     auto cathetusBMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusBoutput, sizeof(float));
     task->setOutput("Cathetus A", cathetusAMemorySlot);
     task->setOutput("Cathetus B", cathetusBMemorySlot);
+    memoryManager->deregisterLocalMemorySlot(cathetusAMemorySlot);
+    memoryManager->deregisterLocalMemorySlot(cathetusBMemorySlot);
   });
 
   hllm.registerFunction("Square Cathetus A", [&](hLLM::Task *task) 
@@ -186,11 +186,12 @@ int main(int argc, char *argv[])
     const float* cathetusA = (float *)cathetusMemSlot->getPointer();
 
     // Squaring cathetus
-    cathetusASquaredOutput = (*cathetusA) * (*cathetusA);
+    float cathetusASquaredOutput = (*cathetusA) * (*cathetusA);
 
     // Sending output
     auto cathetusASquaredMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusASquaredOutput, sizeof(float));
     task->setOutput("Cathetus A Squared", cathetusASquaredMemorySlot);
+    memoryManager->deregisterLocalMemorySlot(cathetusASquaredMemorySlot);
   });
 
   hllm.registerFunction("Square Cathetus B", [&](hLLM::Task *task) 
@@ -200,11 +201,12 @@ int main(int argc, char *argv[])
     const float* cathetusB = (float *)cathetusMemSlot->getPointer();
 
     // Squaring cathetus
-    cathetusBSquaredOutput = (*cathetusB) * (*cathetusB);
+    float cathetusBSquaredOutput = (*cathetusB) * (*cathetusB);
 
     // Sending output
     auto cathetusBSquaredMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &cathetusBSquaredOutput, sizeof(float));
     task->setOutput("Cathetus B Squared", cathetusBSquaredMemorySlot);
+    memoryManager->deregisterLocalMemorySlot(cathetusBSquaredMemorySlot);
   });
 
   hllm.registerFunction("Sum Catheti Squares", [&](hLLM::Task *task) 
@@ -215,18 +217,25 @@ int main(int argc, char *argv[])
     const auto &cathetusBSquaredMemSlot = task->getInput("Cathetus B Squared");
     const float* cathetusBsquared = (float *)cathetusBSquaredMemSlot->getPointer();
 
+    // Getting my replica id
+    const auto replicaId = task->getReplicaIdx();
+
     // Squaring cathetus
-    cathetusSquaredSummedOutput = (*cathetusAsquared) + (*cathetusBsquared);
+    cathetusSquaredSummedOutput[replicaId] = (*cathetusAsquared) + (*cathetusBsquared);
   });
 
   hllm.registerFunction("Square Root Sum", [&](hLLM::Task *task) 
   {
+    // Getting my replica id
+    const auto replicaId = task->getReplicaIdx();
+
     // Squaring cathetus
-    hypotenuseOutput = sqrt(cathetusSquaredSummedOutput);
+    float hypotenuseOutput = sqrt(cathetusSquaredSummedOutput[replicaId]);
 
     // printf("[Basic Example] Returning response: '%s'\n", responseOutput.c_str());
     auto hypotenuseMemorySlot = memoryManager->registerLocalMemorySlot(bufferMemorySpace, &hypotenuseOutput, sizeof(float));
     task->setOutput("Hypotenuse", hypotenuseMemorySlot);
+    memoryManager->deregisterLocalMemorySlot(hypotenuseMemorySlot);
   });
 
   // If I am the root, create a session to send prompt inputs
