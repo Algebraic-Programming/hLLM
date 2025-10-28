@@ -2,6 +2,8 @@
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
+#include <hicr/core/instanceManager.hpp>
+#include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <taskr/taskr.hpp>
 #include "configuration/deployment.hpp"
 #include "roles/partition/coordinator.hpp"
