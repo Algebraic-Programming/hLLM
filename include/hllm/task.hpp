@@ -71,10 +71,10 @@ class Task final
     const auto message = messages::Data((const uint8_t*)memorySlot->getPointer(), memorySlot->getSize(), _promptId);
 
     // Wait until there is enough space in the output buffer before sending
+    outputEdge->lock();
     while(outputEdge->isFull(message.getSize()) == true);
-
-    // Now pushing message
     outputEdge->pushMessage(message.encode());
+    outputEdge->unlock();
 
     // Set output as sent
     _outputsSent.insert(outputName);

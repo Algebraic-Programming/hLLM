@@ -12,6 +12,7 @@
 #include "../../messages/heartbeat.hpp"
 #include "../../messages/data.hpp"
 #include "../../messages/prompt.hpp"
+#include "../../messages/replicaReady.hpp"
 #include "../../prompt.hpp"
 #include "base.hpp"
 
@@ -214,11 +215,17 @@ class Coordinator final : public Base
     // Subscribing to the heartbeat sending service for my replicas
     for (const auto& replica : _replicaMap) subscribeHeartbeatEdge(replica.second->getControlOutput());
 
-    // Subscribing control edges to the message service for my replicas
+    // Subscribing control edges to the message service for my replicas's heartbeat messages
     for (const auto& replica : _replicaMap)
         subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::heartbeat,
         replica.second->getControlInput(),
         [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ heartbeatMessageHandler(edge, std::make_shared<hLLM::messages::Heartbeat>(message)); } });
+
+    // Subscribing control edges to the message service for my replicas's ready message
+    for (const auto& replica : _replicaMap)
+        subscribeEdgeMessageHandler(hLLM::Role::edgeHandlerSubscription_t { hLLM::messages::messageTypes::replicaReady,
+        replica.second->getControlInput(),
+        [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ replicaReadyMessageHandler(edge, std::make_shared<hLLM::messages::ReplicaReady>(message)); } });
 
     // Subscribing data input edges to the message service for my replicas results (outputs)
     for (const auto& replica : _replicaMap) for (const auto& dataEdge : replica.second->getDataInputs())
@@ -232,7 +239,7 @@ class Coordinator final : public Base
         dataEdge,
         [this](const std::shared_ptr<edge::Input> edge, const hLLM::edge::Message& message){ inputDataMessageHandler(edge, std::make_shared<hLLM::messages::Data>(message)); } });
 
-        // Registering service for job management
+    // Registering service for job management
     _taskr->addService(&_taskrJobManagementService);
   }
 
@@ -241,6 +248,18 @@ class Coordinator final : public Base
     const auto replicaIdx = edge->getReplicaIndex();
     if(_deployment.getHeartbeat().visible == true) printf("[Coordinator %lu] Received heartbeat from replica %lu.\n", _partitionIdx, replicaIdx);
   }
+
+  __INLINE__ void replicaReadyMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::ReplicaReady> message)
+  {
+    const auto replicaIdx = edge->getReplicaIndex();
+
+    // Re-adding replica to the queue of ready replicas
+    const auto replica = _replicaMap[replicaIdx];
+    _replicaQueueMutex.lock();
+    _replicaQueue.push(replica);
+    _replicaQueueMutex.unlock();
+  }
+
 
   __INLINE__ void inputDataMessageHandler(const std::shared_ptr<edge::Input> edge, const std::shared_ptr<hLLM::messages::Data> message)
   {
@@ -295,7 +314,6 @@ class Coordinator final : public Base
     const auto size = message->getSize();
     const auto edgeIdx = edge->getEdgeIndex();
     const auto edgePos = _edgeIndexToVectorPositionMap[edgeIdx];
-    const auto replicaIdx = edge->getReplicaIndex();
 
     // printf("[Coordinator %lu] Received output data from replica %lu for prompt %lu/%lu, edge '%s'.\n", _partitionIdx, replicaIdx, promptId.first, promptId.second, edge->getEdgeConfig().getName().c_str());
 
@@ -311,10 +329,12 @@ class Coordinator final : public Base
     const auto forwardMessage = messages::Data(data, size, promptId);
     const auto& peerOutput = _partitionDataOutputs[edgePos];
 
-    // Send message only when the peer is ready
-    while (peerOutput->isFull(size)); 
     // printf("[Coordinator %lu] Pushing output data for prompt %lu/%lu, edge '%s' (index: %lu, pos: %lu) to Coordinator %lu.\n", _partitionIdx, promptId.first, promptId.second, peerOutput->getEdgeConfig().getName().c_str(), edgeIdx, edgePos, peerOutput->getConsumerPartitionIndex());
+    // Send message only when the peer is ready
+    peerOutput->lock();
+    while (peerOutput->isFull(size)); 
     peerOutput->pushMessage(forwardMessage.encode());
+    peerOutput->unlock();
 
     // Getting the input that is satisfied by this message
     auto& output = job->getOutputEdges()[edgePos];
@@ -337,12 +357,6 @@ class Coordinator final : public Base
       _jobMapMutex.lock();
       _jobMap.erase(promptId);
       _jobMapMutex.unlock();
-
-      // Re-adding replica to the queue of ready replicas
-      const auto replica = _replicaMap[replicaIdx];
-      _replicaQueueMutex.lock();
-      _replicaQueue.push(replica);
-      _replicaQueueMutex.unlock();
     }
   }
 
@@ -400,7 +414,12 @@ class Coordinator final : public Base
         // Creating message
         const auto& dataSlot = inputEdge.getDataSlot();
         const auto message = messages::Data((const uint8_t*)dataSlot->getPointer(), dataSlot->getSize(), promptId);
+
+        // Wait until the edge is actually freed, then push the message
+        outputEdge->lock();
+        while (outputEdge->isFull(message.getSize() == true));
         outputEdge->pushMessage(message.encode());
+        outputEdge->unlock();
 
         // Free up edge data copy
         inputEdge.freeDataSlot();

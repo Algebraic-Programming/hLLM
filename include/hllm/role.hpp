@@ -86,7 +86,11 @@ class Role
   __INLINE__ void subscribeHeartbeatEdge(const std::shared_ptr<edge::Output> edge) { _heartbeatOutputEdges.push_back(edge); }
 
   // Function to subscribe a  message handler
-  __INLINE__ void subscribeEdgeMessageHandler(const edgeHandlerSubscription_t subscription) { _edgeHandlerSubscriptions.push_back(subscription); }
+  __INLINE__ void subscribeEdgeMessageHandler(const edgeHandlerSubscription_t subscription)
+  {
+     _subscribedEdges.insert(subscription.edge);
+     _subscriptionToHandlerMap.insert( { { subscription.edge->getEdgeIndex(), subscription.type }, subscription.handler } );
+  }
   
   private:
 
@@ -97,6 +101,9 @@ class Role
     const auto message = messages::Heartbeat().encode();
     for (const auto& edge : _heartbeatOutputEdges)
     {
+      // Locking thread from concurrent access
+      edge->lock();
+
       // If the edge is not full, send a heartbeat
       if (edge->isFull(message.getSize()) == false)
       {
@@ -106,6 +113,9 @@ class Role
       {
         printf("[Warning] Heartbeat buffer is full!\n");
       }
+
+      // Unlocking edge
+      edge->unlock();
     } 
   }
   taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
@@ -115,49 +125,40 @@ class Role
   /////////// Message Hanlding Service
   __INLINE__ void edgeSubscriptionListeningService()
   {
-    // Checks if a given edge has a pending message that was not handled by any subscription
-    std::set<configuration::Edge::edgeIndex_t> _pendingEdges;
-
-    // Checking for all input edges
-    for (const auto& subscription : _edgeHandlerSubscriptions)
-    {
-      const auto type = subscription.type;
-      const auto edge = subscription.edge;
-      const auto edgeIdx = edge->getEdgeIndex();
-      const auto& handler = subscription.handler;
+    for (const auto& edge : _subscribedEdges)
+    { 
+      // Locking thread from concurrent access
+      edge->lock();
 
       if (edge->hasMessage())
       {
-        // Getting message from input edge
-        const auto message = edge->getMessage();
-        const auto messageType = message.getMetadata().type;
+          // Getting message from input edge
+          const auto edgeIdx = edge->getEdgeIndex();
+          const auto message = edge->getMessage();
+          const auto messageType = message.getMetadata().type;
+          const auto subscriptionMapKey = std::make_pair(edgeIdx, messageType);
+          
+          // Checking if a subscription has been registered for that edge
+          if (_subscriptionToHandlerMap.contains(subscriptionMapKey) == false) HICR_THROW_RUNTIME("Edge Idx %lu cointains message of type %lu that has no subscribed handler.\n", edgeIdx, messageType);
 
-        // If the message type coincides with that of the subscription, then run and pop. Otherwise pass
-        if (messageType == type)
-        {
-          // Now calling the handler
+          // If it is registered, get handler
+          const auto& handler = _subscriptionToHandlerMap.at(subscriptionMapKey);
+
+          // Running handler
           handler(edge, message);
-
+      
           // Immediately disposing (popping) of message out of the edge
           edge->popMessage();
+      }
 
-          // Removing edge from the set of pending edges, if set
-          if (_pendingEdges.contains(edgeIdx)) _pendingEdges.erase(edgeIdx);
-        }
-        else
-        {
-          // Add edge to the set of pending edges
-          _pendingEdges.insert(edge->getEdgeIndex());
-        }
-      } 
+      // Unlocking edge
+      edge->unlock();
     }
-
-    // Checking if there were any unhandled edges
-    if (_pendingEdges.empty() == false) HICR_THROW_RUNTIME("Some edges (%lu) cointained messages that were unaccounted for.\n", _pendingEdges.size());
   }
   taskr::Service::serviceFc_t _taskrEdgeSubscriptionListeningServiceFunction = [this](){ this->edgeSubscriptionListeningService(); };
   taskr::Service _taskrEdgeSubscriptionListeningService = taskr::Service(_taskrEdgeSubscriptionListeningServiceFunction, 0);
-  std::vector<edgeHandlerSubscription_t> _edgeHandlerSubscriptions;
+  std::set<std::shared_ptr<edge::Input>> _subscribedEdges;
+  std::map<std::pair<hLLM::configuration::Edge::edgeIndex_t, hLLM::edge::Message::messageType_t>, messageHandler_t> _subscriptionToHandlerMap;
 
 }; // class Role
 

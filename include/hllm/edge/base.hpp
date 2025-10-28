@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <mutex>
 #include <hicr/core/definitions.hpp>
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/localMemorySlot.hpp>
@@ -125,6 +126,9 @@ class Base
     createChannels();
   }
 
+  __INLINE__ void lock() { _lock.lock(); }
+  __INLINE__ void unlock() { _lock.unlock(); }
+
   protected:
 
   virtual void createChannels() = 0;
@@ -217,6 +221,9 @@ class Base
   const configuration::Partition::partitionIndex_t _producerPartitionIndex;
   const configuration::Partition::partitionIndex_t _consumerPartitionIndex;
   const configuration::Replica::replicaIndex_t _replicaIndex;
+
+  // Mutex to prevent concurrent access to the thread-unsafe channels
+  std::mutex _lock;
 
 }; // class Base
 

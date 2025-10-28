@@ -10,6 +10,7 @@
 #include "../../edge/input.hpp"
 #include "../../edge/output.hpp"
 #include "../../messages/heartbeat.hpp"
+#include "../../messages/replicaReady.hpp"
 #include "../../task.hpp"
 #include "../../prompt.hpp"
 #include "base.hpp"
@@ -187,6 +188,16 @@ class Replica final : public Base
       {
         // printf("[Replica] Job %lu/%lu is now finished\n", _activeJob->getPromptId().first, _activeJob->getPromptId().second);
         _activeJob = nullptr;
+
+        // Now send the coordinator the signal that we're again ready
+        hLLM::messages::ReplicaReady message;
+        auto rawMessage = message.encode();
+
+        // Pushing message
+        _coordinatorControlOutput->lock();
+        while(_coordinatorControlOutput->isFull(rawMessage.getSize() == true));
+        _coordinatorControlOutput->pushMessage(rawMessage);
+        _coordinatorControlOutput->unlock();
       } 
     }
 

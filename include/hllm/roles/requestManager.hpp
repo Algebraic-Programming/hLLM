@@ -197,19 +197,25 @@ class RequestManager final : public hLLM::Role
       const size_t messageSize = promptData.size()+1;
 
       // Interrupt service if the output edge (connecting to the entry partition) is full
+      _promptOutputEdge->lock();
       const auto isPromptOutputEdgeFull = _promptOutputEdge->isFull(messageSize);
-      if(isPromptOutputEdgeFull == true)  return;
-
-      // Creating message object
-      const auto message = messages::Data(messageData, messageSize, promptId);
-
-      // Send message once the recipient is ready
-      _promptOutputEdge->pushMessage(message.encode());
+      _promptOutputEdge->unlock(); 
+      if (isPromptOutputEdgeFull == true) return;
 
       // Registering prompt
       _activePromptMapMutex.lock();
       _activePromptMap.insert({promptId, prompt});
       _activePromptMapMutex.unlock();
+
+      // Creating message object
+      const auto message = messages::Data(messageData, messageSize, promptId);
+
+      // Send message once the recipient is ready
+      _promptOutputEdge->lock();
+      while(_promptOutputEdge->isFull(message.getSize()) == true);
+      _promptOutputEdge->pushMessage(message.encode());
+      _promptOutputEdge->unlock();
+
       // printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
 
       // Freeing entry in the pending session connection queue
