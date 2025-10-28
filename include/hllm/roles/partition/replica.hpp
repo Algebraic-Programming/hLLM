@@ -133,21 +133,34 @@ class Replica final : public Base
     const auto &task       = _taskLabelMap.at(taskId);
     const auto &taskConfig = task->getConfig();
     const auto &function   = task->getFunction();
+    const auto promptId    = _activeJob->getPromptId();
 
     // Setting tasks's partition and replica idxs
     task->setPartitionIdx(_partitionIdx);
     task->setReplicaIdx(_replicaIdx);
+    task->setPromptId(promptId);
+
+    // Setting the edges that the task needs to send outputs through
+    for (const auto& output : taskConfig.getOutputs())
+    {
+      // Getting edge position corresponding to the task output
+      if (_taskOutputEdgePositions.contains(output) == false) HICR_THROW_RUNTIME("[Replica %lu / %lu] Could not find output: %s's position...", _partitionIdx, _replicaIdx, output.c_str());
+      const auto outputEdgePos = _taskOutputEdgePositions.at(output);
+
+      // Setting output edge
+      task->setOutputEdge(output, _coordinatorDataOutputs[outputEdgePos]);
+    } 
 
     // Actually run the function now
     function(task.get());
 
-    // Temporarily storing the messages to send to the coordinator outside the mutex
-    std::vector<std::pair<size_t, std::unique_ptr<hLLM::messages::Data>>> messagesForCoordinator;
+    // Verify all outputs have been sent by this task
+    task->verifyOutputsSent();
 
     // Preventing concurrent access
     _jobManagementMutex.lock();
 
-    // Once the task has finished, push all its outputs to the active job output edges
+    // Once the task has finished, mark all its outputs as finished in the job's output set
     for (const auto& output : taskConfig.getOutputs())
     {
       // Getting edge position corresponding to the task output
@@ -159,22 +172,6 @@ class Replica final : public Base
       auto& outputEdge = _activeJob->getOutputEdges()[outputEdgePos];
 
       // Getting output from task
-      // printf("[Replica] Getting data slot for output '%s'\n", output.c_str());
-      const auto& outputDataSlot = task->getOutput(output);
-
-      // Setting output edge's data
-      outputEdge.setDataSlot(outputDataSlot);
-
-      // Getting active job's prompt id
-      const auto promptId = _activeJob->getPromptId();
-
-      // Pushing message back to the coordinator immediately
-      messagesForCoordinator.push_back({outputEdgePos, std::make_unique<messages::Data>((const uint8_t*)outputDataSlot->getPointer(), outputDataSlot->getSize(), promptId)});
-
-      // Deregistering data slot
-      outputEdge.deregisterDataSlot();
-
-      // Marking output as satisfied
       outputEdge.setSatisfied();
     }
 
@@ -194,16 +191,6 @@ class Replica final : public Base
     }
 
     _jobManagementMutex.unlock();
-
-    // Now sending messages to the coordinator (outside the mutex to prevent communication exclusion)
-    for (const auto& message : messagesForCoordinator)
-    {
-     // Wait until there is enough space in the output buffer before sending
-     while(_coordinatorDataOutputs[message.first]->isFull(message.second->getSize()) == true);
-
-     // Now pushing message
-     _coordinatorDataOutputs[message.first]->pushMessage(message.second->encode());
-    }
   }
 
   /// This function initializes the workload of the partition replica role
