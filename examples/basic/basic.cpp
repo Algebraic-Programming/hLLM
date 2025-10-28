@@ -14,7 +14,7 @@
 #include <hllm/engine.hpp>
 #include <taskr/taskr.hpp>
 
-#define _REPLICAS_PER_PARTITION 1
+#define _REPLICAS_PER_PARTITION 4
 #define _PROMPT_THREAD_COUNT 16
 #define _REQUESTS_PER_THREAD_COUNT 1024
 
