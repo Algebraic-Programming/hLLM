@@ -83,7 +83,7 @@ class Deployment final
   Deployment(const std::string& name) : _name(name) {};
   Deployment(const nlohmann::json& js) { deserialize(js); };
   Deployment() = default;
-  ~Deployment() = default;
+  ~Deployment() = default; 
 
   __INLINE__ void setName(const std::string& name) { _name = name; }
   __INLINE__ void addPartition(const std::shared_ptr<Partition> partition) { _partitions.push_back(partition); }
@@ -94,8 +94,8 @@ class Deployment final
   [[nodiscard]] __INLINE__ auto& getEdges() const { return _edges; }
   [[nodiscard]] __INLINE__ auto& getHeartbeat() const { return _settings.heartbeat; }
   [[nodiscard]] __INLINE__ auto& getControlBuffer() { return _settings.controlBuffer; }
-  [[nodiscard]] __INLINE__ const auto& getControlBufferConst() const { return _settings.controlBuffer; }
-  [[nodiscard]] __INLINE__ const auto& getUserInterface() const { return _settings.userInterface; }
+  [[nodiscard]] __INLINE__ auto& getControlBufferConst() const { return _settings.controlBuffer; }
+  [[nodiscard]] __INLINE__ auto& getUserInterface() const { return _settings.userInterface; }
 
   [[nodiscard]] __INLINE__ nlohmann::json serialize() const 
   {

@@ -329,11 +329,14 @@ class Coordinator final : public Base
     const auto forwardMessage = messages::Data(data, size, promptId);
     const auto& peerOutput = _partitionDataOutputs[edgePos];
 
+    // Encoding message
+    const auto rawMessage = forwardMessage.encode();
+    
     // printf("[Coordinator %lu] Pushing output data for prompt %lu/%lu, edge '%s' (index: %lu, pos: %lu) to Coordinator %lu.\n", _partitionIdx, promptId.first, promptId.second, peerOutput->getEdgeConfig().getName().c_str(), edgeIdx, edgePos, peerOutput->getConsumerPartitionIndex());
     // Send message only when the peer is ready
     peerOutput->lock();
-    while (peerOutput->isFull(size)); 
-    peerOutput->pushMessage(forwardMessage.encode());
+    while (peerOutput->isFull(rawMessage.getSize())); 
+    peerOutput->pushMessage(rawMessage);
     peerOutput->unlock();
 
     // Getting the input that is satisfied by this message
@@ -415,10 +418,13 @@ class Coordinator final : public Base
         const auto& dataSlot = inputEdge.getDataSlot();
         const auto message = messages::Data((const uint8_t*)dataSlot->getPointer(), dataSlot->getSize(), promptId);
 
+        // Encoding message
+        const auto rawMessage = message.encode();
+
         // Wait until the edge is actually freed, then push the message
         outputEdge->lock();
-        while (outputEdge->isFull(message.getSize() == true));
-        outputEdge->pushMessage(message.encode());
+        while (outputEdge->isFull(rawMessage.getSize()) == true);
+        outputEdge->pushMessage(rawMessage);
         outputEdge->unlock();
 
         // Free up edge data copy

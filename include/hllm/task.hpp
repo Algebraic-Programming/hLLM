@@ -70,10 +70,13 @@ class Task final
     // Creating new message
     const auto message = messages::Data((const uint8_t*)memorySlot->getPointer(), memorySlot->getSize(), _promptId);
 
+    // Encoding message
+    const auto rawMessage = message.encode();
+
     // Wait until there is enough space in the output buffer before sending
     outputEdge->lock();
-    while(outputEdge->isFull(message.getSize()) == true);
-    outputEdge->pushMessage(message.encode());
+    while(outputEdge->isFull(rawMessage.getSize()) == true);
+    outputEdge->pushMessage(rawMessage);
     outputEdge->unlock();
 
     // Set output as sent
