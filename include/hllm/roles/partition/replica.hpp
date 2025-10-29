@@ -194,10 +194,7 @@ class Replica final : public Base
         auto rawMessage = message.encode();
 
         // Pushing message
-        _coordinatorControlOutput->lock();
-        while(_coordinatorControlOutput->isFull(rawMessage.getSize() == true));
-        _coordinatorControlOutput->pushMessage(rawMessage);
-        _coordinatorControlOutput->unlock();
+        _coordinatorControlOutput->pushMessageLocking(rawMessage);
       } 
     }
 

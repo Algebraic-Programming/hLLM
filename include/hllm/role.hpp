@@ -99,24 +99,7 @@ class Role
   {
     // Checking, for all replicas' edges, whether any of them has a pending message
     const auto message = messages::Heartbeat().encode();
-    for (const auto& edge : _heartbeatOutputEdges)
-    {
-      // Locking thread from concurrent access
-      edge->lock();
-
-      // If the edge is not full, send a heartbeat
-      if (edge->isFull(message.getSize()) == false)
-      {
-        edge->pushMessage(message);
-      } 
-      else // Otherwise, report it's full
-      {
-        printf("[Warning] Heartbeat buffer is full!\n");
-      }
-
-      // Unlocking edge
-      edge->unlock();
-    } 
+    for (const auto& edge : _heartbeatOutputEdges) edge->pushMessageLocking(message);
   }
   taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
   taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);

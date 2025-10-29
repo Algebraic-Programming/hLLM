@@ -74,10 +74,7 @@ class Task final
     const auto rawMessage = message.encode();
 
     // Wait until there is enough space in the output buffer before sending
-    outputEdge->lock();
-    while(outputEdge->isFull(rawMessage.getSize()) == true);
-    outputEdge->pushMessage(rawMessage);
-    outputEdge->unlock();
+    outputEdge->pushMessageLocking(rawMessage);
 
     // Set output as sent
     _outputsSent.insert(outputName);

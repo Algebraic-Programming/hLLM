@@ -334,10 +334,7 @@ class Coordinator final : public Base
     
     // printf("[Coordinator %lu] Pushing output data for prompt %lu/%lu, edge '%s' (index: %lu, pos: %lu) to Coordinator %lu.\n", _partitionIdx, promptId.first, promptId.second, peerOutput->getEdgeConfig().getName().c_str(), edgeIdx, edgePos, peerOutput->getConsumerPartitionIndex());
     // Send message only when the peer is ready
-    peerOutput->lock();
-    while (peerOutput->isFull(rawMessage.getSize())); 
-    peerOutput->pushMessage(rawMessage);
-    peerOutput->unlock();
+    peerOutput->pushMessageLocking(rawMessage);
 
     // Getting the input that is satisfied by this message
     auto& output = job->getOutputEdges()[edgePos];
@@ -422,10 +419,7 @@ class Coordinator final : public Base
         const auto rawMessage = message.encode();
 
         // Wait until the edge is actually freed, then push the message
-        outputEdge->lock();
-        while (outputEdge->isFull(rawMessage.getSize()) == true);
-        outputEdge->pushMessage(rawMessage);
-        outputEdge->unlock();
+        outputEdge->pushMessageLocking(rawMessage);
 
         // Free up edge data copy
         inputEdge.freeDataSlot();

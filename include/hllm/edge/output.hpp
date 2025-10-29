@@ -62,6 +62,22 @@ class Output final : public Base
     return false;
   } 
 
+  // This function locks and unlocks the edge until it has enough space for the message to be sent
+  __INLINE__ void pushMessageLocking(const Message message)
+  {
+    bool isEdgeFull = true;
+    while (isEdgeFull == true)
+    {
+      lock();
+      isEdgeFull = isFull(message.getSize());
+      if (isEdgeFull == true) unlock(); 
+    }
+
+    pushMessage(message);
+    
+    unlock();
+  }
+
   __INLINE__ void pushMessage(const Message message) const
   {
     if (isFull(message.getSize()) == true) HICR_THROW_RUNTIME("Trying to push a message when channel is full. This is a bug in hLLM.");

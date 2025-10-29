@@ -214,10 +214,7 @@ class RequestManager final : public hLLM::Role
       const auto rawMessage = message.encode();
 
       // Send message once the recipient is ready
-      _promptOutputEdge->lock();
-      while(_promptOutputEdge->isFull(rawMessage.getSize()) == true);
-      _promptOutputEdge->pushMessage(rawMessage);
-      _promptOutputEdge->unlock();
+      _promptOutputEdge->pushMessageLocking(rawMessage);
 
       // printf("[Request ManageR] Added Prompt Id: %lu/%lu\n", promptId.first, promptId.second);
 
