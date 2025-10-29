@@ -16,7 +16,7 @@
 
 #define _REPLICAS_PER_PARTITION 4
 #define _PROMPT_THREAD_COUNT 16
-#define _REQUESTS_PER_THREAD_COUNT 1024
+#define _REQUESTS_PER_THREAD_COUNT 128
 
 int main(int argc, char *argv[])
 {
@@ -302,7 +302,7 @@ int main(int argc, char *argv[])
           if (error > tolerance) { fprintf(stderr, "Response error is higher than tolerance, aborting...\n"); exit(-1); }
 
           // Waiting a random amount of time before sending the next prompt
-          // usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
+          usleep(100000.0 * promptTimeRandomDistribution(promptTimeRandomEngine));
         }
 
         // Increase counter for finished prompt threads
