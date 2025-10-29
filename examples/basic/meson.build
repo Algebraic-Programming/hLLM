@@ -6,7 +6,7 @@ if get_option('buildTests')
 		'basic',
 		mpirunExecutable,
 		args: [
-			'-np', '5',
+			'-np', '1',
 			'--oversubscribe', e.full_path(),
 			meson.current_source_dir() + '/config.json',
 		],

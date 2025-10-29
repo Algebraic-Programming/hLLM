@@ -7,3 +7,6 @@
 [submodule "extern/CloudR"]
 	path = extern/CloudR
 	url = https://github.com/Algebraic-Programming/CloudR.git
+[submodule "extern/cpp-httplib"]
+	path = extern/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git
