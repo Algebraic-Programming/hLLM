@@ -400,7 +400,7 @@ class Engine final
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
     // Release task memory upon finalization
-    // _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskFinish, [&](taskr::Task *task) { delete (hLLM::Task*)task; });
+    _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskFinish, [&](taskr::Task *task) { delete (hLLM::Task*)task; });
 
     // The engine is  now fully deployed
     _isDeployed = true;

@@ -153,7 +153,7 @@ class Replica final : public Base
     } 
 
     // Actually run the function now
-    function(task.get());
+    function(task);
 
     // Verify all outputs have been sent by this task
     task->verifyOutputsSent();
@@ -278,9 +278,6 @@ class Replica final : public Base
     const auto& partitionConfiguration = _deployment.getPartitions()[_partitionIdx];
     const auto &tasks = partitionConfiguration->getTasks();
 
-    // Wait for taskR to finish all tasks before clearing the maps (to avoid premature freeing of task metadata)
-    while (_taskr->getActiveTaskCounter() > 0);
-    
     // Clearing previous job's maps
     _taskLabelMap.clear();
     _taskFunctionNameMap.clear();
@@ -295,25 +292,22 @@ class Replica final : public Base
       // Getting label for taskr function
       const auto taskId = _taskrLabelCounter++;
 
-      // Creating taskr Task corresponding to the LLM engine task
-      auto taskrTask = std::make_unique<taskr::Task>(taskId, _taskrFunction.get());
-
       // Getting function pointer
       const auto &fc = _registeredFunctions.at(taskFunctionName);
 
       // Creating hLLM Task object
-      auto newTask = std::make_shared<hLLM::Task>(*task, fc, std::move(taskrTask));
+      auto newTask = new hLLM::Task(*task, fc, taskId, _taskrFunction.get());
 
       // Get ahold of the task dependency edge positions for dependency checking
       const auto& taskInputEdgePositions = _taskInputEdgePositions[taskFunctionName];
 
       // Function to check the tasks inputs are present before executing it
       auto taskInputsCheck = [&]() {
-      // If there is an active job, check whether the inputs for this tasks are satisfied within it
-      for (const auto edgePos : taskInputEdgePositions) if (_activeJob->getInputEdges()[edgePos].isSatisfied() == false) return false;
+        // If there is an active job, check whether the inputs for this tasks are satisfied within it
+        for (const auto edgePos : taskInputEdgePositions) if (_activeJob->getInputEdges()[edgePos].isSatisfied() == false) return false;
 
-      // All dependencies are satisfied, enable this task for execution
-      return true;
+        // All dependencies are satisfied, enable this task for execution
+        return true;
       };
 
       // Adding task to the label->Task map
@@ -323,7 +317,7 @@ class Replica final : public Base
       _taskFunctionNameMap.insert({taskFunctionName, newTask});
 
       // Adding task input dependencies
-      newTask->getTaskRTask()->addPendingOperation(taskInputsCheck);
+      newTask->addPendingOperation(taskInputsCheck);
     }
 
     // Adding task <-> task dependencies
@@ -331,13 +325,11 @@ class Replica final : public Base
     {
       const auto& dependentTaskName = task->getFunctionName();
       const auto& dependentTask = _taskFunctionNameMap[dependentTaskName];
-      const auto& dependentTaskRTask = dependentTask->getTaskRTask();
 
       for (const auto& dependedTaskName : task->getDependencies())
       {
         const auto& dependedTask = _taskFunctionNameMap[dependedTaskName];
-        const auto& dependedTaskRTask = dependedTask->getTaskRTask();
-        dependentTaskRTask->addDependency(dependedTaskRTask);
+        dependentTask->addDependency(dependedTask);
       } 
     }
 
@@ -346,8 +338,7 @@ class Replica final : public Base
     {
       const auto& taskName = task->getFunctionName();
       const auto& taskObject = _taskFunctionNameMap[taskName];
-      const auto& taskRTask = taskObject->getTaskRTask();
-      _taskr->addTask(taskRTask);
+      _taskr->addTask(taskObject);
     }
   }
 
@@ -372,10 +363,10 @@ class Replica final : public Base
   std::map<std::string, std::vector<std::string>> _inputEdgeTaskDependencies;
 
   // Map relating task ids to their hLLM task
-  std::map<taskr::taskId_t, std::shared_ptr<Task>> _taskLabelMap;
+  std::map<taskr::taskId_t, Task*> _taskLabelMap;
 
   // Map relating task function names to their hLLM task
-  std::map<std::string, std::shared_ptr<Task>> _taskFunctionNameMap;
+  std::map<std::string, Task*> _taskFunctionNameMap;
 
   // The set of registered functions to use as targets for tasks
   const std::map<std::string, Task::taskFunction_t> _registeredFunctions;

@@ -13,7 +13,7 @@ namespace hLLM
 
 namespace roles::partition { class Replica; }
 
-class Task final
+class Task final : public taskr::Task
 {
   friend class roles::partition::Replica;
 
@@ -25,10 +25,12 @@ class Task final
 
   Task(const hLLM::configuration::Task                   taskConfig,
        const taskFunction_t                              &function,
-       std::unique_ptr<taskr::Task>                      taskrTask)
-    : _taskConfig(taskConfig),
-      _function(function),
-      _taskrTask(std::move(taskrTask))
+       const taskr::taskId_t taskId,
+       taskr::Function *entryPoint
+       )
+    : taskr::Task(taskId, entryPoint),
+      _taskConfig(taskConfig),
+      _function(function)
   {
     // Adding input token holders
     for (const auto& input : taskConfig.getInputs()) _inputs[input] = nullptr;
@@ -88,7 +90,6 @@ class Task final
 
   __INLINE__ taskFunction_t getFunction() const { return _function; }
   __INLINE__ const hLLM::configuration::Task& getConfig() const { return _taskConfig; }
-  __INLINE__ taskr::Task *getTaskRTask() const { return _taskrTask.get(); }
   __INLINE__ void setPartitionIdx(const configuration::Partition::partitionIndex_t partitionIdx) { _partitionIdx = partitionIdx; }
   __INLINE__ void setReplicaIdx(const configuration::Replica::replicaIndex_t replicaIdx) { _replicaIdx = replicaIdx; }
   __INLINE__ void setPromptId(const hLLM::Prompt::promptId_t promptId) { _promptId = promptId; }
@@ -123,7 +124,6 @@ class Task final
 
   const hLLM::configuration::Task                    _taskConfig;
   const taskFunction_t                               _function;
-  const std::unique_ptr<taskr::Task>                 _taskrTask;
 
   std::map<std::string, std::shared_ptr<HiCR::LocalMemorySlot>> _inputs;
 
