@@ -26,8 +26,6 @@ class Base : public hLLM::Role
     configuration::Partition::partitionIndex_t consumerPartitionIndex;
   };
 
-  #define __HLLM_PARTITION_DEFAULT_DATA_BUFFER_CAPACITY 1
-
   // A job represents the series of tasks and input/output data a given prompt requires to execute in this particular partition
   class Job final
   {

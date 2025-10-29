@@ -147,6 +147,9 @@ int main(int argc, char *argv[])
     edge->setCoordinationCommunicationManager(communicationManager.get());
     edge->setCoordinationMemoryManager(memoryManager.get());
     edge->setCoordinationMemorySpace(bufferMemorySpace);
+
+    // Setting capacity to the number of replicas in this example to allow for multiple replicas working simultaneously over TaskR
+    edge->setBufferCapacity(_REPLICAS_PER_PARTITION);
   }
 
   // Setting managers for partition-wise control messaging

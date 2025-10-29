@@ -67,6 +67,8 @@ class Edge
   __INLINE__ void setConsumer(const std::string& partition) { _consumer = partition; }
   __INLINE__ void setPromptEdge(const bool isPromptEdge) { _isPromptEdge = isPromptEdge; }
   __INLINE__ void setResultEdge(const bool isResultEdge) { _isResultEdge = isResultEdge; }
+  __INLINE__ void setBufferCapacity(const size_t bufferCapacity) { _bufferCapacity = _bufferCapacity; }
+  __INLINE__ void setBufferSize(const size_t bufferSize) { _bufferSize = bufferSize; }
 
     // Functions to set the HiCR elements required for the creation of edge channels
   [[nodiscard]] __INLINE__ HiCR::CommunicationManager* getPayloadCommunicationManager     () const { return _payloadCommunicationManager; }
