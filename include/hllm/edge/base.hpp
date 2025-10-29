@@ -6,6 +6,7 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/localMemorySlot.hpp>
 #include <hicr/core/globalMemorySlot.hpp>
+#include <hicr/frontends/channel/base.hpp>
 #include "../configuration/edge.hpp"
 #include "../configuration/replica.hpp"
 

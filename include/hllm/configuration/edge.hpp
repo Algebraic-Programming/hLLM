@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <string>
 #include <hicr/core/definitions.hpp>
+#include <hicr/core/communicationManager.hpp>
+#include <hicr/core/memoryManager.hpp>
+#include <hicr/core/memorySpace.hpp>
 #include <nlohmann_json/parser.hpp>
 
 namespace hLLM::configuration
