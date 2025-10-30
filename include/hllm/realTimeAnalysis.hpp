@@ -34,15 +34,9 @@ void clientPost(const size_t& InstanceId, const int& n_requests, httplib::Client
   auto res = cli.Post("/data", json_data, "application/json");
 
   // Handle server response or connection failure
-  if (res) {
-      // Print HTTP status code (e.g., 200)
-      std::cout << "Status code: " << res->status << std::endl;
-
-      // Print body text returned by server
-      std::cout << "Response: " << res->body << std::endl;
-  } else {
-      // Print an error message if connection failed
-      std::cerr << "Failed to connect to server.\n";
+  if (!res) {
+    // Print an error message if connection failed
+    std::cerr << "Failed to connect to server.\n";
   }
 }
 
@@ -52,8 +46,6 @@ class RealTimeAnalysis
 
   RealTimeAnalysis(const std::string ip = "0.0.0.0", const size_t port = 5003) : _ip(ip), _port(port)
   {
-    printf("RTA constructor called\n"); fflush(stdout);
-
     _svr.Post("/data", [this](const httplib::Request &req, httplib::Response &res) {
         {
             // Acquire lock before modifying the shared global variable.
@@ -62,16 +54,20 @@ class RealTimeAnalysis
             _last_received_json = req.body;
         }
 
-        // Print received JSON to the console for visibility/debugging.
-        std::cout << "Received JSON:\n" << req.body << std::endl;
-
+        // (Debugging)
         // Return an acknowledgment response to the client.
         // This shows that the server successfully processed the POST.
-        // (This is for debugging)
-        res.set_content("{\"status\":\"ok\"}", "application/json");
+        // res.set_content("{\"status\":\"ok\"}", "application/json");
     });
 
-    printf("srv.listen on a std::thread\n"); fflush(stdout);
+    // Get method of posting the captured json file
+    _svr.Get("/", [this](const httplib::Request &, httplib::Response &res) {
+        // Acquire the same mutex before reading shared state.
+        std::lock_guard<std::mutex> lock(_mtx);
+
+        // Send HTML response to the browser.
+        res.set_content(_last_received_json, "application/json");
+    });
 
     // Start listening from a separate thread
     // Default: Listen on all available network interfaces (0.0.0.0) at port 5003.
@@ -82,7 +78,6 @@ class RealTimeAnalysis
 
   ~RealTimeAnalysis()
   {
-    printf("RTA destructor called\n"); fflush(stdout);
     _svr.stop();          // tell the server to stop listening
     if (_srv_thread.joinable())
       _srv_thread.join();  // clean shutdown
@@ -116,7 +111,7 @@ class RealTimeAnalysis
   size_t _port;
 
   /**
-   * 
+   * The server thread to run the "listen" method
    */
   std::thread _srv_thread;
 };

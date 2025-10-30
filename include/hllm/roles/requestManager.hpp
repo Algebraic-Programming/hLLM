@@ -33,7 +33,7 @@ class RequestManager final : public hLLM::Role
   RequestManager(
     const configuration::Deployment deployment,
     taskr::Runtime* const taskr
-  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5003), _cli("localhost", 5003), num_responses(0)
+  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5003), _cli("localhost", 5003), num_responses(0), prev_num_responses(0)
   {
     // Name of the prompt input
     const auto& promptInputName = _deployment.getRequestManager()->getInput();
@@ -92,6 +92,9 @@ class RequestManager final : public hLLM::Role
         // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
     }
+
+    // set the previous time tracker to now.
+    prev_time = Clock::now();
   }
 
   // Gets the memory slots required by the edges
@@ -186,34 +189,35 @@ class RequestManager final : public hLLM::Role
 
     // Increasing the counter
     // Compute the new average response per minute value
-    // const auto now = Clock::now();
-    // auto diff_time_sec = 
+    now_time = Clock::now();
+    
+    auto time_diff_sec = std::chrono::duration<double>(now_time - prev_time).count();
 
-    // const double avg_res_per_minute = 60/(diff_time_sec)
+    const double resp_diff = double(++num_responses - prev_num_responses);
+    
+    const double avg_res_per_minute = resp_diff/time_diff_sec * 60.0;
 
-    printf("response counter one up\n"); fflush(stdout);
+    // Update the prev_time if it was longer than a second
+    if(time_diff_sec > 1.0)
+    {
+      prev_time = now_time;
+      prev_num_responses = num_responses;
+    }
 
     std::string json_data =
         "{\n"
         "  \"partition\": {\n"
-        "  \"name\": \"partition1\",\n"
+        "  \"name\": \"partition1\",\n" // For now, fake partition value
         "  \"status\": \"active\",\n"
-        "  \"avg_latency_ms\": " + std::to_string(++num_responses) + "\n"
+        "  \"num_responses\": " + std::to_string(++num_responses) + "\n"
+        "  \"avg_responses_per_min\": " + std::to_string(avg_res_per_minute) + "\n"
         "  }\n"
         "}";
 
     auto res = _cli.Post("/data", json_data, "application/json");
 
-    if (res) {
-        // Print HTTP status code (e.g., 200)
-        std::cout << "Status code: " << res->status << std::endl;
-
-        // Print body text returned by server
-        std::cout << "Response: " << res->body << std::endl;
-    } else {
-        // Print an error message if connection failed
-        std::cerr << "Failed to connect to server.\n";
-    }
+    // Error handling to check if the HTTP post was successfull
+    if(!res) std::cerr << "Failed to connect to server.\n";
   }
 
   ///////////// Prompt handling service
@@ -343,9 +347,11 @@ class RequestManager final : public hLLM::Role
   // requestManager's own HTTP client as it will pass the number of requests per minute
   httplib::Client _cli;
 
-  size_t num_responses, num_responses_prev;
+  // Number of responses tracker
+  size_t num_responses, prev_num_responses;
 
-  std::chrono::steady_clock time_now, time_prev;
+  // time tracker for the number of responses
+  Clock::time_point now_time, prev_time;
 
 }; // class RequestManager
 
