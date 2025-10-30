@@ -98,8 +98,9 @@ class Role
   __INLINE__ void heartbeatService()
   {
     // Checking, for all replicas' edges, whether any of them has a pending message
-    const auto message = messages::Heartbeat().encode();
-    for (const auto& edge : _heartbeatOutputEdges) edge->pushMessageLocking(message);
+    const auto message = messages::Heartbeat();
+    const auto rawMessage = message.encode();
+    for (const auto& edge : _heartbeatOutputEdges) edge->pushMessageLocking(rawMessage);
   }
   taskr::Service::serviceFc_t _taskrHeartbeatServiceFunction = [this](){ this->heartbeatService(); };
   taskr::Service _taskrHeartbeatService = taskr::Service(_taskrHeartbeatServiceFunction);
