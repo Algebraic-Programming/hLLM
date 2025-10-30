@@ -315,7 +315,7 @@ class Engine final
     }
 
     // If I am a Request Manager, construct the role now
-    if (_deployment.getUserInterface().instanceId == _instanceId)
+    if (_deployment.getRequestManager()->getInstanceId() == _instanceId)
     {
       printf("[Instance %lu] I am the request manager\n", _instanceId);
       _requestManagerRole = std::make_shared<roles::RequestManager>(_deployment, _taskr);
