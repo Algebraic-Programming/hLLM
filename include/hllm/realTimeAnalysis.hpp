@@ -1,11 +1,12 @@
 #pragma once
 
-#include <httplib.h>  // Lightweight HTTP server library
+#include "../../extern/cpp-httplib/httplib.h"  // Lightweight HTTP server library
 #include <atomic>     // For atomic variables (thread-safe counters, flags)
 #include <chrono>     // For timing utilities (steady clock, seconds, etc.)
 #include <mutex>      // For std::mutex and std::lock_guard (thread safety)
 #include <string>     // For storing the json file
 #include <iostream>   // For debugging
+#include <thread>
 
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
@@ -15,14 +16,15 @@ namespace hLLM
 
 /**
  * A function for a client passing its information
+ * (PROTOTYPE)
  */
-void clientPost(const size_t& InstanceId; const int& n_requests, httplib::Client cli)
+void clientPost(const size_t& InstanceId, const int& n_requests, httplib::Client cli)
 {
   // Preparing the data to be passed over. It should only consist of a part of the whole json file
   std::string json_data =
       "{\n"
       "  \"Instance\": {\n"
-      "  \"instance ID\": " + std::to_string(InstanceID) ",\n"
+      "  \"instance ID\": " + std::to_string(InstanceId) + ",\n"
       "  \"status\": \"active\",\n"
       "  \"number of requests per ms\": " + std::to_string(n_requests) + "\n"
       "  }\n"
@@ -50,14 +52,12 @@ class RealTimeAnalysis
 
   RealTimeAnalysis(const std::string ip = "0.0.0.0", const size_t port = 5004) : _ip(ip), _port(port)
   {
-    // initializing the HTTP server
-    _svr = httplib::Server;
 
-    _svr.Post("/data", [](const httplib::Request &req, httplib::Response &res) {
+    _svr.Post("/data", [this](const httplib::Request &req, httplib::Response &res) {
         {
             // Acquire lock before modifying the shared global variable.
             // The lock is automatically released when this scope ends.
-            std::lock_guard<std::mutex> lock(mtx);
+            std::lock_guard<std::mutex> lock(_mtx);
             _last_received_json = req.body;
         }
 
@@ -70,9 +70,11 @@ class RealTimeAnalysis
         res.set_content("{\"status\":\"ok\"}", "application/json");
     });
 
-    // Start listening
+    // Start listening from a separate thread
     // Default: Listen on all available network interfaces (0.0.0.0) at port 5004.
-    _svr.listen(_ip, _port);
+    std::thread srv_listen([this](){
+      _svr.listen(_ip, _port);
+    });
   }
 
   ~RealTimeAnalysis() = default;
@@ -103,6 +105,6 @@ class RealTimeAnalysis
    * The Port of the IP
    */
   size_t _port;
-}
+};
 
 }

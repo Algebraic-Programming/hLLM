@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <vector>
+#include <chrono>
+
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <hicr/core/globalMemorySlot.hpp>
@@ -12,6 +14,11 @@
 #include "../configuration/deployment.hpp"
 #include "../messages/data.hpp"
 #include "../session.hpp"
+#include "../realTimeAnalysis.hpp"
+#include "../../../extern/cpp-httplib/httplib.h"
+
+using Clock = std::chrono::steady_clock;  // Monotonic clock for precise timing
+using Secs  = std::chrono::seconds;       // Convenience alias for seconds
 
 namespace hLLM::roles
 {
@@ -26,7 +33,7 @@ class RequestManager final : public hLLM::Role
   RequestManager(
     const configuration::Deployment deployment,
     taskr::Runtime* const taskr
-  ) : Role(deployment, taskr)
+  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5004), _cli("localhost", 5004), num_responses(0)
   {
     // Name of the prompt input
     const auto& promptInputName = _deployment.getUserInterface().input;
@@ -84,7 +91,7 @@ class RequestManager final : public hLLM::Role
         _resultInputEdge = std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
         // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
-    } 
+    }
   }
 
   // Gets the memory slots required by the edges
@@ -176,6 +183,35 @@ class RequestManager final : public hLLM::Role
     
     // printf("Prompt Map Size: %lu\n", _activePromptMap.size());
     // usleep(10000);
+
+    // Increasing the counter
+    // Compute the new average response per minute value
+    // const auto now = Clock::now();
+    // auto diff_time_sec = 
+
+    // const double avg_res_per_minute = 60/(diff_time_sec)
+
+    std::string json_data =
+        "{\n"
+        "  \"partition\": {\n"
+        "  \"name\": \"partition1\",\n"
+        "  \"status\": \"active\",\n"
+        "  \"avg_latency_ms\": " + std::to_string(++num_responses) + "\n"
+        "  }\n"
+        "}";
+
+    auto res = _cli.Post("/data", json_data, "application/json");
+
+    if (res) {
+        // Print HTTP status code (e.g., 200)
+        std::cout << "Status code: " << res->status << std::endl;
+
+        // Print body text returned by server
+        std::cout << "Response: " << res->body << std::endl;
+    } else {
+        // Print an error message if connection failed
+        std::cerr << "Failed to connect to server.\n";
+    }
   }
 
   ///////////// Prompt handling service
@@ -299,6 +335,15 @@ class RequestManager final : public hLLM::Role
   // Active session map
   std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
 
+  // Initializing the realTimeAnalysis instance to start listening number of requests
+  RealTimeAnalysis _rTA;
+
+  // requestManager's own HTTP client as it will pass the number of requests per minute
+  httplib::Client _cli;
+
+  size_t num_responses, num_responses_prev;
+
+  std::chrono::steady_clock time_now, time_prev;
 
 }; // class RequestManager
 
