@@ -50,8 +50,9 @@ class RealTimeAnalysis
 {
   public:
 
-  RealTimeAnalysis(const std::string ip = "0.0.0.0", const size_t port = 5004) : _ip(ip), _port(port)
+  RealTimeAnalysis(const std::string ip = "0.0.0.0", const size_t port = 5003) : _ip(ip), _port(port)
   {
+    printf("RTA constructor called\n"); fflush(stdout);
 
     _svr.Post("/data", [this](const httplib::Request &req, httplib::Response &res) {
         {
@@ -70,14 +71,22 @@ class RealTimeAnalysis
         res.set_content("{\"status\":\"ok\"}", "application/json");
     });
 
+    printf("srv.listen on a std::thread\n"); fflush(stdout);
+
     // Start listening from a separate thread
-    // Default: Listen on all available network interfaces (0.0.0.0) at port 5004.
-    std::thread srv_listen([this](){
+    // Default: Listen on all available network interfaces (0.0.0.0) at port 5003.
+    _srv_thread = std::thread([this]() {
       _svr.listen(_ip, _port);
     });
   }
 
-  ~RealTimeAnalysis() = default;
+  ~RealTimeAnalysis()
+  {
+    printf("RTA destructor called\n"); fflush(stdout);
+    _svr.stop();          // tell the server to stop listening
+    if (_srv_thread.joinable())
+      _srv_thread.join();  // clean shutdown
+  }
 
   private:
 
@@ -105,6 +114,11 @@ class RealTimeAnalysis
    * The Port of the IP
    */
   size_t _port;
+
+  /**
+   * 
+   */
+  std::thread _srv_thread;
 };
 
 }

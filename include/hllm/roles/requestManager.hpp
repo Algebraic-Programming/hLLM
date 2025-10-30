@@ -33,7 +33,7 @@ class RequestManager final : public hLLM::Role
   RequestManager(
     const configuration::Deployment deployment,
     taskr::Runtime* const taskr
-  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5004), _cli("localhost", 5004), num_responses(0)
+  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5003), _cli("localhost", 5003), num_responses(0)
   {
     // Name of the prompt input
     const auto& promptInputName = _deployment.getRequestManager()->getInput();
@@ -190,6 +190,8 @@ class RequestManager final : public hLLM::Role
     // auto diff_time_sec = 
 
     // const double avg_res_per_minute = 60/(diff_time_sec)
+
+    printf("response counter one up\n"); fflush(stdout);
 
     std::string json_data =
         "{\n"
