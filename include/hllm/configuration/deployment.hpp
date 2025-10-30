@@ -2,6 +2,7 @@
 
 #include "partition.hpp"
 #include "edge.hpp"
+#include "requestManager.hpp"
 #include <vector>
 #include <memory>
 #include <string>
@@ -58,26 +59,10 @@ class Deployment final
     std::shared_ptr<HiCR::MemorySpace> memorySpace  = nullptr;
   };
 
-   /**
-   * User interface relates to how the user connects to hLLM, feeds a prompt and gets a response
-   */ 
-  struct userInterface_t
-  {
-    // Indicates which input in the execution graph is fed by the user
-    std::string input;
-
-    // Indicates which output in the execution graph is fed to the user
-    std::string output;
-
-    // Indicates which instance Id to assign to the user interface -- determined at runtime
-    HiCR::Instance::instanceId_t instanceId = 0;
-  };
-
   struct settings_t
   {
     heartbeat_t heartbeat;
     controlBuffer_t controlBuffer;
-    userInterface_t userInterface;
   };
 
   Deployment(const std::string& name) : _name(name) {};
@@ -95,7 +80,7 @@ class Deployment final
   [[nodiscard]] __INLINE__ auto& getHeartbeat() const { return _settings.heartbeat; }
   [[nodiscard]] __INLINE__ auto& getControlBuffer() { return _settings.controlBuffer; }
   [[nodiscard]] __INLINE__ auto& getControlBufferConst() const { return _settings.controlBuffer; }
-  [[nodiscard]] __INLINE__ auto& getUserInterface() const { return _settings.userInterface; }
+  [[nodiscard]] __INLINE__ auto& getRequestManager() const { return _requestManager; }
 
   [[nodiscard]] __INLINE__ nlohmann::json serialize() const 
   {
@@ -110,6 +95,8 @@ class Deployment final
     std::vector<nlohmann::json> edgesJs;
     for (const auto& e : _edges) edgesJs.push_back(e->serialize());
     js["Edges"] = edgesJs;
+
+    js["Request Manager"] = _requestManager->serialize();
 
     ////////////////////// Parsing settings
     auto settings = std::map<std::string, nlohmann::json>();
@@ -127,13 +114,6 @@ class Deployment final
     controlBuffer["Capacity"] = _settings.controlBuffer.capacity;
     controlBuffer["Size"] = _settings.controlBuffer.size;
     settings["Control Buffer"] = controlBuffer;
-
-    // User Interface
-    auto userInterface = std::map<std::string, nlohmann::json>();
-    userInterface["Input"] = _settings.userInterface.input;
-    userInterface["Output"] = _settings.userInterface.output;
-    userInterface["Instance Id"] = _settings.userInterface.instanceId;
-    settings["User Interface"] = userInterface;
 
     js["Settings"] = settings;
 
@@ -154,6 +134,9 @@ class Deployment final
     const auto& edges = hicr::json::getArray<nlohmann::json>(js, "Edges");
     for (const auto& e : edges) _edges.push_back(std::make_shared<Edge>(e));
 
+    const auto& requestManagerJs = hicr::json::getObject(js, "Request Manager");
+    _requestManager = std::make_shared<RequestManager>(requestManagerJs);
+
     // Getting settings
     nlohmann::json settingsJs = hicr::json::getObject(js, "Settings");
 
@@ -166,16 +149,15 @@ class Deployment final
     nlohmann::json controlBufferJs = hicr::json::getObject(settingsJs, "Control Buffer");
     _settings.controlBuffer.capacity = hicr::json::getNumber<size_t>(controlBufferJs, "Capacity");
     _settings.controlBuffer.size = hicr::json::getNumber<size_t>(controlBufferJs, "Size");
-
-    nlohmann::json userInterfaceJs = hicr::json::getObject(settingsJs, "User Interface");
-    _settings.userInterface.input = hicr::json::getString(userInterfaceJs, "Input");
-    _settings.userInterface.output = hicr::json::getString(userInterfaceJs, "Output");
-    if (userInterfaceJs.contains("Instance Id")) _settings.userInterface.instanceId = hicr::json::getNumber<HiCR::Instance::instanceId_t>(userInterfaceJs, "Instance Id");
   }
   
   // Includes all kinds of sanity checks relevant to a deployment
   __INLINE__ void verify() const
   {
+    // Getting rqeuest manager input and output edges
+    const auto& requestManagerInputEdge = _requestManager->getInput();
+    const auto& requestManagerOutputEdge = _requestManager->getOutput();
+
     // Getting all partition's edges in a set
     std::set<std::string> partitionNameSet;
     for (const auto& partition : _partitions) partitionNameSet.insert(partition->getName());
@@ -239,9 +221,9 @@ class Deployment final
           inputSet.insert(input);
 
           // Check the task that contains the user interface input does not receive any other inputs
-          if (input == _settings.userInterface.input) userInterfaceInputPartition = partition;
-          if (input == _settings.userInterface.output) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is being used as input\n", task->getFunctionName(), input.c_str());
-          if (input == _settings.userInterface.input && task->getInputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is not the only input of that task\n", task->getFunctionName(), input.c_str());
+          if (input == requestManagerInputEdge) userInterfaceInputPartition = partition;
+          if (input == requestManagerOutputEdge) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is being used as input\n", task->getFunctionName(), input.c_str());
+          if (input == requestManagerInputEdge && task->getInputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is not the only input of that task\n", task->getFunctionName(), input.c_str());
         } 
 
         // Make sure all tasks have at least one output
@@ -256,9 +238,9 @@ class Deployment final
           outputSet.insert(output);
 
           // Check the task that contains the user interface input does not receive any other inputs
-          if (output == _settings.userInterface.output) userInterfaceOutputPartition = partition;
-          if (output == _settings.userInterface.input) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is being used as output\n", task->getFunctionName(), output.c_str());
-          if (output == _settings.userInterface.output && task->getOutputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is not the only output of task\n", task->getFunctionName(), output.c_str());
+          if (output == requestManagerOutputEdge) userInterfaceOutputPartition = partition;
+          if (output == requestManagerInputEdge) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface input '%s' which is being used as output\n", task->getFunctionName(), output.c_str());
+          if (output == requestManagerOutputEdge && task->getOutputs().size() > 1) HICR_THROW_LOGIC("Deployment specifies task '%s' with user interface output '%s' which is not the only output of task\n", task->getFunctionName(), output.c_str());
         } 
       }
 
@@ -266,8 +248,8 @@ class Deployment final
     for (const auto& edge : _edges)
     {
       const auto& edgeName = edge->getName();
-      if (edgeName != _settings.userInterface.input)
-      if (edgeName != _settings.userInterface.output)
+      if (edgeName != requestManagerInputEdge)
+      if (edgeName != requestManagerOutputEdge)
       if (consumerPartitionMap.contains(edgeName) == false || producerPartitionMap.contains(edgeName) == false) 
         HICR_THROW_LOGIC("Deployment specifies edge '%s' but it is either not used as input or output (or neither)\n", edge->getName().c_str());
 
@@ -284,40 +266,40 @@ class Deployment final
     }
 
     // Make sure all inputs are also used as outputs, as long as it is not the user interface input
-    for (const auto& input : inputSet) if (input != _settings.userInterface.input) if (outputSet.contains(input) == false) HICR_THROW_LOGIC("Deployment input '%s' is not associated to any output\n", input.c_str());
-    for (const auto& output : outputSet) if (output != _settings.userInterface.output) if (inputSet.contains(output) == false) HICR_THROW_LOGIC("Deployment output '%s' is not associated to any input\n", output.c_str());
+    for (const auto& input : inputSet) if (input != requestManagerInputEdge) if (outputSet.contains(input) == false) HICR_THROW_LOGIC("Deployment input '%s' is not associated to any output\n", input.c_str());
+    for (const auto& output : outputSet) if (output != requestManagerOutputEdge) if (inputSet.contains(output) == false) HICR_THROW_LOGIC("Deployment output '%s' is not associated to any input\n", output.c_str());
 
     // Check the user interface input/output are being used
-    if (userInterfaceInputPartition == nullptr) HICR_THROW_LOGIC("User interface input '%s' is not associated to any partition\n", _settings.userInterface.input.c_str());
-    if (userInterfaceOutputPartition == nullptr) HICR_THROW_LOGIC("User interface output '%s' is not associated to any partition\n", _settings.userInterface.output.c_str());
+    if (userInterfaceInputPartition == nullptr) HICR_THROW_LOGIC("User interface input '%s' is not associated to any partition\n", requestManagerInputEdge.c_str());
+    if (userInterfaceOutputPartition == nullptr) HICR_THROW_LOGIC("User interface output '%s' is not associated to any partition\n", requestManagerOutputEdge.c_str());
 
     // Make sure the partition which contains the user interface input does not contain any cross-partition inputs
     for (const auto& task : userInterfaceInputPartition->getTasks())
       for (const auto& input : task->getInputs())
-        if (input != _settings.userInterface.input)
+        if (input != requestManagerInputEdge)
          if (producerPartitionMap.at(input) != userInterfaceInputPartition->getName())
-           HICR_THROW_LOGIC("Partition %s consumes the user interface input '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceInputPartition->getName().c_str(), _settings.userInterface.input.c_str(), input.c_str());
+           HICR_THROW_LOGIC("Partition %s consumes the user interface input '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceInputPartition->getName().c_str(), requestManagerInputEdge.c_str(), input.c_str());
       
     // Make sure the partition which contains the user interface output does not contain any cross-partition outputs
     for (const auto& task : userInterfaceOutputPartition->getTasks())
       for (const auto& output : task->getOutputs())
-        if (output != _settings.userInterface.output)
+        if (output != requestManagerOutputEdge)
           if (consumerPartitionMap.at(output) != userInterfaceOutputPartition->getName())
-            HICR_THROW_LOGIC("Partition %s produces the user interface output '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceOutputPartition->getName().c_str(), _settings.userInterface.output.c_str(), output.c_str());
+            HICR_THROW_LOGIC("Partition %s produces the user interface output '%s' but also has other inter-partition inputs (e.g.,: '%s')\n", userInterfaceOutputPartition->getName().c_str(), requestManagerOutputEdge.c_str(), output.c_str());
 
     // Setting producer partition for user interface input to be the same as the consumer        
     for (const auto& edge : _edges)
     {
       const auto& edgeName = edge->getName();
 
-      if (edgeName == _settings.userInterface.input)
+      if (edgeName == requestManagerInputEdge)
       {
        edge->setProducer(userInterfaceInputPartition->getName()); 
        edge->setConsumer(userInterfaceInputPartition->getName());
        edge->setPromptEdge(true);
       }
 
-      if (edgeName == _settings.userInterface.output)
+      if (edgeName == requestManagerOutputEdge)
       {
        edge->setProducer(userInterfaceOutputPartition->getName());
        edge->setConsumer(userInterfaceOutputPartition->getName());
@@ -331,6 +313,7 @@ class Deployment final
   std::string _name;
   std::vector<std::shared_ptr<Partition>> _partitions;
   std::vector<std::shared_ptr<Edge>> _edges;
+  std::shared_ptr<RequestManager> _requestManager;
   settings_t _settings;
 
 

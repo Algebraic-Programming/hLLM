@@ -13,12 +13,12 @@
     {
       "Capacity": 32,
       "Size": 16384
-    },
-    "User Interface":
-    {
-      "Input": "Catheti",
-      "Output": "Hypotenuse"
     }
+  },
+  "Request Manager":
+  {
+    "Input": "Catheti",
+    "Output": "Hypotenuse"
   },
   "Partitions": [
     {

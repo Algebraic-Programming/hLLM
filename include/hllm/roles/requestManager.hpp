@@ -36,8 +36,8 @@ class RequestManager final : public hLLM::Role
   ) : Role(deployment, taskr), _rTA("0.0.0.0", 5004), _cli("localhost", 5004), num_responses(0)
   {
     // Name of the prompt input
-    const auto& promptInputName = _deployment.getUserInterface().input;
-    const auto& resultOutputName = _deployment.getUserInterface().output;
+    const auto& promptInputName = _deployment.getRequestManager()->getInput();
+    const auto& resultOutputName = _deployment.getRequestManager()->getOutput();
 
     // Getting partition list
     const auto& partitions = _deployment.getPartitions();
