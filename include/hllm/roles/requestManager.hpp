@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <vector>
+#include <chrono>
+
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/definitions.hpp>
 #include <hicr/core/globalMemorySlot.hpp>
@@ -12,6 +14,11 @@
 #include "../configuration/deployment.hpp"
 #include "../messages/data.hpp"
 #include "../session.hpp"
+#include "../realTimeAnalysis.hpp"
+#include "../../../extern/cpp-httplib/httplib.h"
+
+using Clock = std::chrono::steady_clock;  // Monotonic clock for precise timing
+using Secs  = std::chrono::seconds;       // Convenience alias for seconds
 
 namespace hLLM::roles
 {
@@ -26,7 +33,7 @@ class RequestManager final : public hLLM::Role
   RequestManager(
     const configuration::Deployment deployment,
     taskr::Runtime* const taskr
-  ) : Role(deployment, taskr)
+  ) : Role(deployment, taskr), _rTA("0.0.0.0", 5003), _cli("localhost", 5003), num_responses(0), prev_num_responses(0)
   {
     // Name of the prompt input
     const auto& promptInputName = _deployment.getRequestManager()->getInput();
@@ -84,7 +91,10 @@ class RequestManager final : public hLLM::Role
         _resultInputEdge = std::make_shared<edge::Input>(*edgeConfig, edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
         // printf("[Request Manager] Result Input Edge: Type: %u, EdgeIdx: %lu, CP: %lu, PP: %lu, RI: %lu\n", edge::edgeType_t::coordinatorToRequestManager, edgeIdx, _resultProducerPartitionIdx, _resultProducerPartitionIdx, edge::Base::coordinatorReplicaIndex);
       }
-    } 
+    }
+
+    // set the previous time tracker to now.
+    prev_time = Clock::now();
   }
 
   // Gets the memory slots required by the edges
@@ -176,6 +186,38 @@ class RequestManager final : public hLLM::Role
     
     // printf("Prompt Map Size: %lu\n", _activePromptMap.size());
     // usleep(10000);
+
+    // Increasing the counter
+    // Compute the new average response per minute value
+    now_time = Clock::now();
+    
+    auto time_diff_sec = std::chrono::duration<double>(now_time - prev_time).count();
+
+    const double resp_diff = double(++num_responses - prev_num_responses);
+    
+    const double avg_res_per_minute = resp_diff/time_diff_sec * 60.0;
+
+    // Update the prev_time if it was longer than a second
+    if(time_diff_sec > 1.0)
+    {
+      prev_time = now_time;
+      prev_num_responses = num_responses;
+    }
+
+    std::string json_data =
+        "{\n"
+        "  \"partition\": {\n"
+        "  \"name\": \"partition1\",\n" // For now, fake partition value
+        "  \"status\": \"active\",\n"
+        "  \"num_responses\": " + std::to_string(num_responses) + ",\n"
+        "  \"avg_responses_per_min\": " + std::to_string(avg_res_per_minute) + "\n"
+        "  }\n"
+        "}";
+
+    auto res = _cli.Post("/data", json_data, "application/json");
+
+    // Error handling to check if the HTTP post was successfull
+    if(!res) std::cerr << "Failed to connect to server.\n";
   }
 
   ///////////// Prompt handling service
@@ -299,6 +341,17 @@ class RequestManager final : public hLLM::Role
   // Active session map
   std::map<sessionId_t, std::shared_ptr<Session>> _activeSessionMap;
 
+  // Initializing the realTimeAnalysis instance to start listening number of requests
+  RealTimeAnalysis _rTA;
+
+  // requestManager's own HTTP client as it will pass the number of requests per minute
+  httplib::Client _cli;
+
+  // Number of responses tracker
+  size_t num_responses, prev_num_responses;
+
+  // time tracker for the number of responses
+  Clock::time_point now_time, prev_time;
 
 }; // class RequestManager
 
