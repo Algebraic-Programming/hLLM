@@ -209,7 +209,7 @@ class RequestManager final : public hLLM::Role
         "  \"partition\": {\n"
         "  \"name\": \"partition1\",\n" // For now, fake partition value
         "  \"status\": \"active\",\n"
-        "  \"num_responses\": " + std::to_string(++num_responses) + ",\n"
+        "  \"num_responses\": " + std::to_string(num_responses) + ",\n"
         "  \"avg_responses_per_min\": " + std::to_string(avg_res_per_minute) + "\n"
         "  }\n"
         "}";
