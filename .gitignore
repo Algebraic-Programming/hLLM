@@ -4,3 +4,4 @@ build
 .vscode
 atlas_*.sh
 **/matrix/
+.wraplock
