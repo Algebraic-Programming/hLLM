@@ -198,7 +198,7 @@ class RequestManager final : public hLLM::Role
     const double avg_res_per_minute = resp_diff/time_diff_sec * 60.0;
 
     // Update the prev_time if it was longer than a second
-    if(time_diff_sec > 1.0)
+    if(time_diff_sec > 10.0)
     {
       prev_time = now_time;
       prev_num_responses = num_responses;
