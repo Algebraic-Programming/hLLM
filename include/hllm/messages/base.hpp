@@ -11,9 +11,9 @@ namespace hLLM::messages
 #define __HLLM__BASE_MESSAGE_ID__ 128
 enum messageTypes : edge::Message::messageType_t
 {
-  heartbeat = __HLLM__BASE_MESSAGE_ID__ + 0,
-  prompt = __HLLM__BASE_MESSAGE_ID__ + 1,
-  data = __HLLM__BASE_MESSAGE_ID__ + 2,
+  heartbeat    = __HLLM__BASE_MESSAGE_ID__ + 0,
+  prompt       = __HLLM__BASE_MESSAGE_ID__ + 1,
+  data         = __HLLM__BASE_MESSAGE_ID__ + 2,
   replicaReady = __HLLM__BASE_MESSAGE_ID__ + 3
 };
 
@@ -21,14 +21,14 @@ class Base
 {
   public:
 
-  virtual void decode(const edge::Message& rawMessage) = 0;
-  virtual edge::Message encode() const = 0;
-  virtual edge::Message::messageType_t getType() const = 0;
+  virtual void                         decode(const edge::Message &rawMessage) = 0;
+  virtual edge::Message                encode() const                          = 0;
+  virtual edge::Message::messageType_t getType() const                         = 0;
 
   protected:
 
-  Base() = default;
+  Base()          = default;
   virtual ~Base() = default;
 }; // class Base
 
-} // namespace hLLM
+} // namespace hLLM::messages

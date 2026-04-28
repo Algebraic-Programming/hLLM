@@ -25,9 +25,9 @@ class Engine final
 {
   public:
 
-  Engine(HiCR::InstanceManager             *instanceManager,
-         HiCR::frontend::RPCEngine         *rpcEngine,
-         taskr::Runtime                    *taskr,
+  Engine(HiCR::InstanceManager              *instanceManager,
+         HiCR::frontend::RPCEngine          *rpcEngine,
+         taskr::Runtime                     *taskr,
          const HiCR::GlobalMemorySlot::tag_t exchangeTag = __HLLM_DEFAULT_EXCHANGE_TAG)
     : _instanceManager(instanceManager),
       _rpcEngine(rpcEngine),
@@ -36,10 +36,11 @@ class Engine final
       _exchangeTag(exchangeTag)
   {
     // Registering entry point function for partition coordinators / replicas. Not for the deployment launcher
-    _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void*) { entryPoint(); }));
+    _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { entryPoint(); }));
 
     // Registering deployment information request
-    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME,
+                             HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
 
     // Registering finalization function (for root to execute)
     _rpcEngine->addRPCTarget(__HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { doLocalTermination(); }));
@@ -101,7 +102,7 @@ class Engine final
     _deployment = deployment;
 
     // Getting the instances involved in the deployment (only relevant for the deployer instance)
-    for (const auto& partition : _deployment.getPartitions())
+    for (const auto &partition : _deployment.getPartitions())
     {
       // Getting the instance id assigned to the partition coordinator
       const auto coordinatorInstanceId = partition->getCoordinatorInstanceId();
@@ -110,7 +111,7 @@ class Engine final
       _instanceSet.insert(coordinatorInstanceId);
 
       // Now getting all replicas for the replica
-      for (const auto& replica : partition->getReplicas())
+      for (const auto &replica : partition->getReplicas())
       {
         // Getting the instance id assigned to the replica
         const auto replicaInstanceId = replica->getInstanceId();
@@ -125,14 +126,18 @@ class Engine final
       if (instanceId != _deployerInstanceId) // If it's not me, listen for a deployment configuration request
       {
         printf("Deployer %lu: Listening for instance %lu\n", _instanceId, instanceId);
-         _rpcEngine->listen();
+        _rpcEngine->listen();
       }
   }
 
   __INLINE__ void deploy(const configuration::Deployment deployment)
   {
     // If I am not the deployer instance await for the deployment launcher to request us to start
-    if (_instanceId != _deployerInstanceId) { _rpcEngine->listen(); return; } 
+    if (_instanceId != _deployerInstanceId)
+    {
+      _rpcEngine->listen();
+      return;
+    }
 
     // Considering whether the deployment launcher is actually part of the deployment
     bool isLauncherInDeployment = false;
@@ -177,27 +182,27 @@ class Engine final
   {
     const auto &currentInstance = *_instanceManager->getCurrentInstance();
 
-    // If I am the deployer instance, 
+    // If I am the deployer instance,
     if (currentInstance.getId() == _deployerInstanceId)
     {
-       printf("[hLLM] Deployer instance %lu finalizing hLLM...\n", currentInstance.getId());
+      printf("[hLLM] Deployer instance %lu finalizing hLLM...\n", currentInstance.getId());
 
-       // Broadcast termination to others (and myself)
-       broadcastTermination(); 
-       
-       // (deployer) Executing local termination myself now
-       doLocalTermination();
+      // Broadcast termination to others (and myself)
+      broadcastTermination();
 
-       // Return
-       return;
-    } 
+      // (deployer) Executing local termination myself now
+      doLocalTermination();
+
+      // Return
+      return;
+    }
 
     // If I am not the deployer instance, request the deployer to please broadcast terminationp
     printf("[hLLM] Instance %lu requesting deployer instance %lu to finish execution.\n", currentInstance.getId(), _deployerInstanceId);
     _rpcEngine->requestRPC(_deployerInstanceId, __HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME);
   }
 
-  [[nodiscard]] __INLINE__ auto& getDeployment() { return _deployment; }
+  [[nodiscard]] __INLINE__ auto  &getDeployment() { return _deployment; }
   [[nodiscard]] __INLINE__ size_t getPartitionIdx() const { return _partitionIdx; }
 
   [[nodiscard]] __INLINE__ std::shared_ptr<Session> createSession()
@@ -264,7 +269,7 @@ class Engine final
   __INLINE__ void entryPoint()
   {
     // Indexes corresponding to the roles assigned to this instance
-    std::vector<configuration::Partition::partitionIndex_t> coordinatorRoleIndexes;
+    std::vector<configuration::Partition::partitionIndex_t>                                                    coordinatorRoleIndexes;
     std::vector<std::pair<configuration::Partition::partitionIndex_t, configuration::Replica::replicaIndex_t>> replicaRoleIndexes;
 
     // Sanity checks on the deployment object
@@ -294,7 +299,7 @@ class Engine final
     }
 
     // If I am a partition coordinator, construct the coordinator object
-    for (const auto& coordinatorRoleIndex : coordinatorRoleIndexes)
+    for (const auto &coordinatorRoleIndex : coordinatorRoleIndexes)
     {
       printf("[Instance %lu] I am a partition %lu coordinator\n", _instanceId, coordinatorRoleIndex);
       auto coordinatorRole = std::make_shared<roles::partition::Coordinator>(_deployment, coordinatorRoleIndex, _taskr);
@@ -305,7 +310,7 @@ class Engine final
 
     // If I am a replica, construct the replica object:
     // Note: An instance can be simultaneously a partition coordinator and a replica
-    for (const auto& replicaRoleIndex : replicaRoleIndexes)
+    for (const auto &replicaRoleIndex : replicaRoleIndexes)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, replicaRoleIndex.first, replicaRoleIndex.second);
       auto replicaRole = std::make_shared<roles::partition::Replica>(_deployment, replicaRoleIndex.first, replicaRoleIndex.second, _taskr, _registeredFunctions);
@@ -328,21 +333,21 @@ class Engine final
     if (_instanceRoles.empty()) HICR_THROW_RUNTIME("Instance %lu is involved in the deployment but no role has been asigned to it.", _instanceId);
 
     ////////// Exchange memory slots now
-   
-    // Storage for the initial set of HiCR memory slots to exchange for the creation of edges. 
+
+    // Storage for the initial set of HiCR memory slots to exchange for the creation of edges.
     // This is a low-level aspect that normally shouldn't be exposed at this level, but it is required
     // for all partitions to partitipate since we still don't support peer-to-peer memory slot exchange
     std::vector<edge::memorySlotExchangeInfo_t> memorySlotsToExchange;
 
     // Getting memory slots to exchange
-    for (const auto& role : _instanceRoles) role->getMemorySlotsToExchange(memorySlotsToExchange);
+    for (const auto &role : _instanceRoles) role->getMemorySlotsToExchange(memorySlotsToExchange);
 
     // printf("[Instance %lu] Memory Slots to exchange: %lu\n", _instanceId, memorySlotsToExchange.size());
 
     // Finding all distinct communication managers and storing them in the order in which they were declared.
     // This is important for all intervening instances to do the exchange in the same order
-    std::set<HiCR::CommunicationManager*> communicationManagerSet;
-    std::vector<HiCR::CommunicationManager*> communicationManagerVector;
+    std::set<HiCR::CommunicationManager *>    communicationManagerSet;
+    std::vector<HiCR::CommunicationManager *> communicationManagerVector;
 
     // Adding control communication manager
     const auto controlCommunicationManager = _deployment.getControlBuffer().communicationManager;
@@ -350,7 +355,7 @@ class Engine final
     communicationManagerVector.push_back(controlCommunicationManager);
 
     // Adding edge-specific communication managers
-    for (const auto& edge : _deployment.getEdges())
+    for (const auto &edge : _deployment.getEdges())
     {
       const auto coordinationComunicationManager = edge->getCoordinationCommunicationManager();
       if (communicationManagerSet.contains(coordinationComunicationManager) == false)
@@ -368,11 +373,11 @@ class Engine final
     }
 
     // Now creating a map of memory slots to exchange, mapped by communication manager
-    std::map<HiCR::CommunicationManager*, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> exchangeMap;
-    for (const auto& entry : memorySlotsToExchange)
+    std::map<HiCR::CommunicationManager *, std::vector<HiCR::CommunicationManager::globalKeyMemorySlotPair_t>> exchangeMap;
+    for (const auto &entry : memorySlotsToExchange)
     {
       // Getting the communication manager used for this memory slot
-      const auto& communicationManager = entry.communicationManager;
+      const auto &communicationManager = entry.communicationManager;
 
       // Sanity check
       if (communicationManagerSet.contains(communicationManager) == false) HICR_THROW_RUNTIME("Could not find communication manager in the set. This is a bug in hLLM");
@@ -380,7 +385,7 @@ class Engine final
       // Adding memory slot to the exchange map
       // printf("Exchanging Memory Slot with key: %lu\n", entry.globalKey);
       exchangeMap[communicationManager].push_back(HiCR::CommunicationManager::globalKeyMemorySlotPair_t(entry.globalKey, entry.memorySlot));
-    } 
+    }
 
     // Finally, doing the exchange, one communication manager at a time, in the order given by the edge ordering
     printf("[Instance %lu] Exchanging Memory Slots...\n", _instanceId);
@@ -390,19 +395,19 @@ class Engine final
     for (const auto communicationManager : communicationManagerVector) communicationManager->fence(_exchangeTag);
 
     // After the exchange, we can now initialize the edges
-    for (const auto& role : _instanceRoles) role->initializeEdges(_exchangeTag);
+    for (const auto &role : _instanceRoles) role->initializeEdges(_exchangeTag);
 
     // Initializing TaskR
     _taskr->initialize();
 
     // Initializing roles
-    for (const auto& role : _instanceRoles) role->initialize();
+    for (const auto &role : _instanceRoles) role->initialize();
 
     // Instruct TaskR to re-add suspended tasks
     _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskSuspend, [&](taskr::Task *task) { _taskr->resumeTask(task); });
 
     // Release task memory upon finalization
-    _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskFinish, [&](taskr::Task *task) { delete (hLLM::Task*)task; });
+    _taskr->setTaskCallbackHandler(HiCR::tasking::Task::callback_t::onTaskFinish, [&](taskr::Task *task) { delete (hLLM::Task *)task; });
 
     // The engine is  now fully deployed
     _isDeployed = true;
@@ -424,13 +429,13 @@ class Engine final
   // For every new partition instance created, we send it the serialized deployment configuration
   __INLINE__ void attendDeploymentConfigurationRequest()
   {
-      printf("[Deployer Instance %lu] Received request to send deployment configuration...\n", _instanceId);
-      
-      // Serializing
-      const auto serializedDeployment = _deployment.serialize().dump();
+    printf("[Deployer Instance %lu] Received request to send deployment configuration...\n", _instanceId);
 
-      // Returning serialized topology
-      _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
+    // Serializing
+    const auto serializedDeployment = _deployment.serialize().dump();
+
+    // Returning serialized topology
+    _rpcEngine->submitReturnValue((void *)serializedDeployment.c_str(), serializedDeployment.size() + 1);
   }
 
   // Pointer to the instance's roles assigned to this instance
@@ -458,7 +463,7 @@ class Engine final
   HiCR::frontend::RPCEngine *_rpcEngine;
 
   // TaskR instance
-  taskr::Runtime* const _taskr;
+  taskr::Runtime *const _taskr;
 
   // My instance Id
   const HiCR::Instance::instanceId_t _instanceId;
