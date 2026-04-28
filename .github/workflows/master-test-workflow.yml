@@ -36,7 +36,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup
         run: source /home/hicr/.bashrc && meson setup build -Dengines=mpi,cloudr -Db_coverage=true -DbuildTests=true -DbuildExamples=true -DcompileWarningsAsErrors=false
