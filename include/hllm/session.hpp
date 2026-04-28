@@ -8,9 +8,9 @@
 namespace hLLM
 {
 
-namespace roles 
+namespace roles
 {
-  class RequestManager;
+class RequestManager;
 }
 
 class Session
@@ -19,24 +19,24 @@ class Session
 
   friend class roles::RequestManager;
 
-  Session() = delete;
+  Session()  = delete;
   ~Session() = default;
 
-  Session(const sessionId_t sessionId) :
-  _sessionId(sessionId)
+  Session(const sessionId_t sessionId)
+    : _sessionId(sessionId)
   {
     _currentMessageId = 0;
   }
 
   __INLINE__ const sessionId_t getSessionId() const { return _sessionId; }
-  
-  __INLINE__ std::shared_ptr<Prompt> createPrompt(const std::string& promptString)
+
+  __INLINE__ std::shared_ptr<Prompt> createPrompt(const std::string &promptString)
   {
     // Getting and increasing message id
     const auto messageId = _currentMessageId++;
 
     // Creating prompt object
-    const auto promptId = Prompt::promptId_t({_sessionId, messageId});
+    const auto promptId     = Prompt::promptId_t({_sessionId, messageId});
     const auto promptObject = std::make_shared<Prompt>(promptId, promptString);
 
     return promptObject;
@@ -62,15 +62,19 @@ class Session
 
     // Getting prompt from the queue, if there's any
     _promptMutex.lock();
-    if (_newPromptQueue.empty() == false) { prompt = _newPromptQueue.front(); _newPromptQueue.pop(); }
+    if (_newPromptQueue.empty() == false)
+    {
+      prompt = _newPromptQueue.front();
+      _newPromptQueue.pop();
+    }
     _promptMutex.unlock();
 
     return prompt;
   }
 
-  bool _isConnected = false;
+  bool              _isConnected = false;
   const sessionId_t _sessionId;
-  messageId_t _currentMessageId;
+  messageId_t       _currentMessageId;
 
   // Mutual exclusion for managing prompts
   std::mutex _promptMutex;
