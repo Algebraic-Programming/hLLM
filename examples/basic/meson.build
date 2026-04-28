@@ -8,7 +8,7 @@ if get_option('buildTests')
 		args: [
 			'-np', '1',
 			'--oversubscribe', e.full_path(),
-			meson.current_source_dir() + '/config.json',
+			meson.current_source_dir() + '/policy.json',
 		],
 		timeout: 60,
 		suite: testSuite,
