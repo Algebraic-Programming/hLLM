@@ -28,6 +28,7 @@ class Replica final : public Base
           const configuration::Partition::partitionIndex_t   partitionIdx,
           const configuration::Replica::replicaIndex_t       replicaIdx,
           taskr::Runtime *const                              taskr,
+          HiCR::ComputeManager *const                        computeManager,
           const std::map<std::string, Task::taskFunction_t> &registeredFunctions)
     : Base(deployment, partitionIdx, taskr),
       _replicaIdx(replicaIdx),
@@ -62,7 +63,7 @@ class Replica final : public Base
       std::make_shared<edge::Output>(*_controlEdgeConfig, edge::edgeType_t::replicaToCoordinator, edge::Base::controlEdgeIndex, _partitionIdx, _partitionIdx, _replicaIdx);
 
     // Creating general TaskR function for all execution graph tasks
-    _taskrFunction = std::make_unique<taskr::Function>([this](taskr::Task *task) { runTaskRFunction(task); });
+    _taskrFunction = std::make_unique<taskr::Function>(computeManager, [this](taskr::Task *task) { runTaskRFunction(task); });
 
     // Resetting label count
     _taskrLabelCounter = 0;
