@@ -41,8 +41,7 @@ class Engine final
     _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { entryPoint(); }));
 
     // Registering deployment information request
-    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME,
-                             _computeManager->createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
 
     // Registering finalization function (for root to execute)
     _rpcEngine->addRPCTarget(__HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { doLocalTermination(); }));
