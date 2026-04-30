@@ -55,6 +55,7 @@ jobs:
           echo "Creating coverage report..."
           ninja -C build coverage
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build-standard-${{ inputs.arch }}
           path: build/

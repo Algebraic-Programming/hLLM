@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
   const auto isRoot = instanceManager->getCurrentInstance()->isRootInstance();
 
   // Creating hLLM Engine object
-  hLLM::Engine hllm(instanceManager.get(), rpcEngine.get(), taskr.get());
+  hLLM::Engine hllm(instanceManager.get(), workerComputeManager.get(), rpcEngine.get(), taskr.get());
 
   // Deployment object, it dictates how the work will be distributed
   hLLM::configuration::Deployment deployment;

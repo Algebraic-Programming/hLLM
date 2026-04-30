@@ -26,27 +26,28 @@ class Engine final
   public:
 
   Engine(HiCR::InstanceManager              *instanceManager,
+         HiCR::ComputeManager               *computeManager,
          HiCR::frontend::RPCEngine          *rpcEngine,
          taskr::Runtime                     *taskr,
          const HiCR::GlobalMemorySlot::tag_t exchangeTag = __HLLM_DEFAULT_EXCHANGE_TAG)
     : _instanceManager(instanceManager),
+      _computeManager(computeManager),
       _rpcEngine(rpcEngine),
       _taskr(taskr),
       _instanceId(_instanceManager->getCurrentInstance()->getId()),
       _exchangeTag(exchangeTag)
   {
     // Registering entry point function for partition coordinators / replicas. Not for the deployment launcher
-    _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { entryPoint(); }));
+    _rpcEngine->addRPCTarget(__HLLM_WORKER_ENTRY_POINT_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { entryPoint(); }));
 
     // Registering deployment information request
-    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME,
-                             HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_CONFIGURATION_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { attendDeploymentConfigurationRequest(); }));
 
     // Registering finalization function (for root to execute)
-    _rpcEngine->addRPCTarget(__HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { doLocalTermination(); }));
+    _rpcEngine->addRPCTarget(__HLLM_BROADCAST_DEPLOYMENT_STOP_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { doLocalTermination(); }));
 
     // Registering finalization request function (for non-root to request roots to end the entire execution)
-    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME, HiCR::backend::pthreads::ComputeManager::createExecutionUnit([this](void *) { broadcastTermination(); }));
+    _rpcEngine->addRPCTarget(__HLLM_REQUEST_DEPLOYMENT_STOP_RPC_NAME, _computeManager->createExecutionUnit([this](void *) { broadcastTermination(); }));
   }
 
   ~Engine() = default;
@@ -313,7 +314,7 @@ class Engine final
     for (const auto &replicaRoleIndex : replicaRoleIndexes)
     {
       printf("[Instance %lu] I am a partition %lu replica %lu\n", _instanceId, replicaRoleIndex.first, replicaRoleIndex.second);
-      auto replicaRole = std::make_shared<roles::partition::Replica>(_deployment, replicaRoleIndex.first, replicaRoleIndex.second, _taskr, _registeredFunctions);
+      auto replicaRole = std::make_shared<roles::partition::Replica>(_deployment, replicaRoleIndex.first, replicaRoleIndex.second, _taskr, _computeManager, _registeredFunctions);
 
       // Storing role
       _instanceRoles.push_back(replicaRole);
@@ -458,6 +459,9 @@ class Engine final
 
   // The instance manager to use for creating / relinquishing  replicas
   HiCR::InstanceManager *const _instanceManager;
+
+  // The compute manager to use for creating execution units and registering RPC targets
+  HiCR::ComputeManager *const _computeManager;
 
   // Pointer to the HiCR RPC Engine
   HiCR::frontend::RPCEngine *_rpcEngine;
