@@ -59,8 +59,11 @@ int main(int argc, char *argv[])
   // Check whether the instance is root
   const auto isRoot = instanceManager->getCurrentInstance()->isRootInstance();
 
+  // Creating module entry point function
+  auto moduleEntrypoint = [&]() { printf("[Instance %lu] Hello from the module entry point!\n", instanceManager->getCurrentInstance()->getId()); };
+
   // Creating hLLM Engine object
-  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine);
+  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, moduleEntrypoint);
 
   auto numInstances = 0;
   // If I am root, checking arguments.

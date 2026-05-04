@@ -12,6 +12,8 @@
 namespace hLLM::system
 {
 
+using moduleEntrypontFc_t = std::function<void()>;
+
 /**
  * Engin that bootstraps the instances
  */
@@ -29,10 +31,12 @@ class Engine final
   Engine(std::shared_ptr<HiCR::InstanceManager>     instanceManager,
          std::shared_ptr<HiCR::ComputeManager>      computeManager,
          std::shared_ptr<HiCR::frontend::RPCEngine> rpcEngine,
+         moduleEntrypontFc_t                        moduleEntrypoint,
          const HiCR::GlobalMemorySlot::tag_t        exchangeTag = __HLLM_DEFAULT_EXCHANGE_TAG)
     : _instanceManager(instanceManager),
       _computeManager(computeManager),
       _rpcEngine(rpcEngine),
+      _moduleEntrypoint(moduleEntrypoint),
       _exchangeTag(exchangeTag)
   {
     // Register RPC for sending list of instances. This is used by non-root instances to obtain the list of instances in the system
@@ -71,6 +75,7 @@ class Engine final
     }
     else { _rpcEngine->listen(); }
   }
+
   __INLINE__ void finalize()
   {
     auto isRoot = _instanceManager->getCurrentInstance()->isRootInstance();
@@ -108,7 +113,12 @@ class Engine final
     }
   }
 
-  void start() { printf("Instance %lu starting...\n", _instanceManager->getCurrentInstance()->getId()); }
+  void start()
+  {
+    printf("Instance %lu starting...\n", _instanceManager->getCurrentInstance()->getId());
+    // Start module entry point
+    _moduleEntrypoint();
+  }
   void stop() { printf("Instance %lu stopping...\n", _instanceManager->getCurrentInstance()->getId()); }
 
   // The instance manager to use for creating / relinquishing  replicas
@@ -122,6 +132,9 @@ class Engine final
 
   // Pointer to the HiCR RPC Engine
   std::shared_ptr<HiCR::frontend::RPCEngine> _rpcEngine;
+
+  // The entry point of the module to execute in each instance
+  moduleEntrypontFc_t _moduleEntrypoint;
 
   // HiCR Tag to use for channel exchanges
   const HiCR::GlobalMemorySlot::tag_t _exchangeTag;
