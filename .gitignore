@@ -5,3 +5,4 @@ build
 atlas_*.sh
 **/matrix/
 .wraplock
+notes.txt
