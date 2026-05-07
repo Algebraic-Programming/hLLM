@@ -1,14 +1,13 @@
 testSuite = ['examples', 'system']
 
-e = executable('system', ['system.cpp'], dependencies: hLLMBuildDep)
+e = executable('engine', ['engine.cpp'], dependencies: hLLMBuildDep)
 if get_option('buildTests')
 	test(
-		'system',
+		'engine',
 		mpirunExecutable,
 		args: [
-			'-np', '4',
-			'--oversubscribe', e.full_path(),
-			'4',
+			'-np', '5',
+			'--oversubscribe', e.full_path()
 		],
 		timeout: 60,
 		suite: testSuite,

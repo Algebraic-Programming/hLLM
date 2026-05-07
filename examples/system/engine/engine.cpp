@@ -2,6 +2,7 @@
 #include <thread>
 #include <fstream>
 #include <random>
+
 #include <hicr/backends/hwloc/memoryManager.hpp>
 #include <hicr/backends/mpi/memoryManager.hpp>
 #include <hicr/backends/hwloc/topologyManager.hpp>
@@ -12,7 +13,12 @@
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <taskr/runtime.hpp>
+
+#include <modules/configuration/deployment.hpp>
+#include <modules/channelBootstrap/module.hpp>
 #include <system/engine.hpp>
+
+#include "engine.hpp"
 
 int main(int argc, char *argv[])
 {
@@ -56,38 +62,29 @@ int main(int argc, char *argv[])
   // Initialize RPC Engine
   rpcEngine->initialize();
 
-  // Check whether the instance is root
-  const auto isRoot = instanceManager->getCurrentInstance()->isRootInstance();
-
-  // Creating module entry point function
-  auto moduleEntrypoint = [&]() { printf("[Instance %lu] Hello from the module entry point!\n", instanceManager->getCurrentInstance()->getId()); };
+  // Creating taskr object
+  nlohmann::json taskrConfig;
+  taskrConfig["Task Worker Inactivity Time (Ms)"] = 100;  // Suspend workers if a certain time of inactivity elapses
+  taskrConfig["Task Suspend Interval Time (Ms)"]  = 100;  // Workers suspend for this time before checking back
+  taskrConfig["Minimum Active Task Workers"]      = 1;    // Have at least one worker active at all times
+  taskrConfig["Service Worker Count"]             = 1;    // Have one dedicated service workers at all times to listen for incoming messages
+  taskrConfig["Make Task Workers Run Services"]   = true; // Workers will check for meta messages in between executions
+  auto taskr                                      = std::make_shared<taskr::Runtime>(taskComputeManager.get(), workerComputeManager.get(), computeResources, taskrConfig);
 
   // Creating hLLM Engine object
-  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, moduleEntrypoint);
+  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, instanceManager->getRootInstanceId(), taskr);
 
-  auto numInstances = 0;
-  // If I am root, checking arguments.
-  // Do not assume other instances will have the correct arguments set (e.g., file that exists only on root instance)
-  if (isRoot == true)
-  {
-    if (argc != 2)
-    {
-      fprintf(stderr, "Error: Must provide the desired number of instances.\n");
-      instanceManager->abort(-1);
-    }
-
-    // Getting config file name from arguments
-    numInstances = std::stoi(argv[1]);
-  }
-
-  // Broadcasting deployment from the root instance to all the other intervening instances
-  hllm.initialize(numInstances);
+  // Initializing hLLM
+  hllm.initialize();
 
   // Running hLLM
   hllm.run();
 
   // Finalizing hLLM
-  hllm.finalize();
+  hllm.terminate();
+
+  // Awaiting hLLM termination
+  hllm.await();
 
   // Finalize Instance Manager
   instanceManager->finalize();
