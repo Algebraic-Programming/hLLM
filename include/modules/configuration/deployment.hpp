@@ -1,14 +1,18 @@
 #pragma once
 
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <nlohmann_json/parser.hpp>
+
+#include <hicr/core/definitions.hpp>
+#include <hicr/core/instance.hpp>
+
 #include "partition.hpp"
 #include "edge.hpp"
 #include "requestManager.hpp"
-#include <vector>
-#include <memory>
-#include <string>
-#include <nlohmann_json/parser.hpp>
-#include <hicr/core/definitions.hpp>
-#include <hicr/core/instance.hpp>
 
 namespace hLLM::configuration
 {
@@ -66,7 +70,7 @@ class Deployment final
   };
 
   Deployment(const std::string &name)
-    : _name(name){};
+    : _name(name) {};
   Deployment(const nlohmann::json &js) { deserialize(js); };
   Deployment()  = default;
   ~Deployment() = default;
@@ -79,6 +83,7 @@ class Deployment final
   [[nodiscard]] __INLINE__ auto       &getPartitions() const { return _partitions; }
   [[nodiscard]] __INLINE__ auto       &getEdges() const { return _edges; }
   [[nodiscard]] __INLINE__ auto       &getHeartbeat() const { return _settings.heartbeat; }
+  [[nodiscard]] __INLINE__ const auto &getControlBuffer() const { return _settings.controlBuffer; }
   [[nodiscard]] __INLINE__ auto       &getControlBuffer() { return _settings.controlBuffer; }
   [[nodiscard]] __INLINE__ auto       &getControlBufferConst() const { return _settings.controlBuffer; }
   [[nodiscard]] __INLINE__ auto       &getRequestManager() const { return _requestManager; }

@@ -14,11 +14,7 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <taskr/runtime.hpp>
 
-#include <modules/configuration/deployment.hpp>
-#include <modules/channelBootstrap/module.hpp>
 #include <system/engine.hpp>
-
-#include "engine.hpp"
 
 int main(int argc, char *argv[])
 {
