@@ -85,16 +85,19 @@ int main(int argc, char *argv[])
     readAndParseConfiguration(argv, deployment, instanceManager);
   }
 
+  std::unique_ptr<hLLM::modules::broadcastDeployment::Module> broadcastDeploymentModule;
   if (instanceId == deployerInstanceId)
   {
-    hllm.addModule("BroadcastDeployment",
-                   std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment));
+    broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment);
   }
   else
   {
-    hllm.addModule("BroadcastDeployment",
-                   std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId));
+    broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId);
   }
+
+  const auto &receivedDeployment = broadcastDeploymentModule->getDeployment();
+  // Adding broadcast deployment module to hLLM
+  hllm.addModule("BroadcastDeployment", std::move(broadcastDeploymentModule));
 
   // Initializing hLLM
   hllm.initialize();
@@ -107,6 +110,10 @@ int main(int argc, char *argv[])
 
   // Awaiting hLLM termination
   hllm.await();
+
+  // Printing deployment information to verify it was correctly received
+  std::this_thread::sleep_for(std::chrono::seconds(instanceId)); // Sleep a bit to ensure all output is printed before this
+  printf("[Instance %lu] Received deployment configuration:\n%s\n", instanceId, receivedDeployment.serialize().dump(2).c_str()); 
 
   // Finalize Instance Manager
   instanceManager->finalize();
