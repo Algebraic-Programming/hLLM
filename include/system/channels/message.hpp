@@ -19,8 +19,8 @@ class Message final
 #pragma pack(push, 1)
   struct metadata_t
   {
-    messageType_t type = 0;
-    groupId_t     groupId = 0;
+    messageType_t type      = 0;
+    groupId_t     groupId   = 0;
     messageId_t   messageId = 0;
   };
 #pragma pack(pop)

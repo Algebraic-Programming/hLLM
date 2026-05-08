@@ -18,7 +18,7 @@ class Input final : public Base
 {
   public:
 
-  Input(const hLLM::configuration::Edge &edgeConfig,
+  Input(const hLLM::configuration::Edge   &edgeConfig,
         const channelId_t                  channelIndex,
         const HiCR::Instance::instanceId_t sourceIndex,
         const HiCR::Instance::instanceId_t targetIndex,

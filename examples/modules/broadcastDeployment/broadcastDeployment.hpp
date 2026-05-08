@@ -39,8 +39,8 @@ void readAndParseConfiguration(char *argv[], hLLM::configuration::Deployment &de
   {
     // Getting instance Id that will run this partition (only one)
     const auto partitionInstanceId = (*instance)->getId();
-    
-    // Update instance 
+
+    // Update instance
     instance++;
 
     // Setting this partition to be executed by the same instance than replica zero

@@ -154,7 +154,9 @@ class Base
                                              const HiCR::Instance::instanceId_t sourceIndex,
                                              const HiCR::Instance::instanceId_t targetIndex,
                                              const keyBuilderFc_t              &keyBuilder)
-  { return keyBuilder(sourceIndex, targetIndex, channelIndex); }
+  {
+    return keyBuilder(sourceIndex, targetIndex, channelIndex);
+  }
 
   // Config + externally-provided key material
   const channelConfig_t _config;
@@ -178,6 +180,6 @@ class Base
   std::shared_ptr<HiCR::GlobalMemorySlot> _metadataChannelConsumerCoordinationBuffer;
   std::shared_ptr<HiCR::GlobalMemorySlot> _metadataChannelProducerCoordinationBuffer;
 
-  std::mutex                              _lock;
+  std::mutex _lock;
 };
 } // namespace hLLM::system::channels

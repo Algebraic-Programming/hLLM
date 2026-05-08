@@ -64,8 +64,8 @@ int main(int argc, char *argv[])
   hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, instanceManager->getRootInstanceId());
 
   // Check whether the instance is root
-  const auto isRoot             = instanceManager->getCurrentInstance()->isRootInstance();
-  const auto instanceId         = instanceManager->getCurrentInstance()->getId();
+  const auto isRoot     = instanceManager->getCurrentInstance()->isRootInstance();
+  const auto instanceId = instanceManager->getCurrentInstance()->getId();
 
   // Creating taskr object
   nlohmann::json taskrConfig;
@@ -78,11 +78,9 @@ int main(int argc, char *argv[])
 
   auto taskSchedulerModule = std::make_unique<hLLM::modules::taskScheduler::Module>(taskComputeManager, taskr);
 
-  // Adding a simple task that prints "Hello world". Here we call terminate from within the task 
+  // Adding a simple task that prints "Hello world". Here we call terminate from within the task
   // to keep the application simple
-  taskSchedulerModule->addTask("helloWorld", [&](taskr::Task *task) {
-    printf("[Instance %lu] Hello World from task %lu!\n", instanceId, task->getTaskId());
-  });
+  taskSchedulerModule->addTask("helloWorld", [&](taskr::Task *task) { printf("[Instance %lu] Hello World from task %lu!\n", instanceId, task->getTaskId()); });
 
   // Adding task scheduler module to hLLM
   hllm.addModule("taskScheduler", std::move(taskSchedulerModule));
@@ -92,8 +90,9 @@ int main(int argc, char *argv[])
 
   // Running hLLM
   hllm.run();
-  
-  if(isRoot){
+
+  if (isRoot)
+  {
     printf("[Instance %lu] issuing termination\n", instanceId);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));

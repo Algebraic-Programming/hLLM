@@ -88,12 +88,10 @@ int main(int argc, char *argv[])
   std::unique_ptr<hLLM::modules::broadcastDeployment::Module> broadcastDeploymentModule;
   if (instanceId == deployerInstanceId)
   {
-    broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment);
+    broadcastDeploymentModule =
+      std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment);
   }
-  else
-  {
-    broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId);
-  }
+  else { broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId); }
 
   const auto &receivedDeployment = broadcastDeploymentModule->getDeployment();
   // Adding broadcast deployment module to hLLM
@@ -113,7 +111,7 @@ int main(int argc, char *argv[])
 
   // Printing deployment information to verify it was correctly received
   std::this_thread::sleep_for(std::chrono::seconds(instanceId)); // Sleep a bit to ensure all output is printed before this
-  printf("[Instance %lu] Received deployment configuration:\n%s\n", instanceId, receivedDeployment.serialize().dump(2).c_str()); 
+  printf("[Instance %lu] Received deployment configuration:\n%s\n", instanceId, receivedDeployment.serialize().dump(2).c_str());
 
   // Finalize Instance Manager
   instanceManager->finalize();

@@ -75,10 +75,7 @@ class Module final : public modules::Module
         _rpcEngine->listen();
       }
     }
-    else
-    {
-      retrieveDeployment();
-    }
+    else { retrieveDeployment(); }
   }
 
   // Init-only module (no periodic work)

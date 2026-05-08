@@ -70,7 +70,7 @@ class Deployment final
   };
 
   Deployment(const std::string &name)
-    : _name(name) {};
+    : _name(name){};
   Deployment(const nlohmann::json &js) { deserialize(js); };
   Deployment()  = default;
   ~Deployment() = default;
