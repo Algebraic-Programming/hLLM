@@ -1,7 +1,9 @@
 #pragma once
 
 #include <atomic>
+#include <map>
 #include <memory>
+#include <string>
 
 #include <hicr/core/definitions.hpp>
 #include <hicr/core/exceptions.hpp>
@@ -9,10 +11,7 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 #include <taskr/taskr.hpp>
 
-#include <modules/configuration/deployment.hpp>
-#include <modules/broadcastDeployment/module.hpp>
 #include <modules/module.hpp>
-
 
 namespace hLLM::system
 {
@@ -27,11 +26,9 @@ class Engine final
   Engine(std::shared_ptr<HiCR::InstanceManager>     instanceManager,
          std::shared_ptr<HiCR::ComputeManager>      computeManager,
          std::shared_ptr<HiCR::frontend::RPCEngine> rpcEngine,
-         const HiCR::Instance::instanceId_t         deployerInstanceId,
-         std::shared_ptr<taskr::Runtime>            taskr)
+         const HiCR::Instance::instanceId_t         deployerInstanceId)
     : _instanceManager(instanceManager),
       _computeManager(computeManager),
-      _taskr(taskr),
       _rpcEngine(rpcEngine),
       _instanceId(instanceManager->getCurrentInstance()->getId()),
       _deployerInstanceId(deployerInstanceId)
@@ -42,12 +39,17 @@ class Engine final
 
   ~Engine() = default;
 
+  __INLINE__ void addModule(const std::string &name, std::unique_ptr<modules::Module> module)
+  {
+    if (module == nullptr) HICR_THROW_LOGIC("Trying to add a null module.");
+    if (_modules.contains(name)) HICR_THROW_LOGIC("Trying to add a module with a name that already exists in the system.");
+    _modules[name] = std::move(module);
+  }
+
   __INLINE__ void initialize()
   {
     _isRunning.store(false);
     printf("[Instance %lu] Initializing system\n", _instanceId);
-
-    // Initializing modules
     for (const auto &[name, module] : _modules)
     {
       printf("[Instance %lu] Initializing module %s\n", _instanceId, name.c_str());
@@ -55,20 +57,8 @@ class Engine final
     }
   }
 
-  __INLINE__ void addModule(const std::string &name, std::unique_ptr<modules::Module> module)
-  {
-    if (_modules.contains(name)) HICR_THROW_LOGIC("Trying to add a module with a name that already exists in the system.");
-    _modules[name] = std::move(module);
-  }
-
   __INLINE__ void run()
   {
-    if (_modules.contains("broadcastDeployment"))
-    {
-      auto module = dynamic_cast<modules::broadcastDeployment::Module *>(_modules["broadcastDeployment"].get());
-      _deployment = module->getDeployment();
-    }
-
     if (_instanceId == _deployerInstanceId)
     {
       printf("[Instance %lu] Broadcasting start\n", _instanceId);
@@ -89,7 +79,21 @@ class Engine final
   __INLINE__ void await()
   {
     while (_isRunning.load() == true)
-      if (_rpcEngine->tryListen()) _rpcEngine->parseAndExecuteRPC();
+    {
+      if (_rpcEngine->tryListen()) { _rpcEngine->parseAndExecuteRPC(); }
+    }
+
+    for (const auto &[name, module] : _modules)
+    {
+      printf("[Instance %lu] Awaiting module %s\n", _instanceId, name.c_str());
+      module->await();
+    }
+
+    for (const auto &[name, module] : _modules)
+    {
+      printf("[Instance %lu] Finalizing module %s\n", _instanceId, name.c_str());
+      module->finalize();
+    }
   }
 
   __INLINE__ void terminate()
@@ -107,7 +111,8 @@ class Engine final
       stop();
       return;
     }
-    printf("[Instance %lu] Terminating system\n", _instanceId);
+    // Workers are stopped by stop RPC
+    printf("[Instance %lu] Terminate called on worker; waiting for stop RPC in await()\n", _instanceId);
   }
 
   __INLINE__ void createInstance() { _instanceManager->createInstance(); }
@@ -121,8 +126,15 @@ class Engine final
       printf("[Instance %lu] System already running\n", _instanceId);
       return;
     }
+
     _isRunning.store(true);
     printf("[Instance %lu] Starting system\n", _instanceId);
+
+    for (const auto &[name, module] : _modules)
+    {
+      printf("[Instance %lu] Running module %s\n", _instanceId, name.c_str());
+      module->run();
+    }
   }
 
   __INLINE__ void stop()
@@ -132,21 +144,20 @@ class Engine final
       printf("[Instance %lu] System already stopped\n", _instanceId);
       return;
     }
+
     _isRunning.store(false);
     printf("[Instance %lu] Stopping system\n", _instanceId);
   }
 
   std::shared_ptr<HiCR::InstanceManager>     _instanceManager;
   std::shared_ptr<HiCR::ComputeManager>      _computeManager;
-  std::shared_ptr<taskr::Runtime>            _taskr;
   std::shared_ptr<HiCR::frontend::RPCEngine> _rpcEngine;
 
   const HiCR::Instance::instanceId_t _instanceId;
   const HiCR::Instance::instanceId_t _deployerInstanceId;
-  std::atomic<bool>                  _isRunning = false;
+
+  std::atomic<bool> _isRunning = false;
 
   std::map<std::string, std::unique_ptr<modules::Module>> _modules;
-
-  configuration::Deployment _deployment;
 };
 } // namespace hLLM::system

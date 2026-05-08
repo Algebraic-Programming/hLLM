@@ -12,7 +12,6 @@
 #include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
-#include <taskr/runtime.hpp>
 
 #include <system/engine.hpp>
 
@@ -58,17 +57,8 @@ int main(int argc, char *argv[])
   // Initialize RPC Engine
   rpcEngine->initialize();
 
-  // Creating taskr object
-  nlohmann::json taskrConfig;
-  taskrConfig["Task Worker Inactivity Time (Ms)"] = 100;  // Suspend workers if a certain time of inactivity elapses
-  taskrConfig["Task Suspend Interval Time (Ms)"]  = 100;  // Workers suspend for this time before checking back
-  taskrConfig["Minimum Active Task Workers"]      = 1;    // Have at least one worker active at all times
-  taskrConfig["Service Worker Count"]             = 1;    // Have one dedicated service workers at all times to listen for incoming messages
-  taskrConfig["Make Task Workers Run Services"]   = true; // Workers will check for meta messages in between executions
-  auto taskr                                      = std::make_shared<taskr::Runtime>(taskComputeManager.get(), workerComputeManager.get(), computeResources, taskrConfig);
-
   // Creating hLLM Engine object
-  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, instanceManager->getRootInstanceId(), taskr);
+  hLLM::system::Engine hllm(instanceManager, taskComputeManager, rpcEngine, instanceManager->getRootInstanceId());
 
   // Initializing hLLM
   hllm.initialize();

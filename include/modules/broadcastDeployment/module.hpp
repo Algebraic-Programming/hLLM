@@ -81,12 +81,14 @@ class Module final : public modules::Module
     }
   }
 
+  // Init-only module (no periodic work)
+  void run() override {}
+  void await() override {}
   void finalize() override {}
 
   protected:
 
-  // Init-only module (no periodic work)
-  void run() override {}
+  void service() override {}
 
   private:
 

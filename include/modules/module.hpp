@@ -15,7 +15,7 @@ class Module
 
   Module(const size_t interval)
   {
-    _service = std::make_unique<taskr::Service>([&]() { run(); }, interval);
+    _service = std::make_unique<taskr::Service>([&]() { service(); }, interval);
   }
 
   virtual ~Module() = default;
@@ -24,13 +24,15 @@ class Module
   __INLINE__ taskr::Service *getService() const { return _service.get(); }
 
   virtual void initialize() = 0;
+  virtual void run()        = 0;
+  virtual void await()      = 0;
   virtual void finalize()   = 0;
 
   protected:
 
   std::unique_ptr<taskr::Service> _service = nullptr;
 
-  virtual void run() = 0;
+  virtual void service() = 0;
 };
 
 } // namespace hLLM::modules
