@@ -3,8 +3,6 @@
 #include <hicr/core/definitions.hpp>
 #include <taskr/service.hpp>
 
-#include <system/channels/dispatcher.hpp>
-
 namespace hLLM::modules
 {
 class Module
@@ -25,6 +23,7 @@ class Module
 
   virtual void initialize() = 0;
   virtual void run()        = 0;
+  virtual void terminate()  = 0;
   virtual void await()      = 0;
   virtual void finalize()   = 0;
 

@@ -12,9 +12,9 @@
 #include <hicr/backends/pthreads/communicationManager.hpp>
 #include <hicr/backends/boost/computeManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
+#include <taskr/runtime.hpp>
 
-#include <modules/configuration/deployment.hpp>
-#include <modules/taskScheduler/module.hpp>
+#include <modules/service/module.hpp>
 #include <system/engine.hpp>
 
 int main(int argc, char *argv[])
@@ -75,14 +75,23 @@ int main(int argc, char *argv[])
   const auto isRoot     = instanceManager->getCurrentInstance()->isRootInstance();
   const auto instanceId = instanceManager->getCurrentInstance()->getId();
 
-  auto taskSchedulerModule = std::make_unique<hLLM::modules::taskScheduler::Module>(taskComputeManager, taskr);
+  auto serviceModule = std::make_unique<hLLM::modules::service::Module>(taskr);
 
-  // Adding a simple task that prints "Hello world". Here we call terminate from within the task
+  // Adding a simple service that prints "Hello world" one time. Here we call terminate from within the task
   // to keep the application simple
-  taskSchedulerModule->addTask("helloWorld", [&](taskr::Task *task) { printf("[Instance %lu] Hello World from task %lu!\n", instanceId, task->getTaskId()); });
+  int  reps         = 5;
+  int  count        = 0;
+  auto helloWorldFc = [&]() {
+    if (count > reps) { return; }
 
-  // Adding task scheduler module to hLLM
-  hllm.addModule("taskScheduler", std::move(taskSchedulerModule));
+    printf("[Instance %lu] Hello World %d!\n", instanceId, count);
+    count++;
+  };
+  auto helloWorldService = taskr::Service(helloWorldFc, 10);
+  serviceModule->addService("helloWorld", &helloWorldService);
+
+  // Adding service module to hLLM
+  hllm.addModule("service", std::move(serviceModule));
 
   // Initializing hLLM
   hllm.initialize();

@@ -58,11 +58,14 @@ class Module final : public hLLM::modules::Module
 
   void run() override { _taskr->run(); }
 
-  void await() override
+  void terminate() override
   {
     // Set finish on last task to true to allow runtime termination once all tasks have finished executing
     _taskr->setFinishOnLastTask(true);
+  }
 
+  void await() override
+  {
     // Wait for runtime to finish
     _taskr->await();
   }

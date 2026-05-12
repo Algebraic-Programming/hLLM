@@ -93,6 +93,7 @@ class Module final : public modules::Module
   }
 
   void run() override {}
+  void terminate() override {}
   void await() override {}
   void finalize() override
   {

@@ -80,6 +80,7 @@ class Module final : public modules::Module
 
   // Init-only module (no periodic work)
   void run() override {}
+  void terminate() override {}
   void await() override {}
   void finalize() override {}
 

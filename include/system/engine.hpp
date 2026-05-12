@@ -9,7 +9,6 @@
 #include <hicr/core/exceptions.hpp>
 #include <hicr/core/instanceManager.hpp>
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
-#include <taskr/taskr.hpp>
 
 #include <modules/module.hpp>
 
@@ -50,6 +49,7 @@ class Engine final
   {
     _isRunning.store(false);
     printf("[Instance %lu] Initializing system\n", _instanceId);
+
     for (const auto &[name, module] : _modules)
     {
       printf("[Instance %lu] Initializing module %s\n", _instanceId, name.c_str());
@@ -81,6 +81,12 @@ class Engine final
     while (_isRunning.load() == true)
     {
       if (_rpcEngine->tryListen()) { _rpcEngine->parseAndExecuteRPC(); }
+    }
+
+    for (const auto &[name, module] : _modules)
+    {
+      printf("[Instance %lu] Terminating module %s\n", _instanceId, name.c_str());
+      module->terminate();
     }
 
     for (const auto &[name, module] : _modules)
