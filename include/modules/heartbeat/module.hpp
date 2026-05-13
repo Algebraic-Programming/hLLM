@@ -39,6 +39,18 @@ class Module final : public hLLM::modules::Module
     unhealthy = 2
   };
 
+  inline static std::string health_tToString(health_t state)
+  {
+    switch (state)
+    {
+    case health_t::healthy: return "Healthy";
+    case health_t::unhealthy: return "Unhealthy";
+    case health_t::unknown: return "Unknown";
+    }
+
+    HICR_THROW_LOGIC("Invalid health state %u.", static_cast<unsigned>(state));
+  }
+
   struct healthEvent_t
   {
     instanceId_t                          instanceId;
