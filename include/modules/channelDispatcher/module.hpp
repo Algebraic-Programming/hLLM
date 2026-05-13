@@ -89,6 +89,12 @@ class Module final : public modules::Module
       messageHandler_t handler;
       {
         std::lock_guard<std::mutex> guard(_subscriptionMutex);
+        if (_subscriptionToHandlerMap.contains(key) == false)
+        {
+          printf("[ChannelDispatcher] No handler found for message type %lu. Message will be ignored.\n", messageType);
+          edge->unlock();
+          continue;
+        }
         handler = _subscriptionToHandlerMap.at(key);
       }
       handler(edge, message);
