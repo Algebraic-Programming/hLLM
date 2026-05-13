@@ -11,6 +11,7 @@
 #include <hicr/frontends/RPCEngine/RPCEngine.hpp>
 
 #include <modules/module.hpp>
+#include <system/channels/messageTypeRegistry.hpp>
 
 namespace hLLM::system
 {
@@ -123,6 +124,8 @@ class Engine final
 
   __INLINE__ void createInstance() { _instanceManager->createInstance(); }
 
+  __INLINE__ channels::MessageTypeRegistry &getMessageTypeRegistry() { return _messageTypeRegistry; }
+
   private:
 
   __INLINE__ void start()
@@ -165,5 +168,7 @@ class Engine final
   std::atomic<bool> _isRunning = false;
 
   std::map<std::string, std::shared_ptr<modules::Module>> _modules;
+
+  channels::MessageTypeRegistry _messageTypeRegistry;
 };
 } // namespace hLLM::system

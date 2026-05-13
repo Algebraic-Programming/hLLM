@@ -15,12 +15,11 @@
 #include <modules/channelDispatcher/subscription.hpp>
 #include <system/channels/input.hpp>
 #include <system/channels/message.hpp>
+#include <system/channels/messageTypeRegistry.hpp>
 #include <system/channels/output.hpp>
 
 namespace hLLM::modules::heartbeat
 {
-
-#define __HLLM_HEARTBEAT_MESSAGE_TYPE 128
 
 class Module final : public hLLM::modules::Module
 {
@@ -61,11 +60,17 @@ class Module final : public hLLM::modules::Module
 
   using healthChangeCallback_t = std::function<void(const healthEvent_t &)>;
 
-  Module(const instanceId_t instanceId, const size_t toleranceMs, const healthChangeCallback_t &healthChangeCallback, const size_t intervalMs)
+  Module(const instanceId_t                     instanceId,
+         const size_t                           toleranceMs,
+         const healthChangeCallback_t          &healthChangeCallback,
+         system::channels::MessageTypeRegistry &messageTypeRegistry,
+         const size_t                           intervalMs)
     : hLLM::modules::Module(intervalMs),
       _instanceId(instanceId),
       _toleranceMs(toleranceMs),
-      _healthChangeCallback(healthChangeCallback)
+      _healthChangeCallback(healthChangeCallback),
+      _messageTypeRegistry(messageTypeRegistry),
+      _messageType(_messageTypeRegistry.registerType("modules.heartbeat.heartbeat"))
   {
     if (intervalMs == 0) HICR_THROW_LOGIC("[Heartbeat] interval must be greater than zero.");
     if (_toleranceMs < intervalMs) HICR_THROW_LOGIC("[Heartbeat] tolerance must be >= interval.");
@@ -111,7 +116,7 @@ class Module final : public hLLM::modules::Module
     out.reserve(_inputs.size());
     for (const auto &[instanceId, input] : _inputs)
     {
-      out.emplace_back(__HLLM_HEARTBEAT_MESSAGE_TYPE, input, [this, instanceId](const input_t, const message_t &message) { this->heartbeatMessageHandler(instanceId, message); });
+      out.emplace_back(_messageType, input, [this, instanceId](const input_t, const message_t &message) { this->heartbeatMessageHandler(instanceId, message); });
     }
     return out;
   }
@@ -120,7 +125,7 @@ class Module final : public hLLM::modules::Module
   {
     std::vector<std::pair<messageType_t, input_t>> out;
     out.reserve(_inputs.size());
-    for (const auto &[_, input] : _inputs) out.push_back({__HLLM_HEARTBEAT_MESSAGE_TYPE, input});
+    for (const auto &[_, input] : _inputs) out.push_back({_messageType, input});
     return out;
   }
 
@@ -149,13 +154,12 @@ class Module final : public hLLM::modules::Module
 
   __INLINE__ void emitHealthEvent(const instanceId_t instanceId, const health_t previousHealth, const health_t newHealth, const std::chrono::steady_clock::time_point now)
   {
-    if (previousHealth == newHealth) return;
     _healthChangeCallback(healthEvent_t{.instanceId = instanceId, .previousHealth = previousHealth, .newHealth = newHealth, .timestamp = now});
   }
 
   __INLINE__ void heartbeatMessageHandler(const instanceId_t instanceId, const message_t &message)
   {
-    if (message.getMetadata().type != __HLLM_HEARTBEAT_MESSAGE_TYPE) HICR_THROW_RUNTIME("[Heartbeat] unexpected message type %lu.", message.getMetadata().type);
+    if (message.getMetadata().type != _messageType) HICR_THROW_RUNTIME("[Heartbeat] unexpected message type %lu.", message.getMetadata().type);
     const auto now        = std::chrono::steady_clock::now();
     const auto previous   = _health[instanceId];
     _lastSeen[instanceId] = now;
@@ -185,7 +189,7 @@ class Module final : public hLLM::modules::Module
     for (const auto &[_, output] : _outputs)
     {
       hLLM::system::channels::Message::metadata_t metadata;
-      metadata.type      = __HLLM_HEARTBEAT_MESSAGE_TYPE;
+      metadata.type      = _messageType;
       metadata.groupId   = static_cast<hLLM::system::channels::Message::groupId_t>(_instanceId);
       metadata.messageId = 0;
       const message_t heartbeatMessage(&payload, sizeof(payload), metadata);
@@ -197,6 +201,9 @@ class Module final : public hLLM::modules::Module
   const size_t       _toleranceMs;
 
   const healthChangeCallback_t _healthChangeCallback;
+
+  system::channels::MessageTypeRegistry                     &_messageTypeRegistry;
+  const system::channels::MessageTypeRegistry::messageType_t _messageType;
 
   std::unordered_map<instanceId_t, input_t>                               _inputs;
   std::unordered_map<instanceId_t, output_t>                              _outputs;

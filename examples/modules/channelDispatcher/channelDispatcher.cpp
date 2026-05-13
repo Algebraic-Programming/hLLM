@@ -18,6 +18,7 @@
 #include <modules/channelDispatcher/module.hpp>
 #include <modules/service/module.hpp>
 #include <system/engine.hpp>
+#include <system/channels/messageTypeRegistry.hpp>
 
 #include "channelDispatcher.hpp"
 #include "telephoneGame.hpp"
@@ -105,13 +106,17 @@ int main(int argc, char *argv[])
 
   auto channelDispatcherModule = std::make_unique<hLLM::modules::channelDispatcher::Module>(100);
 
+  // Register message type for the telephone game
+  auto &messageTypeRegistry = hllm.getMessageTypeRegistry();
+  auto  messageType         = messageTypeRegistry.registerType("examples.telephoneGame");
+
   std::atomic<bool> rootDone = false;
   const auto       &input    = inputs[0];
 
   // Add call back for incoming messages of the telephone game type. When a message is received, print it and forward to the next instance.
   // If this is the root instance and it receives a message, it means the message completed the ring and we can terminate.
-  channelDispatcherModule->subscribe(hLLM::modules::channelDispatcher::Subscription(
-    __HLLM_TELEPHONE_GAME_MESSAGE_TYPE, input, [&](const std::shared_ptr<hLLM::system::channels::Input>, const hLLM::system::channels::Message &message) {
+  channelDispatcherModule->subscribe(
+    hLLM::modules::channelDispatcher::Subscription(messageType, input, [&](const std::shared_ptr<hLLM::system::channels::Input>, const hLLM::system::channels::Message &message) {
       const std::string text(reinterpret_cast<const char *>(message.getData()), message.getSize());
       printf("[Instance %lu][Dispatcher] Received: %s\n", instanceId, text.c_str());
 
@@ -123,7 +128,7 @@ int main(int argc, char *argv[])
 
       if (outputs.empty()) HICR_THROW_LOGIC("Non-root instance has no output channel.");
       hLLM::system::channels::Message::metadata_t md;
-      md.type      = __HLLM_TELEPHONE_GAME_MESSAGE_TYPE;
+      md.type      = messageType;
       md.groupId   = message.getMetadata().groupId;
       md.messageId = message.getMetadata().messageId + 1;
       const hLLM::system::channels::Message forwarded(reinterpret_cast<const uint8_t *>(text.data()), text.size(), md);
@@ -151,7 +156,7 @@ int main(int argc, char *argv[])
     const std::string text = "Hello from root instance!";
 
     hLLM::system::channels::Message::metadata_t md;
-    md.type      = __HLLM_TELEPHONE_GAME_MESSAGE_TYPE;
+    md.type      = messageType;
     md.groupId   = static_cast<hLLM::system::channels::Message::groupId_t>(instanceId);
     md.messageId = 0;
 

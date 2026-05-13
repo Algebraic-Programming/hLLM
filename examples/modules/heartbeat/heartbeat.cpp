@@ -19,6 +19,7 @@
 #include <modules/heartbeat/module.hpp>
 #include <modules/service/module.hpp>
 #include <system/engine.hpp>
+#include <system/channels/messageTypeRegistry.hpp>
 
 #include "heartbeat.hpp"
 
@@ -94,16 +95,27 @@ int main(int argc, char *argv[])
   auto                                      channelBootstrapModule = std::make_shared<hLLM::modules::channelBootstrap::Module>(bootstrapInputs, bootstrapOutputs, managerOrder);
 
   auto channelDispatcherModule = std::make_shared<hLLM::modules::channelDispatcher::Module>(100);
-  auto heartbeatModule         = std::make_shared<hLLM::modules::heartbeat::Module>(
+
+  auto &messageTypeRegistry = hllm.getMessageTypeRegistry();
+  auto  heartbeatModule     = std::make_shared<hLLM::modules::heartbeat::Module>(
     instanceId,
     1000,
     [&](const hLLM::modules::heartbeat::Module::healthEvent_t &event) {
-      printf("[Instance %lu][Heartbeat] Peer %lu health %s -> %s\n",
-             instanceId,
-             event.instanceId,
-             hLLM::modules::heartbeat::Module::health_tToString(event.previousHealth).c_str(),
-             hLLM::modules::heartbeat::Module::health_tToString(event.newHealth).c_str());
+      if (event.previousHealth != event.newHealth)
+      {
+        printf("[Instance %lu][Heartbeat] Peer %lu health %s -> %s\n",
+               instanceId,
+               event.instanceId,
+               hLLM::modules::heartbeat::Module::health_tToString(event.previousHealth).c_str(),
+               hLLM::modules::heartbeat::Module::health_tToString(event.newHealth).c_str());
+      }
+      else
+      {
+        printf(
+          "[Instance %lu][Heartbeat] Peer %lu health %s (no change)\n", instanceId, event.instanceId, hLLM::modules::heartbeat::Module::health_tToString(event.newHealth).c_str());
+      }
     },
+    messageTypeRegistry,
     500);
 
   // Keep real remote instance IDs

@@ -10,8 +10,6 @@
 #include <system/channels/input.hpp>
 #include <system/channels/output.hpp>
 
-#define __HLLM_TELEPHONE_GAME_MESSAGE_TYPE 42
-
 __INLINE__ void telephoneGame(std::vector<std::shared_ptr<hLLM::system::channels::Input>>  &inputs,
                               std::vector<std::shared_ptr<hLLM::system::channels::Output>> &outputs,
                               const HiCR::Instance::instanceId_t                            instanceId,

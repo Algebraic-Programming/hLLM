@@ -14,6 +14,7 @@
 
 #include <system/channels/input.hpp>
 #include <system/channels/message.hpp>
+#include <system/channels/messageTypeRegistry.hpp>
 
 #include "subscription.hpp"
 
@@ -24,8 +25,9 @@ class Module final : public modules::Module
 {
   public:
 
-  Module(const size_t intervalMs)
-    : modules::Module(intervalMs)
+  Module(system::channels::MessageTypeRegistry &messageTypeRegistry, const size_t intervalMs)
+    : modules::Module(intervalMs),
+      _messageTypeRegistry(messageTypeRegistry)
   {}
 
   ~Module() override = default;
@@ -119,6 +121,8 @@ class Module final : public modules::Module
   void service() override { poll(); }
 
   private:
+
+  system::channels::MessageTypeRegistry &_messageTypeRegistry;
 
   std::mutex                                                                                       _subscriptionMutex;
   std::set<std::shared_ptr<channels::Input>>                                                       _subscribedEdges;
