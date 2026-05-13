@@ -93,10 +93,10 @@ int main(int argc, char *argv[])
 
   // Bootstrap module
   std::vector<HiCR::CommunicationManager *> managerOrder           = {communicationManager.get()};
-  auto                                      channelBootstrapModule = std::make_unique<hLLM::modules::channelBootstrap::Module>(inputs, outputs, managerOrder);
+  auto                                      channelBootstrapModule = std::make_shared<hLLM::modules::channelBootstrap::Module>(inputs, outputs, managerOrder);
 
   // Adding channel bootstrap module to hLLM
-  hllm.addModule("ChannelBootstrap", std::move(channelBootstrapModule));
+  hllm.addModule("ChannelBootstrap", channelBootstrapModule);
 
   // Initializing hLLM
   hllm.initialize();

@@ -31,19 +31,17 @@ int main(int argc, char *argv[])
   // Gathering topology from the topology manager
   const auto topology = hwlocTopologyManager.queryTopology();
 
-  // Selecting first device
-  auto d = *topology.getDevices().begin();
+  auto d                  = *topology.getDevices().begin();
+  auto memSpaces          = d->getMemorySpaceList();
+  auto bufferMemorySpace  = *memSpaces.begin();
+  auto computeResourcesIt = d->getComputeResourceList().begin();
 
-  // Getting memory space list from device
-  auto memSpaces = d->getMemorySpaceList();
-
-  // Grabbing first memory space for buffering
-  auto bufferMemorySpace = *memSpaces.begin();
-
-  // Now getting compute resource list from device
-  auto computeResources = d->getComputeResourceList();
-
-  // Grabbing first compute resource for computing incoming RPCs
+  // Use only 2 cores
+  std::vector<std::shared_ptr<HiCR::ComputeResource>> computeResources;
+  computeResources.push_back(*computeResourcesIt);
+  computeResourcesIt++;
+  computeResources.push_back(*computeResourcesIt);
+  computeResourcesIt++;
   auto computeResource = *computeResources.begin();
 
   // Getting managers

@@ -85,17 +85,17 @@ int main(int argc, char *argv[])
     readAndParseConfiguration(argv, deployment, instanceManager);
   }
 
-  std::unique_ptr<hLLM::modules::broadcastDeployment::Module> broadcastDeploymentModule;
+  std::shared_ptr<hLLM::modules::broadcastDeployment::Module> broadcastDeploymentModule;
   if (instanceId == deployerInstanceId)
   {
     broadcastDeploymentModule =
-      std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment);
+      std::make_shared<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId, deployment);
   }
-  else { broadcastDeploymentModule = std::make_unique<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId); }
+  else { broadcastDeploymentModule = std::make_shared<hLLM::modules::broadcastDeployment::Module>(instanceManager, taskComputeManager, rpcEngine, deployerInstanceId, instanceId); }
 
   const auto &receivedDeployment = broadcastDeploymentModule->getDeployment();
   // Adding broadcast deployment module to hLLM
-  hllm.addModule("BroadcastDeployment", std::move(broadcastDeploymentModule));
+  hllm.addModule("BroadcastDeployment", broadcastDeploymentModule);
 
   // Initializing hLLM
   hllm.initialize();

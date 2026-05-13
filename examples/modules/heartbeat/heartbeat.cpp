@@ -30,11 +30,18 @@ int main(int argc, char *argv[])
   HiCR::backend::hwloc::TopologyManager hwlocTopologyManager(&hwlocTopologyObject);
   const auto                            topology = hwlocTopologyManager.queryTopology();
 
-  auto d                 = *topology.getDevices().begin();
-  auto memSpaces         = d->getMemorySpaceList();
-  auto bufferMemorySpace = *memSpaces.begin();
-  auto computeResources  = d->getComputeResourceList();
-  auto computeResource   = *computeResources.begin();
+  auto d                  = *topology.getDevices().begin();
+  auto memSpaces          = d->getMemorySpaceList();
+  auto bufferMemorySpace  = *memSpaces.begin();
+  auto computeResourcesIt = d->getComputeResourceList().begin();
+
+  // Use only 2 cores
+  std::vector<std::shared_ptr<HiCR::ComputeResource>> computeResources;
+  computeResources.push_back(*computeResourcesIt);
+  computeResourcesIt++;
+  computeResources.push_back(*computeResourcesIt);
+  computeResourcesIt++;
+  auto computeResource = *computeResources.begin();
 
   auto instanceManager      = std::shared_ptr<HiCR::InstanceManager>(HiCR::backend::mpi::InstanceManager::createDefault(&argc, &argv));
   auto communicationManager = std::make_shared<HiCR::backend::mpi::CommunicationManager>();
@@ -84,15 +91,18 @@ int main(int argc, char *argv[])
   for (const auto &out : localOutputs) bootstrapOutputs.push_back(out.channel);
 
   std::vector<HiCR::CommunicationManager *> managerOrder           = {communicationManager.get()};
-  auto                                      channelBootstrapModule = std::make_unique<hLLM::modules::channelBootstrap::Module>(bootstrapInputs, bootstrapOutputs, managerOrder);
+  auto                                      channelBootstrapModule = std::make_shared<hLLM::modules::channelBootstrap::Module>(bootstrapInputs, bootstrapOutputs, managerOrder);
 
-  auto channelDispatcherModule = std::make_unique<hLLM::modules::channelDispatcher::Module>(100);
-  auto heartbeatModule         = std::make_unique<hLLM::modules::heartbeat::Module>(
+  auto channelDispatcherModule = std::make_shared<hLLM::modules::channelDispatcher::Module>(100);
+  auto heartbeatModule         = std::make_shared<hLLM::modules::heartbeat::Module>(
     instanceId,
     1000,
     [&](const hLLM::modules::heartbeat::Module::healthEvent_t &event) {
-      printf(
-        "[Instance %lu][Heartbeat] Peer %lu health %u -> %u\n", instanceId, event.instanceId, static_cast<unsigned>(event.previousHealth), static_cast<unsigned>(event.newHealth));
+      printf("[Instance %lu][Heartbeat] Peer %lu health %s -> %s\n",
+             instanceId,
+             event.instanceId,
+             hLLM::modules::heartbeat::Module::health_tToString(event.previousHealth).c_str(),
+             hLLM::modules::heartbeat::Module::health_tToString(event.newHealth).c_str());
     },
     500);
 
@@ -101,25 +111,25 @@ int main(int argc, char *argv[])
   for (const auto &out : localOutputs) heartbeatModule->addOutput(out.targetInstanceId, out.channel);
   for (auto &subscription : heartbeatModule->buildSubscriptions()) channelDispatcherModule->subscribe(subscription);
 
-  auto serviceModule = std::make_unique<hLLM::modules::service::Module>(taskr);
+  auto serviceModule = std::make_shared<hLLM::modules::service::Module>(taskr);
 
   serviceModule->addService("ChannelDispatcher", channelDispatcherModule->getService());
   serviceModule->addService("Heartbeat", heartbeatModule->getService());
 
-  hllm.addModule("ChannelBootstrap", std::move(channelBootstrapModule));
-  hllm.addModule("ChannelDispatcher", std::move(channelDispatcherModule));
-  hllm.addModule("Heartbeat", std::move(heartbeatModule));
-  hllm.addModule("Service", std::move(serviceModule));
+  hllm.addModule("ChannelBootstrap", channelBootstrapModule);
+  hllm.addModule("ChannelDispatcher", channelDispatcherModule);
+  hllm.addModule("Heartbeat", heartbeatModule);
+  hllm.addModule("Service", serviceModule);
 
   hllm.initialize();
 
   hllm.run();
 
-  if (isRoot)
-  {
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-    hllm.terminate();
-  }
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+
+  for (const auto &[messageType, input] : heartbeatModule->buildUnsubscriptions()) { channelDispatcherModule->unsubscribe(messageType, input); }
+
+  if (isRoot) { hllm.terminate(); }
 
   hllm.await();
 

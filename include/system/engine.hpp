@@ -38,11 +38,11 @@ class Engine final
 
   ~Engine() = default;
 
-  __INLINE__ void addModule(const std::string &name, std::unique_ptr<modules::Module> module)
+  __INLINE__ void addModule(const std::string &name, std::shared_ptr<modules::Module> module)
   {
     if (module == nullptr) HICR_THROW_LOGIC("Trying to add a null module.");
     if (_modules.contains(name)) HICR_THROW_LOGIC("Trying to add a module with a name that already exists in the system.");
-    _modules[name] = std::move(module);
+    _modules[name] = module;
   }
 
   __INLINE__ void initialize()
@@ -164,6 +164,6 @@ class Engine final
 
   std::atomic<bool> _isRunning = false;
 
-  std::map<std::string, std::unique_ptr<modules::Module>> _modules;
+  std::map<std::string, std::shared_ptr<modules::Module>> _modules;
 };
 } // namespace hLLM::system
