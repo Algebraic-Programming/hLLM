@@ -17,7 +17,7 @@ class MessageTypeRegistry
 {
   public:
 
-  using messageType_t = hLLM::system::channels::Message::messageType_t;
+  using messageType_t = system::channels::Message::messageType_t;
 
   MessageTypeRegistry()  = default;
   ~MessageTypeRegistry() = default;
@@ -54,15 +54,15 @@ class MessageTypeRegistry
 
   __INLINE__ static messageType_t fnv1a(const std::string_view str)
   {
-    constexpr messageType_t offsetBasis = 0xcbf29ce484222325ull;
-    constexpr messageType_t prime       = 0x100000001b3ull;
-    messageType_t           hash        = offsetBasis;
+    constexpr uint64_t offsetBasis = 0xcbf29ce484222325ull;
+    constexpr uint64_t prime       = 0x100000001b3ull;
+    uint64_t           hash        = offsetBasis;
     for (const unsigned char c : str)
     {
-      hash ^= static_cast<messageType_t>(c);
+      hash ^= static_cast<uint64_t>(c);
       hash *= prime;
     }
-    return hash;
+    return static_cast<messageType_t>(hash & Message::MAX_TYPE); // Ensure the hash fits within the allowed bits for message type
   }
 
   std::unordered_map<std::string, messageType_t> _nameToType;

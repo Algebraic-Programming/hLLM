@@ -72,7 +72,6 @@ class Module final : public hLLM::modules::Module
       _messageTypeRegistry(messageTypeRegistry),
       _messageType(_messageTypeRegistry.registerType("modules.heartbeat.heartbeat"))
   {
-    if (intervalMs == 0) HICR_THROW_LOGIC("[Heartbeat] interval must be greater than zero.");
     if (_toleranceMs < intervalMs) HICR_THROW_LOGIC("[Heartbeat] tolerance must be >= interval.");
     if (_healthChangeCallback == nullptr) HICR_THROW_LOGIC("[Heartbeat] health callback cannot be null.");
   }
@@ -189,9 +188,9 @@ class Module final : public hLLM::modules::Module
     for (const auto &[_, output] : _outputs)
     {
       hLLM::system::channels::Message::metadata_t metadata;
-      metadata.type      = _messageType;
-      metadata.groupId   = static_cast<hLLM::system::channels::Message::groupId_t>(_instanceId);
-      metadata.messageId = 0;
+      metadata.type       = _messageType;
+      metadata.groupId    = static_cast<hLLM::system::channels::Message::groupId_t>(_instanceId);
+      metadata.sequenceId = 0;
       const message_t heartbeatMessage(&payload, sizeof(payload), metadata);
       output->pushMessageLocking(heartbeatMessage);
     }
