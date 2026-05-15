@@ -11,9 +11,10 @@ class Module
 
   Module() = default;
 
-  Module(const size_t interval)
+  Module(const size_t intervalMs)
   {
-    _service = std::make_unique<taskr::Service>([&]() { service(); }, interval);
+    if (intervalMs == 0) HICR_THROW_LOGIC("[Coordinator] interval must be greater than zero.");
+    _service = std::make_unique<taskr::Service>([&]() { service(); }, intervalMs);
   }
 
   virtual ~Module() = default;

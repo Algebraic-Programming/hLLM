@@ -14,7 +14,6 @@
 
 #include <system/channels/input.hpp>
 #include <system/channels/message.hpp>
-#include <system/channels/messageTypeRegistry.hpp>
 
 #include "subscription.hpp"
 
@@ -25,9 +24,8 @@ class Module final : public modules::Module
 {
   public:
 
-  Module(system::channels::MessageTypeRegistry &messageTypeRegistry, const size_t intervalMs)
-    : modules::Module(intervalMs),
-      _messageTypeRegistry(messageTypeRegistry)
+  Module(const size_t intervalMs)
+    : modules::Module(intervalMs)
   {}
 
   ~Module() override = default;
@@ -93,7 +91,7 @@ class Module final : public modules::Module
         std::lock_guard<std::mutex> guard(_subscriptionMutex);
         if (_subscriptionToHandlerMap.contains(key) == false)
         {
-          printf("[ChannelDispatcher] No handler found for message type %lu. Message will be ignored.\n", messageType);
+          printf("[ChannelDispatcher] No handler found for message type %u. Message will be ignored.\n", messageType);
           edge->unlock();
           continue;
         }
@@ -121,8 +119,6 @@ class Module final : public modules::Module
   void service() override { poll(); }
 
   private:
-
-  system::channels::MessageTypeRegistry &_messageTypeRegistry;
 
   std::mutex                                                                                       _subscriptionMutex;
   std::set<std::shared_ptr<channels::Input>>                                                       _subscribedEdges;

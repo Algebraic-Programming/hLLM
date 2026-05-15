@@ -38,10 +38,11 @@ int main(int argc, char *argv[])
 
   // Use only 2 cores
   std::vector<std::shared_ptr<HiCR::ComputeResource>> computeResources;
-  computeResources.push_back(*computeResourcesIt);
-  computeResourcesIt++;
-  computeResources.push_back(*computeResourcesIt);
-  computeResourcesIt++;
+  for (int i = 0; i < 2; i++)
+  {
+    computeResources.push_back(*computeResourcesIt);
+    computeResourcesIt++;
+  }
   auto computeResource = *computeResources.begin();
 
   // Getting managers

@@ -43,10 +43,11 @@ int main(int argc, char *argv[])
 
   // Use only 2 cores
   std::vector<std::shared_ptr<HiCR::ComputeResource>> computeResources;
-  computeResources.push_back(*computeResourcesIt);
-  computeResourcesIt++;
-  computeResources.push_back(*computeResourcesIt);
-  computeResourcesIt++;
+  for (int i = 0; i < 2; i++)
+  {
+    computeResources.push_back(*computeResourcesIt);
+    computeResourcesIt++;
+  }
   auto computeResource = *computeResources.begin();
 
   // Getting managers
@@ -128,9 +129,9 @@ int main(int argc, char *argv[])
 
       if (outputs.empty()) HICR_THROW_LOGIC("Non-root instance has no output channel.");
       hLLM::system::channels::Message::metadata_t md;
-      md.type      = messageType;
-      md.groupId   = message.getMetadata().groupId;
-      md.messageId = message.getMetadata().messageId + 1;
+      md.type       = messageType;
+      md.groupId    = message.getMetadata().groupId;
+      md.sequenceId = message.getMetadata().sequenceId + 1;
       const hLLM::system::channels::Message forwarded(reinterpret_cast<const uint8_t *>(text.data()), text.size(), md);
       outputs[0]->pushMessageLocking(forwarded);
     }));
@@ -156,9 +157,9 @@ int main(int argc, char *argv[])
     const std::string text = "Hello from root instance!";
 
     hLLM::system::channels::Message::metadata_t md;
-    md.type      = messageType;
-    md.groupId   = static_cast<hLLM::system::channels::Message::groupId_t>(instanceId);
-    md.messageId = 0;
+    md.type       = messageType;
+    md.groupId    = static_cast<hLLM::system::channels::Message::groupId_t>(instanceId);
+    md.sequenceId = 0;
 
     const hLLM::system::channels::Message message(reinterpret_cast<const uint8_t *>(text.data()), text.size(), md);
     printf("[Instance %lu][Dispatcher] Sending message: %s\n", instanceId, text.c_str());
