@@ -24,7 +24,8 @@ class Output final : public Base
          const HiCR::Instance::instanceId_t sourceIndex,
          const HiCR::Instance::instanceId_t targetIndex,
          const keyBuilderFc_t              &keyBuilder)
-    : Base(buildChannelConfig(edgeConfig), buildSlotKeys(channelIndex, sourceIndex, targetIndex, keyBuilder))
+    : Base(buildChannelConfig(edgeConfig), buildSlotKeys(channelIndex, sourceIndex, targetIndex, keyBuilder)),
+      _targetInstance(targetIndex)
   {
     const auto &cfg                    = _config;
     _dataChannelProducerSizeInfoBuffer = cfg.coordinationMemoryManager->allocateLocalMemorySlot(cfg.coordinationMemorySpace, sizeof(size_t));
@@ -87,6 +88,8 @@ class Output final : public Base
     cfg.coordinationMemoryManager->deregisterLocalMemorySlot(metadataSlot);
   }
 
+  __INLINE__ const HiCR::Instance::instanceId_t getTargetInstance() const { return _targetInstance; }
+
   private:
 
   __INLINE__ void createChannels() override
@@ -114,6 +117,8 @@ class Output final : public Base
                                                                                   sizeof(Message::metadata_t),
                                                                                   cfg.bufferCapacity);
   }
+
+  const HiCR::Instance::instanceId_t                           _targetInstance;
   std::shared_ptr<HiCR::LocalMemorySlot>                       _dataChannelProducerSizeInfoBuffer;
   std::shared_ptr<HiCR::channel::variableSize::SPSC::Producer> _dataChannel;
   std::shared_ptr<HiCR::channel::fixedSize::SPSC::Producer>    _metadataChannel;

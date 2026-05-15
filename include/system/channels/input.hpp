@@ -23,7 +23,8 @@ class Input final : public Base
         const HiCR::Instance::instanceId_t sourceIndex,
         const HiCR::Instance::instanceId_t targetIndex,
         const keyBuilderFc_t              &keyBuilder)
-    : Base(buildChannelConfig(edgeConfig), buildSlotKeys(channelIndex, sourceIndex, targetIndex, keyBuilder))
+    : Base(buildChannelConfig(edgeConfig), buildSlotKeys(channelIndex, sourceIndex, targetIndex, keyBuilder)),
+      _sourceInstance(sourceIndex)
   {
     const auto &cfg = _config;
     // Allocating additional local buffers required for the consumer data channel
@@ -101,6 +102,8 @@ class Input final : public Base
     _metadataChannel->pop();
   }
 
+  __INLINE__ const HiCR::Instance::instanceId_t &getSourceInstance() const { return _sourceInstance; }
+
   private:
 
   __INLINE__ void createChannels() override
@@ -126,6 +129,8 @@ class Input final : public Base
                                                                                   sizeof(Message::metadata_t),
                                                                                   cfg.bufferCapacity);
   }
+
+  const HiCR::Instance::instanceId_t                           _sourceInstance;
   std::shared_ptr<HiCR::LocalMemorySlot>                       _dataChannelSizesBuffer;
   std::shared_ptr<HiCR::LocalMemorySlot>                       _dataChannelPayloadBuffer;
   std::shared_ptr<HiCR::LocalMemorySlot>                       _metadataChannelPayloadBuffer;
